@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "425226080221",
+    "project_id": "padelx-f168f",
+    "storage_bucket": "padelx-f168f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:425226080221:android:18a154ee4dd5810e8b3034",
+        "android_client_info": {
+          "package_name": "com.example.padelx"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAT3cbKJWDYYucFxpFsBcIl3FovWPf4nCw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

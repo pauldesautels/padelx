@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-void main() {
+import 'firebase_options.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
   runApp(const PadelXApp());
 }
 
@@ -28,23 +37,282 @@ class PadelXApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const HomeScreen(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasData) {
+          return const HomeScreen();
+        }
+
+        return const AuthScreen();
+      },
+    );
+  }
+}
+
+class AuthScreen extends StatefulWidget {
+  const AuthScreen({super.key});
+
+  @override
+  State<AuthScreen> createState() => _AuthScreenState();
+}
+
+class _AuthScreenState extends State<AuthScreen> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  bool _isLogin = true;
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
+      _showMessage('Please enter your email and password.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      if (_isLogin) {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      } else {
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      }
+    } on FirebaseAuthException catch (error) {
+      String message;
+
+      switch (error.code) {
+        case 'invalid-email':
+          message = 'Please enter a valid email address.';
+          break;
+        case 'user-not-found':
+          message = 'No account was found with that email.';
+          break;
+        case 'wrong-password':
+        case 'invalid-credential':
+          message = 'Incorrect email or password.';
+          break;
+        case 'email-already-in-use':
+          message = 'An account already exists with that email.';
+          break;
+        case 'weak-password':
+          message = 'Your password must be at least 6 characters.';
+          break;
+        case 'too-many-requests':
+          message = 'Too many attempts. Please try again later.';
+          break;
+        default:
+          message = error.message ?? 'Authentication failed.';
+      }
+
+      _showMessage(message);
+    } catch (_) {
+      _showMessage('Something went wrong. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _switchMode() {
+    setState(() {
+      _isLogin = !_isLogin;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'PadelX',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Find matches. Fill spots. Play more padel.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, color: Colors.white70),
+                ),
+                const SizedBox(height: 32),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          _isLogin ? 'Welcome back' : 'Create your account',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _isLogin
+                              ? 'Log in to continue to PadelX.'
+                              : 'Create an account to start playing.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                        const SizedBox(height: 24),
+                        TextField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          autocorrect: false,
+                          decoration: const InputDecoration(
+                            labelText: 'Email',
+                            prefixIcon: Icon(Icons.email_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          onSubmitted: (_) {
+                            if (!_isLoading) {
+                              _submit();
+                            }
+                          },
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          height: 52,
+                          child: FilledButton(
+                            onPressed: _isLoading ? null : _submit,
+                            child: _isLoading
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Text(_isLogin ? 'Log In' : 'Create Account'),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: _isLoading ? null : _switchMode,
+                          child: Text(
+                            _isLogin
+                                ? 'New to PadelX? Create an account'
+                                : 'Already have an account? Log in',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
 class Match {
+  final String id;
   final String title;
   final String club;
   final String level;
   final String spotsLeft;
 
   const Match({
+    required this.id,
     required this.title,
     required this.club,
     required this.level,
     required this.spotsLeft,
   });
+
+  factory Match.fromDocument(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+
+    return Match(
+      id: doc.id,
+      title: data['title']?.toString() ?? '',
+      club: data['club']?.toString() ?? '',
+      level: data['level']?.toString() ?? '',
+      spotsLeft: data['spotsLeft']?.toString() ?? '',
+    );
+  }
 }
 
 class HomeScreen extends StatefulWidget {
@@ -57,85 +325,88 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  final List<Match> _matches = [
-    const Match(
-      title: 'Today · 7:00 PM',
-      club: 'Club Padel MX',
-      level: 'Level 3–4',
-      spotsLeft: '1 spot left',
-    ),
-    const Match(
-      title: 'Tomorrow · 8:30 AM',
-      club: 'Padel Center',
-      level: 'Level 2–3',
-      spotsLeft: '2 spots left',
-    ),
-  ];
-
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
     });
   }
 
-  void _addMatch(Match match) {
-    setState(() {
-      _matches.add(match);
-      _selectedIndex = 1;
-    });
-  }
-
   void _openCreateMatchScreen() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => CreateMatchScreen(onMatchCreated: _addMatch),
-      ),
+      MaterialPageRoute(builder: (context) => const CreateMatchScreen()),
     );
+  }
+
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
   }
 
   @override
   Widget build(BuildContext context) {
-    final screens = [
-      HomeTab(
-        onCreateMatch: _openCreateMatchScreen,
-        openMatchesCount: _matches.length,
-      ),
-      MatchesTab(matches: _matches),
-      const ProfileTab(),
-    ];
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('matches')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final matches = snapshot.hasData
+            ? snapshot.data!.docs.map((doc) => Match.fromDocument(doc)).toList()
+            : <Match>[];
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'PadelX',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        backgroundColor: const Color(0xFF0F1412),
-        elevation: 0,
-      ),
-      body: screens[_selectedIndex],
-      floatingActionButton: _selectedIndex == 1
-          ? FloatingActionButton.extended(
-              onPressed: _openCreateMatchScreen,
-              icon: const Icon(Icons.add),
-              label: const Text('Create'),
-            )
-          : null,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: _onItemTapped,
-        backgroundColor: const Color(0xFF121A16),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(
-            icon: Icon(Icons.sports_tennis),
-            label: 'Matches',
+        final screens = [
+          HomeTab(
+            onCreateMatch: _openCreateMatchScreen,
+            openMatchesCount: matches.length,
           ),
-          NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
-        ],
-      ),
+          MatchesTab(
+            matches: matches,
+            isLoading: snapshot.connectionState == ConnectionState.waiting,
+            error: snapshot.hasError,
+          ),
+          const ProfileTab(),
+        ];
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text(
+              'PadelX',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            centerTitle: true,
+            backgroundColor: const Color(0xFF0F1412),
+            elevation: 0,
+            actions: [
+              IconButton(
+                tooltip: 'Log out',
+                onPressed: _logout,
+                icon: const Icon(Icons.logout),
+              ),
+            ],
+          ),
+          body: screens[_selectedIndex],
+          floatingActionButton: _selectedIndex == 1
+              ? FloatingActionButton.extended(
+                  onPressed: _openCreateMatchScreen,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create'),
+                )
+              : null,
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: _onItemTapped,
+            backgroundColor: const Color(0xFF121A16),
+            destinations: const [
+              NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+              NavigationDestination(
+                icon: Icon(Icons.sports_tennis),
+                label: 'Matches',
+              ),
+              NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -159,10 +430,7 @@ class HomeTab extends StatelessWidget {
           padding: const EdgeInsets.all(22),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [
-                Color(0xFF1F7A4D),
-                Color(0xFF194A37),
-              ],
+              colors: [Color(0xFF1F7A4D), Color(0xFF194A37)],
             ),
             borderRadius: BorderRadius.circular(24),
           ),
@@ -210,9 +478,7 @@ class HomeTab extends StatelessWidget {
           child: ListTile(
             onTap: onCreateMatch,
             contentPadding: const EdgeInsets.all(16),
-            leading: const CircleAvatar(
-              child: Icon(Icons.add),
-            ),
+            leading: const CircleAvatar(child: Icon(Icons.add)),
             title: const Text(
               'Create a match',
               style: TextStyle(fontWeight: FontWeight.bold),
@@ -225,9 +491,7 @@ class HomeTab extends StatelessWidget {
         const Card(
           child: ListTile(
             contentPadding: EdgeInsets.all(16),
-            leading: CircleAvatar(
-              child: Icon(Icons.search),
-            ),
+            leading: CircleAvatar(child: Icon(Icons.search)),
             title: Text(
               'Find open matches',
               style: TextStyle(fontWeight: FontWeight.bold),
@@ -242,14 +506,26 @@ class HomeTab extends StatelessWidget {
 
 class MatchesTab extends StatelessWidget {
   final List<Match> matches;
+  final bool isLoading;
+  final bool error;
 
   const MatchesTab({
     super.key,
     required this.matches,
+    required this.isLoading,
+    required this.error,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (error) {
+      return const Center(child: Text('Could not load matches.'));
+    }
+
     if (matches.isEmpty) {
       return const Center(child: Text('No open matches yet'));
     }
@@ -276,10 +552,7 @@ class MatchesTab extends StatelessWidget {
 class MatchCard extends StatelessWidget {
   final Match match;
 
-  const MatchCard({
-    super.key,
-    required this.match,
-  });
+  const MatchCard({super.key, required this.match});
 
   @override
   Widget build(BuildContext context) {
@@ -302,9 +575,7 @@ class MatchCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const CircleAvatar(
-                    child: Icon(Icons.sports_tennis),
-                  ),
+                  const CircleAvatar(child: Icon(Icons.sports_tennis)),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
@@ -342,19 +613,40 @@ class ProfileTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text('Profile 👤', style: TextStyle(fontSize: 24)),
+    final user = FirebaseAuth.instance.currentUser;
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const SizedBox(height: 24),
+        const CircleAvatar(radius: 44, child: Icon(Icons.person, size: 44)),
+        const SizedBox(height: 20),
+        const Text(
+          'Your Profile',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          user?.email ?? 'No email',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        const SizedBox(height: 24),
+        const Card(
+          child: ListTile(
+            leading: Icon(Icons.trending_up),
+            title: Text('Level'),
+            subtitle: Text('3.5'),
+          ),
+        ),
+      ],
     );
   }
 }
 
 class CreateMatchScreen extends StatefulWidget {
-  final void Function(Match match) onMatchCreated;
-
-  const CreateMatchScreen({
-    super.key,
-    required this.onMatchCreated,
-  });
+  const CreateMatchScreen({super.key});
 
   @override
   State<CreateMatchScreen> createState() => _CreateMatchScreenState();
@@ -388,15 +680,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       return;
     }
 
-    final newMatch = Match(
-      title: dateTime,
-      club: club,
-      level: level,
-      spotsLeft: spots,
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Firestore match creation is the next step.'),
+      ),
     );
-
-    widget.onMatchCreated(newMatch);
-    Navigator.pop(context);
   }
 
   @override
@@ -476,10 +764,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
 class MatchDetailsScreen extends StatelessWidget {
   final Match match;
 
-  const MatchDetailsScreen({
-    super.key,
-    required this.match,
-  });
+  const MatchDetailsScreen({super.key, required this.match});
 
   @override
   Widget build(BuildContext context) {
@@ -571,10 +856,7 @@ class _InfoChip extends StatelessWidget {
   final String text;
   final IconData icon;
 
-  const _InfoChip({
-    required this.text,
-    required this.icon,
-  });
+  const _InfoChip({required this.text, required this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -590,18 +872,17 @@ class _PlayerTile extends StatelessWidget {
   final String name;
   final String subtitle;
 
-  const _PlayerTile({
-    required this.name,
-    required this.subtitle,
-  });
+  const _PlayerTile({required this.name, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
+    final firstLetter = name.isNotEmpty
+        ? name.substring(0, 1).toUpperCase()
+        : '?';
+
     return Card(
       child: ListTile(
-        leading: CircleAvatar(
-          child: Text(name.substring(0, 1)),
-        ),
+        leading: CircleAvatar(child: Text(firstLetter)),
         title: Text(name),
         subtitle: Text(subtitle),
       ),
