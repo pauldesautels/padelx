@@ -293,6 +293,7 @@ class Match {
   final String club;
   final String level;
   final int spotsLeft;
+  final String creatorUid;
   final String creatorEmail;
   final List<MatchPlayer> players;
 
@@ -302,6 +303,7 @@ class Match {
     required this.club,
     required this.level,
     required this.spotsLeft,
+    required this.creatorUid,
     required this.creatorEmail,
     required this.players,
   });
@@ -318,6 +320,7 @@ class Match {
       club: data['club']?.toString() ?? '',
       level: data['level']?.toString() ?? '',
       spotsLeft: _parseSpotsLeft(data['spotsLeft']),
+      creatorUid: data['creatorUid']?.toString() ?? '',
       creatorEmail: data['creatorEmail']?.toString() ?? '',
       players: (data['players'] as List<dynamic>? ?? const [])
           .whereType<Map>()
@@ -867,6 +870,8 @@ class MatchDetailsScreen extends StatefulWidget {
 
 class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   bool _isJoining = false;
+  bool _isLeaving = false;
+  bool _isCancelling = false;
 
   Future<void> _joinMatch() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -889,6 +894,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         }
 
         final data = snapshot.data() ?? <String, dynamic>{};
+        if (data['creatorUid']?.toString() == user.uid) {
+          throw const MatchActionException(
+            'The organizer cannot join their own match.',
+          );
+        }
         final players = List<dynamic>.from(
           data['players'] as List? ?? const [],
         );
@@ -924,6 +934,130 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
     }
   }
 
+  Future<void> _leaveMatch() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _showMessage('Please log in to leave a match.');
+      return;
+    }
+
+    setState(() => _isLeaving = true);
+
+    try {
+      final matchRef = FirebaseFirestore.instance
+          .collection('matches')
+          .doc(widget.match.id);
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(matchRef);
+        if (!snapshot.exists) {
+          throw const MatchActionException('This match no longer exists.');
+        }
+
+        final data = snapshot.data() ?? <String, dynamic>{};
+        if (data['creatorUid']?.toString() == user.uid) {
+          throw const MatchActionException(
+            'The organizer cannot leave their own match.',
+          );
+        }
+
+        final players = List<dynamic>.from(
+          data['players'] as List? ?? const [],
+        );
+        final playerIndex = players.indexWhere(
+          (player) => player is Map && player['uid']?.toString() == user.uid,
+        );
+
+        if (playerIndex == -1) {
+          throw const MatchActionException('You have not joined this match.');
+        }
+
+        players.removeAt(playerIndex);
+        final spotsLeft = _parseSpotsLeft(data['spotsLeft']);
+        transaction.update(matchRef, {
+          'players': players,
+          'spotsLeft': spotsLeft + 1,
+        });
+      });
+
+      _showMessage('You left the match.');
+    } on MatchActionException catch (error) {
+      _showMessage(error.message);
+    } on FirebaseException catch (error) {
+      _showMessage(error.message ?? 'Could not leave the match.');
+    } catch (_) {
+      _showMessage('Could not leave the match. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLeaving = false);
+    }
+  }
+
+  Future<void> _cancelMatch() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _showMessage('Please log in to cancel a match.');
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel match?'),
+        content: const Text(
+          'This will remove the match for everyone and cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep Match'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Cancel Match'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    setState(() => _isCancelling = true);
+
+    try {
+      final matchRef = FirebaseFirestore.instance
+          .collection('matches')
+          .doc(widget.match.id);
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(matchRef);
+        if (!snapshot.exists) {
+          throw const MatchActionException('This match no longer exists.');
+        }
+
+        final creatorUid = snapshot.data()?['creatorUid']?.toString() ?? '';
+        if (creatorUid != user.uid) {
+          throw const MatchActionException(
+            'Only the organizer can cancel this match.',
+          );
+        }
+
+        transaction.delete(matchRef);
+      });
+
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.pop(context);
+      messenger.showSnackBar(const SnackBar(content: Text('Match cancelled.')));
+    } on MatchActionException catch (error) {
+      _showMessage(error.message);
+    } on FirebaseException catch (error) {
+      _showMessage(error.message ?? 'Could not cancel the match.');
+    } catch (_) {
+      _showMessage('Could not cancel the match. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isCancelling = false);
+    }
+  }
+
   void _showMessage(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(
@@ -946,6 +1080,9 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         final hasJoined = match.players.any(
           (player) => player.uid == currentUid,
         );
+        final isOrganizer =
+            currentUid != null && match.creatorUid == currentUid;
+        final isBusy = _isJoining || _isLeaving || _isCancelling;
 
         return Scaffold(
           appBar: AppBar(
@@ -982,37 +1119,72 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
               if (match.creatorEmail.isNotEmpty)
                 _PlayerTile(name: match.creatorEmail, subtitle: 'Organizer'),
               ...match.players.map(
-                (player) => _PlayerTile(
-                  name: player.email.isEmpty ? 'Player' : player.email,
-                  subtitle: 'Confirmed',
-                ),
+                (player) => player.uid == match.creatorUid
+                    ? const SizedBox.shrink()
+                    : _PlayerTile(
+                        name: player.email.isEmpty ? 'Player' : player.email,
+                        subtitle: 'Confirmed',
+                      ),
               ),
               const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: FilledButton.icon(
-                  onPressed: _isJoining || hasJoined || match.spotsLeft <= 0
-                      ? null
-                      : _joinMatch,
-                  icon: _isJoining
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.group_add),
-                  label: Text(
-                    _isJoining
-                        ? 'Joining...'
-                        : hasJoined
-                        ? 'Already Joined'
-                        : match.spotsLeft <= 0
-                        ? 'Match Full'
-                        : 'Join Match',
+              if (isOrganizer)
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    onPressed: isBusy ? null : _cancelMatch,
+                    icon: _isCancelling
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cancel_outlined),
+                    label: Text(
+                      _isCancelling ? 'Cancelling...' : 'Cancel Match',
+                    ),
+                  ),
+                )
+              else if (hasJoined)
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    onPressed: isBusy ? null : _leaveMatch,
+                    icon: _isLeaving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.logout),
+                    label: Text(_isLeaving ? 'Leaving...' : 'Leave Match'),
+                  ),
+                )
+              else
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton.icon(
+                    onPressed: isBusy || match.spotsLeft <= 0
+                        ? null
+                        : _joinMatch,
+                    icon: _isJoining
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.group_add),
+                    label: Text(
+                      _isJoining
+                          ? 'Joining...'
+                          : match.spotsLeft <= 0
+                          ? 'Match Full'
+                          : 'Join Match',
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         );
@@ -1025,6 +1197,12 @@ class JoinMatchException implements Exception {
   final String message;
 
   const JoinMatchException(this.message);
+}
+
+class MatchActionException implements Exception {
+  final String message;
+
+  const MatchActionException(this.message);
 }
 
 class _StatCard extends StatelessWidget {
