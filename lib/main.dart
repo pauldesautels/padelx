@@ -657,6 +657,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   final TextEditingController _dateTimeController = TextEditingController();
   final TextEditingController _levelController = TextEditingController();
   final TextEditingController _spotsController = TextEditingController();
+  bool _isCreating = false;
 
   @override
   void dispose() {
@@ -667,7 +668,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     super.dispose();
   }
 
-  void _createMatch() {
+  Future<void> _createMatch() async {
     final club = _clubController.text.trim();
     final dateTime = _dateTimeController.text.trim();
     final level = _levelController.text.trim();
@@ -680,11 +681,56 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Firestore match creation is the next step.'),
-      ),
-    );
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to create a match.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isCreating = true;
+    });
+
+    try {
+      await FirebaseFirestore.instance.collection('matches').add({
+        'title': dateTime,
+        'club': club,
+        'dateTime': dateTime,
+        'level': level,
+        'spotsLeft': spots,
+        'creatorUid': user.uid,
+        'creatorEmail': user.email ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.pop(context);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Match created successfully.')),
+      );
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? 'Could not create the match.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not create the match.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCreating = false;
+        });
+      }
+    }
   }
 
   @override
@@ -750,9 +796,15 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             width: double.infinity,
             height: 52,
             child: FilledButton.icon(
-              onPressed: _createMatch,
-              icon: const Icon(Icons.add),
-              label: const Text('Create Match'),
+              onPressed: _isCreating ? null : _createMatch,
+              icon: _isCreating
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add),
+              label: Text(_isCreating ? 'Creating...' : 'Create Match'),
             ),
           ),
         ],
