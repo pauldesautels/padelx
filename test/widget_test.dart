@@ -209,6 +209,139 @@ void main() {
     );
   });
 
+  testWidgets('open matches search filters by club or location immediately', (
+    WidgetTester tester,
+  ) async {
+    await _pumpMatches(tester, [
+      _match(id: 'one', club: 'Roma Padel Center'),
+      _match(id: 'two', club: 'Polanco Courts'),
+    ]);
+
+    await tester.enterText(find.byKey(const Key('match-search-field')), 'roma');
+    await tester.pump();
+
+    expect(find.text('Roma Padel Center'), findsOneWidget);
+    expect(find.text('Polanco Courts'), findsNothing);
+  });
+
+  testWidgets('open matches date filters handle today tomorrow and this week', (
+    WidgetTester tester,
+  ) async {
+    final now = DateTime.now();
+    final today = now.add(const Duration(minutes: 1));
+    final tomorrow = DateTime(now.year, now.month, now.day + 1, 12);
+    final nextWeek = DateTime(
+      now.year,
+      now.month,
+      now.day + (8 - now.weekday),
+      12,
+    );
+    await _pumpMatches(tester, [
+      _match(id: 'today', club: 'Today Club', scheduledAt: today),
+      _match(id: 'tomorrow', club: 'Tomorrow Club', scheduledAt: tomorrow),
+      _match(id: 'next-week', club: 'Next Week Club', scheduledAt: nextWeek),
+    ]);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Today'));
+    await tester.pump();
+    expect(find.text('Today Club'), findsOneWidget);
+    expect(find.text('Tomorrow Club'), findsNothing);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Tomorrow'));
+    await tester.pump();
+    expect(find.text('Tomorrow Club'), findsOneWidget);
+    expect(find.text('Today Club'), findsNothing);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'This Week'));
+    await tester.pump();
+    expect(find.text('Today Club'), findsOneWidget);
+    expect(find.text('Next Week Club'), findsNothing);
+  });
+
+  testWidgets('open matches filters by player level', (
+    WidgetTester tester,
+  ) async {
+    await _pumpMatches(tester, [
+      _match(id: 'beginner', club: 'Beginner Club', level: 'Level 1'),
+      _match(id: 'advanced', club: 'Advanced Club', level: 'Level 4'),
+    ]);
+
+    await tester.tap(find.byKey(const Key('level-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Level 4').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Advanced Club'), findsOneWidget);
+    expect(find.text('Beginner Club'), findsNothing);
+  });
+
+  testWidgets('open matches can show only matches with available spots', (
+    WidgetTester tester,
+  ) async {
+    await _pumpMatches(tester, [
+      _match(id: 'open', club: 'Open Club', spotsLeft: 1),
+      _match(id: 'full', club: 'Full Club', spotsLeft: 0),
+    ]);
+
+    await tester.tap(find.byKey(const Key('available-spots-filter')));
+    await tester.pump();
+
+    expect(find.text('Open Club'), findsOneWidget);
+    expect(find.text('Full Club'), findsNothing);
+  });
+
+  testWidgets('open matches combines filters and clear restores all matches', (
+    WidgetTester tester,
+  ) async {
+    await _pumpMatches(tester, [
+      _match(id: 'target', club: 'Roma Padel', level: 'Level 3', spotsLeft: 2),
+      _match(
+        id: 'wrong-level',
+        club: 'Roma Courts',
+        level: 'Level 2',
+        spotsLeft: 2,
+      ),
+      _match(id: 'full', club: 'Roma Arena', level: 'Level 3', spotsLeft: 0),
+    ]);
+
+    await tester.enterText(find.byKey(const Key('match-search-field')), 'roma');
+    await tester.tap(find.byKey(const Key('level-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Level 3').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('available-spots-filter')));
+    await tester.pump();
+
+    expect(find.text('Roma Padel'), findsOneWidget);
+    expect(find.text('Roma Courts'), findsNothing);
+    expect(find.text('Roma Arena'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('clear-match-filters')));
+    await tester.pump();
+    expect(find.text('Roma Padel'), findsOneWidget);
+    expect(find.text('Roma Courts'), findsOneWidget);
+    expect(find.text('Roma Arena'), findsOneWidget);
+  });
+
+  testWidgets('open matches shows empty results with a reset option', (
+    WidgetTester tester,
+  ) async {
+    await _pumpMatches(tester, [_match(id: 'one', club: 'Roma Padel')]);
+
+    await tester.enterText(
+      find.byKey(const Key('match-search-field')),
+      'missing',
+    );
+    await tester.pump();
+    expect(find.text('No matches found'), findsOneWidget);
+    expect(find.text('Reset filters'), findsOneWidget);
+
+    await tester.tap(find.text('Reset filters'));
+    await tester.pump();
+    expect(find.text('Roma Padel'), findsOneWidget);
+    expect(find.text('No matches found'), findsNothing);
+  });
+
   test('legacy matches without a timestamp remain upcoming', () {
     const legacyMatch = Match(
       id: 'legacy',
@@ -255,4 +388,38 @@ void main() {
     );
     expect(find.text('Could not load your matches.'), findsOneWidget);
   });
+}
+
+Match _match({
+  required String id,
+  required String club,
+  String level = 'Level 3',
+  int spotsLeft = 2,
+  DateTime? scheduledAt,
+}) {
+  return Match(
+    id: id,
+    title: 'Match $id',
+    club: club,
+    level: level,
+    spotsLeft: spotsLeft,
+    creatorUid: 'creator',
+    creatorEmail: 'creator@example.com',
+    players: const [],
+    scheduledAt: scheduledAt ?? DateTime.now().add(const Duration(days: 1)),
+  );
+}
+
+Future<void> _pumpMatches(WidgetTester tester, List<Match> matches) async {
+  tester.view.physicalSize = const Size(1200, 1800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: MatchesTab(matches: matches, isLoading: false, error: false),
+      ),
+    ),
+  );
 }

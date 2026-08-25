@@ -945,7 +945,9 @@ class HomeTab extends StatelessWidget {
   }
 }
 
-class MatchesTab extends StatelessWidget {
+enum MatchDateFilter { all, today, tomorrow, thisWeek }
+
+class MatchesTab extends StatefulWidget {
   final List<Match> matches;
   final bool isLoading;
   final bool error;
@@ -958,18 +960,98 @@ class MatchesTab extends StatelessWidget {
   });
 
   @override
+  State<MatchesTab> createState() => _MatchesTabState();
+}
+
+class _MatchesTabState extends State<MatchesTab> {
+  final TextEditingController _searchController = TextEditingController();
+  final GlobalKey<FormFieldState<String>> _levelFieldKey = GlobalKey();
+  MatchDateFilter _dateFilter = MatchDateFilter.all;
+  String? _levelFilter;
+  bool _availableOnly = false;
+
+  bool get _hasFilters =>
+      _searchController.text.isNotEmpty ||
+      _dateFilter != MatchDateFilter.all ||
+      _levelFilter != null ||
+      _availableOnly;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  bool _matchesDate(Match match, DateTime now) {
+    if (_dateFilter == MatchDateFilter.all) return true;
+    final scheduledAt = match.scheduledAt;
+    if (scheduledAt == null) return false;
+
+    final startOfToday = DateTime(now.year, now.month, now.day);
+    final startOfTomorrow = startOfToday.add(const Duration(days: 1));
+    final startOfDayAfterTomorrow = startOfTomorrow.add(
+      const Duration(days: 1),
+    );
+    final startOfNextWeek = startOfToday.add(
+      Duration(days: DateTime.daysPerWeek - now.weekday + 1),
+    );
+
+    return switch (_dateFilter) {
+      MatchDateFilter.all => true,
+      MatchDateFilter.today =>
+        !scheduledAt.isBefore(startOfToday) &&
+            scheduledAt.isBefore(startOfTomorrow),
+      MatchDateFilter.tomorrow =>
+        !scheduledAt.isBefore(startOfTomorrow) &&
+            scheduledAt.isBefore(startOfDayAfterTomorrow),
+      MatchDateFilter.thisWeek =>
+        !scheduledAt.isBefore(startOfToday) &&
+            scheduledAt.isBefore(startOfNextWeek),
+    };
+  }
+
+  List<Match> get _filteredMatches {
+    final query = _searchController.text.trim().toLowerCase();
+    final now = DateTime.now();
+    return sortedMatches(
+      widget.matches.where(
+        (match) =>
+            (query.isEmpty || match.club.toLowerCase().contains(query)) &&
+            (_levelFilter == null || match.level == _levelFilter) &&
+            (!_availableOnly || match.spotsLeft > 0) &&
+            _matchesDate(match, now),
+      ),
+    );
+  }
+
+  void _clearFilters() {
+    _levelFieldKey.currentState?.reset();
+    setState(() {
+      _searchController.clear();
+      _dateFilter = MatchDateFilter.all;
+      _levelFilter = null;
+      _availableOnly = false;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (isLoading) {
+    if (widget.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (error) {
+    if (widget.error) {
       return const Center(child: Text('Could not load matches.'));
     }
 
-    if (matches.isEmpty) {
-      return const Center(child: Text('No open matches yet'));
-    }
+    final levels =
+        widget.matches
+            .map((match) => match.level)
+            .where((level) => level.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final filteredMatches = _filteredMatches;
 
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -983,8 +1065,109 @@ class MatchesTab extends StatelessWidget {
           'Join games that need players.',
           style: TextStyle(fontSize: 16, color: Colors.white70),
         ),
-        const SizedBox(height: 20),
-        ...matches.map((match) => MatchCard(match: match)),
+        const SizedBox(height: 16),
+        TextField(
+          key: const Key('match-search-field'),
+          controller: _searchController,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            hintText: 'Search club or location',
+            prefixIcon: Icon(Icons.search),
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: MatchDateFilter.values.map((filter) {
+              final label = switch (filter) {
+                MatchDateFilter.all => 'All',
+                MatchDateFilter.today => 'Today',
+                MatchDateFilter.tomorrow => 'Tomorrow',
+                MatchDateFilter.thisWeek => 'This Week',
+              };
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(label),
+                  selected: _dateFilter == filter,
+                  onSelected: (_) => setState(() => _dateFilter = filter),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: KeyedSubtree(
+                key: const Key('level-filter'),
+                child: DropdownButtonFormField<String>(
+                  key: _levelFieldKey,
+                  initialValue: _levelFilter,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Player level',
+                    prefixIcon: Icon(Icons.leaderboard),
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: levels
+                      .map(
+                        (level) => DropdownMenuItem(
+                          value: level,
+                          child: Text(level, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (level) => setState(() => _levelFilter = level),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilterChip(
+              key: const Key('available-spots-filter'),
+              avatar: const Icon(Icons.group, size: 18),
+              label: const Text('Spots'),
+              selected: _availableOnly,
+              onSelected: (selected) =>
+                  setState(() => _availableOnly = selected),
+            ),
+          ],
+        ),
+        if (_hasFilters)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const Key('clear-match-filters'),
+              onPressed: _clearFilters,
+              icon: const Icon(Icons.clear_all),
+              label: const Text('Clear filters'),
+            ),
+          )
+        else
+          const SizedBox(height: 16),
+        if (filteredMatches.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 36),
+            child: Column(
+              children: [
+                const Icon(Icons.search_off, size: 44, color: Colors.white54),
+                const SizedBox(height: 12),
+                Text(_hasFilters ? 'No matches found' : 'No open matches yet'),
+                if (_hasFilters)
+                  TextButton(
+                    onPressed: _clearFilters,
+                    child: const Text('Reset filters'),
+                  ),
+              ],
+            ),
+          )
+        else
+          ...filteredMatches.map((match) => MatchCard(match: match)),
       ],
     );
   }
