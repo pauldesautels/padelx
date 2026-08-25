@@ -57,11 +57,145 @@ class AuthGate extends StatelessWidget {
         }
 
         if (snapshot.hasData) {
-          return const HomeScreen();
+          return ProfileGate(user: snapshot.data!);
         }
 
         return const AuthScreen();
       },
+    );
+  }
+}
+
+class UserProfile {
+  final String uid;
+  final String displayName;
+  final String level;
+  final String email;
+  final bool hasCreatedAt;
+
+  const UserProfile({
+    required this.uid,
+    required this.displayName,
+    required this.level,
+    required this.email,
+    this.hasCreatedAt = false,
+  });
+
+  factory UserProfile.fromDocument(
+    DocumentSnapshot<Map<String, dynamic>> document,
+  ) {
+    final data = document.data() ?? const <String, dynamic>{};
+    return UserProfile(
+      uid: data['uid']?.toString() ?? document.id,
+      displayName: data['displayName']?.toString().trim() ?? '',
+      level: data['level']?.toString().trim() ?? '',
+      email: data['email']?.toString().trim() ?? '',
+      hasCreatedAt: data['createdAt'] != null,
+    );
+  }
+
+  bool get isComplete =>
+      uid.isNotEmpty && displayName.isNotEmpty && level.isNotEmpty;
+}
+
+class ProfileGate extends StatefulWidget {
+  final User user;
+
+  const ProfileGate({super.key, required this.user});
+
+  @override
+  State<ProfileGate> createState() => _ProfileGateState();
+}
+
+class _ProfileGateState extends State<ProfileGate> {
+  late Stream<DocumentSnapshot<Map<String, dynamic>>> _profileStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  void _refresh() {
+    _profileStream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.user.uid)
+        .snapshots();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _profileStream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return ProfileLoadError(onRetry: () => setState(_refresh));
+        }
+
+        final profile = snapshot.data?.exists == true
+            ? UserProfile.fromDocument(snapshot.data!)
+            : null;
+        if (profile == null || !profile.isComplete) {
+          return ProfileEditorScreen(
+            user: widget.user,
+            profile: profile,
+            isRequired: true,
+          );
+        }
+
+        return const HomeScreen();
+      },
+    );
+  }
+}
+
+class ProfileLoadError extends StatefulWidget {
+  final VoidCallback onRetry;
+
+  const ProfileLoadError({super.key, required this.onRetry});
+
+  @override
+  State<ProfileLoadError> createState() => _ProfileLoadErrorState();
+}
+
+class _ProfileLoadErrorState extends State<ProfileLoadError> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off, size: 48),
+              const SizedBox(height: 16),
+              const Text(
+                'Could not load your profile.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text('Check your connection and try again.'),
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: widget.onRetry,
+                child: const Text('Try Again'),
+              ),
+              TextButton(
+                onPressed: FirebaseAuth.instance.signOut,
+                child: const Text('Log out'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -462,6 +596,8 @@ class Match {
   final int spotsLeft;
   final String creatorUid;
   final String creatorEmail;
+  final String creatorDisplayName;
+  final String creatorLevel;
   final List<MatchPlayer> players;
 
   const Match({
@@ -472,6 +608,8 @@ class Match {
     required this.spotsLeft,
     required this.creatorUid,
     required this.creatorEmail,
+    this.creatorDisplayName = '',
+    this.creatorLevel = '',
     required this.players,
   });
 
@@ -489,6 +627,8 @@ class Match {
       spotsLeft: _parseSpotsLeft(data['spotsLeft']),
       creatorUid: data['creatorUid']?.toString() ?? '',
       creatorEmail: data['creatorEmail']?.toString() ?? '',
+      creatorDisplayName: data['creatorDisplayName']?.toString() ?? '',
+      creatorLevel: data['creatorLevel']?.toString() ?? '',
       players: (data['players'] as List<dynamic>? ?? const [])
           .whereType<Map>()
           .map((player) => MatchPlayer.fromMap(player))
@@ -500,13 +640,22 @@ class Match {
 class MatchPlayer {
   final String uid;
   final String email;
+  final String displayName;
+  final String level;
 
-  const MatchPlayer({required this.uid, required this.email});
+  const MatchPlayer({
+    required this.uid,
+    required this.email,
+    this.displayName = '',
+    this.level = '',
+  });
 
   factory MatchPlayer.fromMap(Map<dynamic, dynamic> data) {
     return MatchPlayer(
       uid: data['uid']?.toString() ?? '',
       email: data['email']?.toString() ?? '',
+      displayName: data['displayName']?.toString() ?? '',
+      level: data['level']?.toString() ?? '',
     );
   }
 }
@@ -517,6 +666,14 @@ int _parseSpotsLeft(Object? value) {
         RegExp(r'\d+').firstMatch(value?.toString() ?? '')?.group(0) ?? '',
       ) ??
       0;
+}
+
+Future<UserProfile?> _loadUserProfile(String uid) async {
+  final document = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .get();
+  return document.exists ? UserProfile.fromDocument(document) : null;
 }
 
 class HomeScreen extends StatefulWidget {
@@ -908,32 +1065,227 @@ class ProfileTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        const SizedBox(height: 24),
-        const CircleAvatar(radius: 44, child: Icon(Icons.person, size: 44)),
-        const SizedBox(height: 20),
-        const Text(
-          'Your Profile',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+    if (user == null) return const SizedBox.shrink();
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError || snapshot.data?.exists != true) {
+          return const Center(child: Text('Could not load your profile.'));
+        }
+
+        final profile = UserProfile.fromDocument(snapshot.data!);
+        return ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            const SizedBox(height: 24),
+            const CircleAvatar(radius: 44, child: Icon(Icons.person, size: 44)),
+            const SizedBox(height: 20),
+            Text(
+              profile.displayName,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              profile.email.isEmpty ? user.email ?? '' : profile.email,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 24),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.trending_up),
+                title: const Text('Level'),
+                subtitle: Text(profile.level),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ProfileEditorScreen(user: user, profile: profile),
+                ),
+              ),
+              icon: const Icon(Icons.edit),
+              label: const Text('Edit Profile'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class ProfileEditorScreen extends StatefulWidget {
+  final User user;
+  final UserProfile? profile;
+  final bool isRequired;
+
+  const ProfileEditorScreen({
+    super.key,
+    required this.user,
+    this.profile,
+    this.isRequired = false,
+  });
+
+  @override
+  State<ProfileEditorScreen> createState() => _ProfileEditorScreenState();
+}
+
+class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
+  late final TextEditingController _displayNameController;
+  late final TextEditingController _levelController;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayNameController = TextEditingController(
+      text: widget.profile?.displayName ?? widget.user.displayName ?? '',
+    );
+    _levelController = TextEditingController(text: widget.profile?.level ?? '');
+  }
+
+  @override
+  void dispose() {
+    _displayNameController.dispose();
+    _levelController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final displayName = _displayNameController.text.trim();
+    final level = _levelController.text.trim();
+    if (displayName.length < 2) {
+      _showMessage('Please enter a display name with at least 2 characters.');
+      return;
+    }
+    if (displayName.length > 40) {
+      _showMessage('Display name must be 40 characters or fewer.');
+      return;
+    }
+    if (level.isEmpty) {
+      _showMessage('Please enter your level.');
+      return;
+    }
+    if (level.length > 30) {
+      _showMessage('Level must be 30 characters or fewer.');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final reference = FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user.uid);
+      await reference.set({
+        'uid': widget.user.uid,
+        'displayName': displayName,
+        'level': level,
+        'email': widget.user.email ?? widget.profile?.email ?? '',
+        if (widget.profile?.hasCreatedAt != true)
+          'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      if (!widget.isRequired) {
+        final messenger = ScaffoldMessenger.of(context);
+        Navigator.pop(context);
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Profile updated.')),
+        );
+      }
+    } on FirebaseException catch (error) {
+      _showMessage(error.message ?? 'Could not save your profile.');
+    } catch (_) {
+      _showMessage('Could not save your profile. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: !widget.isRequired,
+        title: Text(
+          widget.isRequired ? 'Complete Your Profile' : 'Edit Profile',
         ),
-        const SizedBox(height: 8),
-        Text(
-          user?.email ?? 'No email',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white70),
-        ),
-        const SizedBox(height: 24),
-        const Card(
-          child: ListTile(
-            leading: Icon(Icons.trending_up),
-            title: Text('Level'),
-            subtitle: Text('3.5'),
+        backgroundColor: const Color(0xFF0F1412),
+        actions: widget.isRequired
+            ? [
+                IconButton(
+                  tooltip: 'Log out',
+                  onPressed: _isSaving ? null : FirebaseAuth.instance.signOut,
+                  icon: const Icon(Icons.logout),
+                ),
+              ]
+            : null,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          if (widget.isRequired) ...[
+            const Text(
+              'Tell other players who they will be sharing the court with.',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+            const SizedBox(height: 24),
+          ],
+          TextField(
+            controller: _displayNameController,
+            enabled: !_isSaving,
+            textCapitalization: TextCapitalization.words,
+            maxLength: 40,
+            decoration: const InputDecoration(
+              labelText: 'Display name',
+              prefixIcon: Icon(Icons.person_outline),
+              border: OutlineInputBorder(),
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 16),
+          TextField(
+            controller: _levelController,
+            enabled: !_isSaving,
+            maxLength: 30,
+            decoration: const InputDecoration(
+              labelText: 'Level',
+              hintText: 'e.g. 3.5 or Intermediate',
+              prefixIcon: Icon(Icons.trending_up),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          FilledButton(
+            onPressed: _isSaving ? null : _save,
+            child: _isSaving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Save Profile'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -995,6 +1347,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     });
 
     try {
+      final profile = await _loadUserProfile(user.uid);
       await FirebaseFirestore.instance.collection('matches').add({
         'title': dateTime,
         'club': club,
@@ -1004,6 +1357,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         'players': <Map<String, String>>[],
         'creatorUid': user.uid,
         'creatorEmail': user.email ?? '',
+        'creatorDisplayName': profile?.displayName ?? '',
+        'creatorLevel': profile?.level ?? '',
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -1139,6 +1494,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
     setState(() => _isJoining = true);
 
     try {
+      final profile = await _loadUserProfile(user.uid);
       final matchRef = FirebaseFirestore.instance
           .collection('matches')
           .doc(widget.match.id);
@@ -1171,7 +1527,12 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           throw const JoinMatchException('This match has no spots remaining.');
         }
 
-        players.add({'uid': user.uid, 'email': user.email ?? ''});
+        players.add({
+          'uid': user.uid,
+          'email': user.email ?? '',
+          'displayName': profile?.displayName ?? '',
+          'level': profile?.level ?? '',
+        });
         transaction.update(matchRef, {
           'players': players,
           'spotsLeft': spotsLeft - 1,
@@ -1372,14 +1733,25 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
-              if (match.creatorEmail.isNotEmpty)
-                _PlayerTile(name: match.creatorEmail, subtitle: 'Organizer'),
+              if (match.creatorUid.isNotEmpty || match.creatorEmail.isNotEmpty)
+                _ProfilePlayerTile(
+                  uid: match.creatorUid,
+                  fallbackName: match.creatorDisplayName.isNotEmpty
+                      ? match.creatorDisplayName
+                      : match.creatorEmail,
+                  fallbackLevel: match.creatorLevel,
+                  role: 'Organizer',
+                ),
               ...match.players.map(
                 (player) => player.uid == match.creatorUid
                     ? const SizedBox.shrink()
-                    : _PlayerTile(
-                        name: player.email.isEmpty ? 'Player' : player.email,
-                        subtitle: 'Confirmed',
+                    : _ProfilePlayerTile(
+                        uid: player.uid,
+                        fallbackName: player.displayName.isNotEmpty
+                            ? player.displayName
+                            : player.email,
+                        fallbackLevel: player.level,
+                        role: 'Confirmed',
                       ),
               ),
               const SizedBox(height: 24),
@@ -1531,4 +1903,53 @@ class _PlayerTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ProfilePlayerTile extends StatelessWidget {
+  final String uid;
+  final String fallbackName;
+  final String fallbackLevel;
+  final String role;
+
+  const _ProfilePlayerTile({
+    required this.uid,
+    required this.fallbackName,
+    required this.fallbackLevel,
+    required this.role,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (uid.isEmpty) {
+      return _PlayerTile(
+        name: fallbackName.isEmpty ? 'Player' : fallbackName,
+        subtitle: _playerSubtitle(role, fallbackLevel),
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final profile = snapshot.hasData && snapshot.data!.exists
+            ? UserProfile.fromDocument(snapshot.data!)
+            : null;
+        final name = profile?.displayName.isNotEmpty == true
+            ? profile!.displayName
+            : fallbackName.isEmpty
+            ? 'Player'
+            : fallbackName;
+        final level = profile?.level.isNotEmpty == true
+            ? profile!.level
+            : fallbackLevel;
+        return _PlayerTile(name: name, subtitle: _playerSubtitle(role, level));
+      },
+    );
+  }
+}
+
+String _playerSubtitle(String role, String level) {
+  return level.isEmpty ? role : '$role · $level';
 }
