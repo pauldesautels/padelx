@@ -599,6 +599,7 @@ class Match {
   final String creatorDisplayName;
   final String creatorLevel;
   final List<MatchPlayer> players;
+  final DateTime? scheduledAt;
 
   const Match({
     required this.id,
@@ -611,6 +612,7 @@ class Match {
     this.creatorDisplayName = '',
     this.creatorLevel = '',
     required this.players,
+    this.scheduledAt,
   });
 
   String get spotsLeftLabel =>
@@ -629,12 +631,66 @@ class Match {
       creatorEmail: data['creatorEmail']?.toString() ?? '',
       creatorDisplayName: data['creatorDisplayName']?.toString() ?? '',
       creatorLevel: data['creatorLevel']?.toString() ?? '',
+      scheduledAt: _parseScheduledAt(data['scheduledAt']),
       players: (data['players'] as List<dynamic>? ?? const [])
           .whereType<Map>()
           .map((player) => MatchPlayer.fromMap(player))
           .toList(),
     );
   }
+}
+
+DateTime? _parseScheduledAt(Object? value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  return null;
+}
+
+bool isPastMatch(Match match, DateTime now) =>
+    match.scheduledAt?.isBefore(now) ?? false;
+
+List<Match> sortedMatches(Iterable<Match> matches) {
+  final sorted = matches.toList();
+  sorted.sort((a, b) {
+    final aDate = a.scheduledAt;
+    final bDate = b.scheduledAt;
+    if (aDate == null && bDate == null) return 0;
+    if (aDate == null) return 1;
+    if (bDate == null) return -1;
+    return aDate.compareTo(bDate);
+  });
+  return sorted;
+}
+
+String _friendlyDateTime(DateTime value) {
+  const weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+  final minute = value.minute.toString().padLeft(2, '0');
+  final period = value.hour < 12 ? 'AM' : 'PM';
+  return '${weekdays[value.weekday - 1]}, ${months[value.month - 1]} '
+      '${value.day} · $hour:$minute $period';
 }
 
 class MatchPlayer {
@@ -714,6 +770,10 @@ class _HomeScreenState extends State<HomeScreen> {
         final matches = snapshot.hasData
             ? snapshot.data!.docs.map((doc) => Match.fromDocument(doc)).toList()
             : <Match>[];
+        final now = DateTime.now();
+        final openMatches = sortedMatches(
+          matches.where((match) => !isPastMatch(match, now)),
+        );
         final currentUid = FirebaseAuth.instance.currentUser?.uid;
         final myMatches = currentUid == null
             ? <Match>[]
@@ -728,10 +788,10 @@ class _HomeScreenState extends State<HomeScreen> {
         final screens = [
           HomeTab(
             onCreateMatch: _openCreateMatchScreen,
-            openMatchesCount: matches.length,
+            openMatchesCount: openMatches.length,
           ),
           MatchesTab(
-            matches: matches,
+            matches: openMatches,
             isLoading: snapshot.connectionState == ConnectionState.waiting,
             error: snapshot.hasError,
           ),
@@ -1032,6 +1092,14 @@ class MyMatchesTab extends StatelessWidget {
       return const Center(child: Text('You have no matches yet'));
     }
 
+    final now = DateTime.now();
+    final upcomingMatches = sortedMatches(
+      matches.where((match) => !isPastMatch(match, now)),
+    );
+    final pastMatches = sortedMatches(
+      matches.where((match) => isPastMatch(match, now)),
+    ).reversed;
+
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -1045,7 +1113,20 @@ class MyMatchesTab extends StatelessWidget {
           style: TextStyle(fontSize: 16, color: Colors.white70),
         ),
         const SizedBox(height: 20),
-        ...matches.map(
+        const Text(
+          'Upcoming',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        if (upcomingMatches.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 16),
+            child: Text(
+              'No upcoming matches.',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+        ...upcomingMatches.map(
           (match) => MatchCard(
             match: match,
             relationshipLabel: match.creatorUid == currentUid
@@ -1053,6 +1134,26 @@ class MyMatchesTab extends StatelessWidget {
                 : 'Joined',
           ),
         ),
+        const SizedBox(height: 12),
+        const Text(
+          'Past',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        if (pastMatches.isEmpty)
+          const Text(
+            'No past matches.',
+            style: TextStyle(color: Colors.white70),
+          ),
+        if (pastMatches.isNotEmpty)
+          ...pastMatches.map(
+            (match) => MatchCard(
+              match: match,
+              relationshipLabel: match.creatorUid == currentUid
+                  ? 'Organizing'
+                  : 'Joined',
+            ),
+          ),
       ],
     );
   }
@@ -1303,6 +1404,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   final TextEditingController _levelController = TextEditingController();
   final TextEditingController _spotsController = TextEditingController();
   bool _isCreating = false;
+  DateTime? _scheduledAt;
 
   @override
   void dispose() {
@@ -1319,7 +1421,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     final level = _levelController.text.trim();
     final spots = _spotsController.text.trim();
 
-    if (club.isEmpty || dateTime.isEmpty || level.isEmpty || spots.isEmpty) {
+    if (club.isEmpty ||
+        dateTime.isEmpty ||
+        _scheduledAt == null ||
+        level.isEmpty ||
+        spots.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill in all fields')),
       );
@@ -1352,6 +1458,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         'title': dateTime,
         'club': club,
         'dateTime': dateTime,
+        'scheduledAt': Timestamp.fromDate(_scheduledAt!),
         'level': level,
         'spotsLeft': spotsLeft,
         'players': <Map<String, String>>[],
@@ -1390,6 +1497,43 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     }
   }
 
+  Future<void> _selectDateTime() async {
+    final now = DateTime.now();
+    final initial = _scheduledAt ?? now.add(const Duration(hours: 1));
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (date == null || !mounted) return;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    if (!selected.isAfter(now)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please choose a future date and time.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _scheduledAt = selected;
+      _dateTimeController.text = _friendlyDateTime(selected);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1421,9 +1565,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           const SizedBox(height: 16),
           TextField(
             controller: _dateTimeController,
+            readOnly: true,
+            onTap: _selectDateTime,
             decoration: const InputDecoration(
               labelText: 'Date and time',
-              hintText: 'Example: Friday · 6:00 PM',
+              hintText: 'Choose a date and time',
               prefixIcon: Icon(Icons.calendar_month),
               border: OutlineInputBorder(),
             ),

@@ -102,7 +102,7 @@ void main() {
   testWidgets('my matches distinguishes organizing and joined matches', (
     WidgetTester tester,
   ) async {
-    const organizingMatch = Match(
+    final organizingMatch = Match(
       id: 'organizing',
       title: 'Friday · 6:00 PM',
       club: 'Padel Club',
@@ -111,8 +111,9 @@ void main() {
       creatorUid: 'current-user',
       creatorEmail: 'organizer@example.com',
       players: [],
+      scheduledAt: DateTime.now().add(const Duration(days: 1)),
     );
-    const joinedMatch = Match(
+    final joinedMatch = Match(
       id: 'joined',
       title: 'Saturday · 10:00 AM',
       club: 'Central Padel',
@@ -121,10 +122,11 @@ void main() {
       creatorUid: 'another-user',
       creatorEmail: 'other@example.com',
       players: [MatchPlayer(uid: 'current-user', email: 'player@example.com')],
+      scheduledAt: DateTime.now().subtract(const Duration(days: 1)),
     );
 
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: MyMatchesTab(
             matches: [organizingMatch, joinedMatch],
@@ -138,9 +140,88 @@ void main() {
 
     expect(find.text('Organizing'), findsOneWidget);
     expect(find.text('Joined'), findsOneWidget);
+    expect(find.text('Upcoming'), findsOneWidget);
+    expect(find.text('Past'), findsOneWidget);
     expect(find.text('Friday · 6:00 PM'), findsOneWidget);
     expect(find.text('Central Padel'), findsOneWidget);
     expect(find.text('1 spot left'), findsOneWidget);
+  });
+
+  testWidgets('open matches hides past matches and orders future matches', (
+    WidgetTester tester,
+  ) async {
+    final now = DateTime.now();
+    final matches = [
+      Match(
+        id: 'later',
+        title: 'Later',
+        club: 'Club',
+        level: 'Level 3',
+        spotsLeft: 2,
+        creatorUid: 'one',
+        creatorEmail: 'one@example.com',
+        players: const [],
+        scheduledAt: now.add(const Duration(days: 2)),
+      ),
+      Match(
+        id: 'past',
+        title: 'Past match',
+        club: 'Club',
+        level: 'Level 3',
+        spotsLeft: 2,
+        creatorUid: 'one',
+        creatorEmail: 'one@example.com',
+        players: const [],
+        scheduledAt: now.subtract(const Duration(days: 1)),
+      ),
+      Match(
+        id: 'sooner',
+        title: 'Sooner',
+        club: 'Club',
+        level: 'Level 3',
+        spotsLeft: 2,
+        creatorUid: 'one',
+        creatorEmail: 'one@example.com',
+        players: const [],
+        scheduledAt: now.add(const Duration(days: 1)),
+      ),
+    ];
+    final openMatches = sortedMatches(
+      matches.where((match) => !isPastMatch(match, now)),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MatchesTab(
+            matches: openMatches,
+            isLoading: false,
+            error: false,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Past match'), findsNothing);
+    expect(
+      tester.getTopLeft(find.text('Sooner')).dy,
+      lessThan(tester.getTopLeft(find.text('Later')).dy),
+    );
+  });
+
+  test('legacy matches without a timestamp remain upcoming', () {
+    const legacyMatch = Match(
+      id: 'legacy',
+      title: 'Friday · 6:00 PM',
+      club: 'Club',
+      level: 'Level 3',
+      spotsLeft: 2,
+      creatorUid: 'one',
+      creatorEmail: 'one@example.com',
+      players: [],
+    );
+
+    expect(isPastMatch(legacyMatch, DateTime.now()), isFalse);
   });
 
   testWidgets('my matches shows empty and error states', (
