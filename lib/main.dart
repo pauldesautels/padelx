@@ -292,7 +292,9 @@ class Match {
   final String title;
   final String club;
   final String level;
-  final String spotsLeft;
+  final int spotsLeft;
+  final String creatorEmail;
+  final List<MatchPlayer> players;
 
   const Match({
     required this.id,
@@ -300,7 +302,12 @@ class Match {
     required this.club,
     required this.level,
     required this.spotsLeft,
+    required this.creatorEmail,
+    required this.players,
   });
+
+  String get spotsLeftLabel =>
+      spotsLeft == 1 ? '1 spot left' : '$spotsLeft spots left';
 
   factory Match.fromDocument(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
@@ -310,9 +317,36 @@ class Match {
       title: data['title']?.toString() ?? '',
       club: data['club']?.toString() ?? '',
       level: data['level']?.toString() ?? '',
-      spotsLeft: data['spotsLeft']?.toString() ?? '',
+      spotsLeft: _parseSpotsLeft(data['spotsLeft']),
+      creatorEmail: data['creatorEmail']?.toString() ?? '',
+      players: (data['players'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((player) => MatchPlayer.fromMap(player))
+          .toList(),
     );
   }
+}
+
+class MatchPlayer {
+  final String uid;
+  final String email;
+
+  const MatchPlayer({required this.uid, required this.email});
+
+  factory MatchPlayer.fromMap(Map<dynamic, dynamic> data) {
+    return MatchPlayer(
+      uid: data['uid']?.toString() ?? '',
+      email: data['email']?.toString() ?? '',
+    );
+  }
+}
+
+int _parseSpotsLeft(Object? value) {
+  if (value is num) return value.toInt();
+  return int.tryParse(
+        RegExp(r'\d+').firstMatch(value?.toString() ?? '')?.group(0) ?? '',
+      ) ??
+      0;
 }
 
 class HomeScreen extends StatefulWidget {
@@ -597,7 +631,7 @@ class MatchCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   _InfoChip(text: match.level, icon: Icons.leaderboard),
-                  _InfoChip(text: match.spotsLeft, icon: Icons.group),
+                  _InfoChip(text: match.spotsLeftLabel, icon: Icons.group),
                 ],
               ),
             ],
@@ -681,6 +715,14 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       return;
     }
 
+    final spotsLeft = _parseSpotsLeft(spots);
+    if (spotsLeft <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter at least 1 spot.')),
+      );
+      return;
+    }
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -699,7 +741,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         'club': club,
         'dateTime': dateTime,
         'level': level,
-        'spotsLeft': spots,
+        'spotsLeft': spotsLeft,
+        'players': <Map<String, String>>[],
         'creatorUid': user.uid,
         'creatorEmail': user.email ?? '',
         'createdAt': FieldValue.serverTimestamp(),
@@ -813,61 +856,175 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   }
 }
 
-class MatchDetailsScreen extends StatelessWidget {
+class MatchDetailsScreen extends StatefulWidget {
   final Match match;
 
   const MatchDetailsScreen({super.key, required this.match});
 
   @override
+  State<MatchDetailsScreen> createState() => _MatchDetailsScreenState();
+}
+
+class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
+  bool _isJoining = false;
+
+  Future<void> _joinMatch() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _showMessage('Please log in to join a match.');
+      return;
+    }
+
+    setState(() => _isJoining = true);
+
+    try {
+      final matchRef = FirebaseFirestore.instance
+          .collection('matches')
+          .doc(widget.match.id);
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(matchRef);
+        if (!snapshot.exists) {
+          throw const JoinMatchException('This match no longer exists.');
+        }
+
+        final data = snapshot.data() ?? <String, dynamic>{};
+        final players = List<dynamic>.from(
+          data['players'] as List? ?? const [],
+        );
+        final hasJoined = players.whereType<Map>().any(
+          (player) => player['uid']?.toString() == user.uid,
+        );
+
+        if (hasJoined) {
+          throw const JoinMatchException('You have already joined this match.');
+        }
+
+        final spotsLeft = _parseSpotsLeft(data['spotsLeft']);
+        if (spotsLeft <= 0) {
+          throw const JoinMatchException('This match has no spots remaining.');
+        }
+
+        players.add({'uid': user.uid, 'email': user.email ?? ''});
+        transaction.update(matchRef, {
+          'players': players,
+          'spotsLeft': spotsLeft - 1,
+        });
+      });
+
+      _showMessage('You joined the match successfully.');
+    } on JoinMatchException catch (error) {
+      _showMessage(error.message);
+    } on FirebaseException catch (error) {
+      _showMessage(error.message ?? 'Could not join the match.');
+    } catch (_) {
+      _showMessage('Could not join the match. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isJoining = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Match Details'),
-        backgroundColor: const Color(0xFF0F1412),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Text(
-            match.title,
-            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('matches')
+          .doc(widget.match.id)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final match = snapshot.hasData && snapshot.data!.exists
+            ? Match.fromDocument(snapshot.data!)
+            : widget.match;
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        final hasJoined = match.players.any(
+          (player) => player.uid == currentUid,
+        );
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Match Details'),
+            backgroundColor: const Color(0xFF0F1412),
           ),
-          const SizedBox(height: 12),
-          Text(match.club, style: const TextStyle(fontSize: 20)),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          body: ListView(
+            padding: const EdgeInsets.all(20),
             children: [
-              _InfoChip(text: match.level, icon: Icons.leaderboard),
-              _InfoChip(text: match.spotsLeft, icon: Icons.group),
+              Text(
+                match.title,
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(match.club, style: const TextStyle(fontSize: 20)),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _InfoChip(text: match.level, icon: Icons.leaderboard),
+                  _InfoChip(text: match.spotsLeftLabel, icon: Icons.group),
+                ],
+              ),
+              const SizedBox(height: 28),
+              const Text(
+                'Players',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              if (match.creatorEmail.isNotEmpty)
+                _PlayerTile(name: match.creatorEmail, subtitle: 'Organizer'),
+              ...match.players.map(
+                (player) => _PlayerTile(
+                  name: player.email.isEmpty ? 'Player' : player.email,
+                  subtitle: 'Confirmed',
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: FilledButton.icon(
+                  onPressed: _isJoining || hasJoined || match.spotsLeft <= 0
+                      ? null
+                      : _joinMatch,
+                  icon: _isJoining
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.group_add),
+                  label: Text(
+                    _isJoining
+                        ? 'Joining...'
+                        : hasJoined
+                        ? 'Already Joined'
+                        : match.spotsLeft <= 0
+                        ? 'Match Full'
+                        : 'Join Match',
+                  ),
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 28),
-          const Text(
-            'Players',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          const _PlayerTile(name: 'Paul', subtitle: 'Organizer · Level 3.5'),
-          const _PlayerTile(name: 'Player 2', subtitle: 'Confirmed'),
-          const _PlayerTile(name: 'Player 3', subtitle: 'Confirmed'),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: FilledButton.icon(
-              onPressed: () {
-                debugPrint('Join match tapped');
-              },
-              icon: const Icon(Icons.group_add),
-              label: const Text('Join Match'),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
+}
+
+class JoinMatchException implements Exception {
+  final String message;
+
+  const JoinMatchException(this.message);
 }
 
 class _StatCard extends StatelessWidget {
