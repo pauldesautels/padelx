@@ -67,7 +67,9 @@ class AuthGate extends StatelessWidget {
 }
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+  final Future<void> Function(String email)? passwordResetSender;
+
+  const AuthScreen({super.key, this.passwordResetSender});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -149,6 +151,23 @@ class _AuthScreenState extends State<AuthScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _showPasswordResetDialog() async {
+    final emailSent = await showDialog<bool>(
+      context: context,
+      builder: (_) => PasswordResetDialog(
+        initialEmail: _emailController.text.trim(),
+        sender:
+            widget.passwordResetSender ??
+            (email) =>
+                FirebaseAuth.instance.sendPasswordResetEmail(email: email),
+      ),
+    );
+
+    if (emailSent == true) {
+      _showMessage('Password reset email sent. Check your inbox.');
     }
   }
 
@@ -249,6 +268,16 @@ class _AuthScreenState extends State<AuthScreen> {
                             ),
                           ),
                         ),
+                        if (_isLogin)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _isLoading
+                                  ? null
+                                  : _showPasswordResetDialog,
+                              child: const Text('Forgot password?'),
+                            ),
+                          ),
                         const SizedBox(height: 20),
                         SizedBox(
                           height: 52,
@@ -283,6 +312,144 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class PasswordResetDialog extends StatefulWidget {
+  final String initialEmail;
+  final Future<void> Function(String email) sender;
+
+  const PasswordResetDialog({
+    super.key,
+    required this.initialEmail,
+    required this.sender,
+  });
+
+  @override
+  State<PasswordResetDialog> createState() => _PasswordResetDialogState();
+}
+
+class _PasswordResetDialogState extends State<PasswordResetDialog> {
+  late final TextEditingController _emailController;
+  bool _isSending = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendResetEmail() async {
+    final email = _emailController.text.trim();
+
+    if (email.isEmpty) {
+      setState(() {
+        _errorMessage = 'Please enter your email address.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isSending = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await widget.sender(email);
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } on FirebaseAuthException catch (error) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = _passwordResetErrorMessage(error);
+          _isSending = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Could not send the reset email. Please try again.';
+          _isSending = false;
+        });
+      }
+    }
+  }
+
+  String _passwordResetErrorMessage(FirebaseAuthException error) {
+    switch (error.code) {
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'user-not-found':
+        return 'No account was found with that email.';
+      case 'too-many-requests':
+        return 'Too many requests. Please try again later.';
+      case 'network-request-failed':
+        return 'Check your internet connection and try again.';
+      default:
+        return error.message ??
+            'Could not send the reset email. Please try again.';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Reset password'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Enter your email and we’ll send you a link to reset your password.',
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _emailController,
+              enabled: !_isSending,
+              keyboardType: TextInputType.emailAddress,
+              autocorrect: false,
+              autofocus: true,
+              onSubmitted: (_) {
+                if (!_isSending) {
+                  _sendResetEmail();
+                }
+              },
+              decoration: InputDecoration(
+                labelText: 'Email',
+                prefixIcon: const Icon(Icons.email_outlined),
+                border: const OutlineInputBorder(),
+                errorText: _errorMessage,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSending ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _isSending ? null : _sendResetEmail,
+          child: _isSending
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Send reset email'),
+        ),
+      ],
     );
   }
 }
@@ -390,6 +557,16 @@ class _HomeScreenState extends State<HomeScreen> {
         final matches = snapshot.hasData
             ? snapshot.data!.docs.map((doc) => Match.fromDocument(doc)).toList()
             : <Match>[];
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        final myMatches = currentUid == null
+            ? <Match>[]
+            : matches
+                  .where(
+                    (match) =>
+                        match.creatorUid == currentUid ||
+                        match.players.any((player) => player.uid == currentUid),
+                  )
+                  .toList();
 
         final screens = [
           HomeTab(
@@ -398,6 +575,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           MatchesTab(
             matches: matches,
+            isLoading: snapshot.connectionState == ConnectionState.waiting,
+            error: snapshot.hasError,
+          ),
+          MyMatchesTab(
+            matches: myMatches,
+            currentUid: currentUid ?? '',
             isLoading: snapshot.connectionState == ConnectionState.waiting,
             error: snapshot.hasError,
           ),
@@ -438,6 +621,10 @@ class _HomeScreenState extends State<HomeScreen> {
               NavigationDestination(
                 icon: Icon(Icons.sports_tennis),
                 label: 'Matches',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.event_available),
+                label: 'My Matches',
               ),
               NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
             ],
@@ -588,8 +775,9 @@ class MatchesTab extends StatelessWidget {
 
 class MatchCard extends StatelessWidget {
   final Match match;
+  final String? relationshipLabel;
 
-  const MatchCard({super.key, required this.match});
+  const MatchCard({super.key, required this.match, this.relationshipLabel});
 
   @override
   Widget build(BuildContext context) {
@@ -610,6 +798,20 @@ class MatchCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (relationshipLabel != null) ...[
+                Chip(
+                  avatar: Icon(
+                    relationshipLabel == 'Organizing'
+                        ? Icons.star_outline
+                        : Icons.check_circle_outline,
+                    size: 18,
+                  ),
+                  label: Text(relationshipLabel!),
+                  backgroundColor: const Color(0xFF1F7A4D),
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(height: 12),
+              ],
               Row(
                 children: [
                   const CircleAvatar(child: Icon(Icons.sports_tennis)),
@@ -641,6 +843,60 @@ class MatchCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class MyMatchesTab extends StatelessWidget {
+  final List<Match> matches;
+  final String currentUid;
+  final bool isLoading;
+  final bool error;
+
+  const MyMatchesTab({
+    super.key,
+    required this.matches,
+    required this.currentUid,
+    required this.isLoading,
+    required this.error,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (error) {
+      return const Center(child: Text('Could not load your matches.'));
+    }
+
+    if (matches.isEmpty) {
+      return const Center(child: Text('You have no matches yet'));
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Text(
+          'My Matches',
+          style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Matches you organize or have joined.',
+          style: TextStyle(fontSize: 16, color: Colors.white70),
+        ),
+        const SizedBox(height: 20),
+        ...matches.map(
+          (match) => MatchCard(
+            match: match,
+            relationshipLabel: match.creatorUid == currentUid
+                ? 'Organizing'
+                : 'Joined',
+          ),
+        ),
+      ],
     );
   }
 }
