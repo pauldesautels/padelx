@@ -753,6 +753,7 @@ class JoinRequest {
   final String email;
   final String status;
   final DateTime? requestedAt;
+  final String eventId;
 
   const JoinRequest({
     this.matchId = '',
@@ -762,6 +763,7 @@ class JoinRequest {
     required this.email,
     required this.status,
     this.requestedAt,
+    this.eventId = '',
   });
 
   factory JoinRequest.fromMap(Map<dynamic, dynamic> data) {
@@ -772,6 +774,7 @@ class JoinRequest {
       email: data['email']?.toString() ?? '',
       status: data['status']?.toString() ?? '',
       requestedAt: _parseScheduledAt(data['requestedAt']),
+      eventId: data['eventId']?.toString() ?? '',
     );
   }
 
@@ -789,6 +792,7 @@ class JoinRequest {
       email: request.email,
       status: request.status,
       requestedAt: request.requestedAt,
+      eventId: request.eventId,
     );
   }
 
@@ -801,7 +805,231 @@ class JoinRequest {
     'requestedAt': requestedAt == null
         ? Timestamp.now()
         : Timestamp.fromDate(requestedAt!),
+    'eventId': eventId,
   };
+}
+
+enum AppNotificationType { joinRequest, joinApproved, joinDeclined }
+
+class AppNotification {
+  final String id;
+  final AppNotificationType type;
+  final String recipientUid;
+  final String matchId;
+  final String title;
+  final String message;
+  final bool read;
+  final DateTime? createdAt;
+  final String eventId;
+  final String actorUid;
+  final String actorDisplayName;
+
+  const AppNotification({
+    required this.id,
+    required this.type,
+    required this.recipientUid,
+    required this.matchId,
+    required this.title,
+    required this.message,
+    required this.read,
+    required this.createdAt,
+    required this.eventId,
+    this.actorUid = '',
+    this.actorDisplayName = '',
+  });
+
+  factory AppNotification.fromDocument(
+    DocumentSnapshot<Map<String, dynamic>> document,
+  ) {
+    final data = document.data() ?? const <String, dynamic>{};
+    final typeName = data['type']?.toString() ?? '';
+    return AppNotification(
+      id: document.id,
+      type: AppNotificationType.values.firstWhere(
+        (value) => value.name == typeName,
+        orElse: () => AppNotificationType.joinRequest,
+      ),
+      recipientUid: data['recipientUid']?.toString() ?? '',
+      matchId: data['matchId']?.toString() ?? '',
+      title: data['title']?.toString() ?? '',
+      message: data['message']?.toString() ?? '',
+      read: data['read'] == true,
+      createdAt: _parseScheduledAt(data['createdAt']),
+      eventId: data['eventId']?.toString() ?? '',
+      actorUid: data['actorUid']?.toString() ?? '',
+      actorDisplayName: data['actorDisplayName']?.toString() ?? '',
+    );
+  }
+}
+
+String notificationDocumentId(
+  AppNotificationType type,
+  String matchId,
+  String eventId,
+) => '${type.name}_${matchId}_$eventId';
+
+Map<String, dynamic> buildJoinRequestNotification({
+  required String recipientUid,
+  required String matchId,
+  required String eventId,
+  required String actorUid,
+  required String actorDisplayName,
+}) => {
+  'type': AppNotificationType.joinRequest.name,
+  'recipientUid': recipientUid,
+  'matchId': matchId,
+  'title': 'New join request',
+  'message': '$actorDisplayName requested to join your match.',
+  'read': false,
+  'createdAt': FieldValue.serverTimestamp(),
+  'eventId': eventId,
+  'actorUid': actorUid,
+  'actorDisplayName': actorDisplayName,
+};
+
+Map<String, dynamic> buildReviewNotification({
+  required bool approve,
+  required String recipientUid,
+  required String matchId,
+  required String club,
+  required String eventId,
+  required String actorUid,
+}) => {
+  'type': approve
+      ? AppNotificationType.joinApproved.name
+      : AppNotificationType.joinDeclined.name,
+  'recipientUid': recipientUid,
+  'matchId': matchId,
+  'title': approve ? 'Request approved' : 'Request declined',
+  'message':
+      'Your request to join the match at $club was '
+      '${approve ? 'approved' : 'declined'}.',
+  'read': false,
+  'createdAt': FieldValue.serverTimestamp(),
+  'eventId': eventId,
+  'actorUid': actorUid,
+};
+
+int unreadNotificationCount(Iterable<AppNotification> notifications) =>
+    notifications.where((notification) => !notification.read).length;
+
+bool canReadNotification(String authenticatedUid, String recipientUid) =>
+    authenticatedUid.isNotEmpty && authenticatedUid == recipientUid;
+
+class NotificationBadge extends StatelessWidget {
+  final int count;
+  final bool selected;
+
+  const NotificationBadge({
+    super.key,
+    required this.count,
+    this.selected = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Badge(
+      isLabelVisible: count > 0,
+      label: Text(count > 99 ? '99+' : '$count'),
+      child: Icon(
+        selected ? Icons.notifications : Icons.notifications_outlined,
+      ),
+    );
+  }
+}
+
+class NotificationsTab extends StatelessWidget {
+  final List<AppNotification> notifications;
+  final bool isLoading;
+  final bool error;
+  final ValueChanged<AppNotification> onMarkRead;
+  final ValueChanged<AppNotification> onOpen;
+
+  const NotificationsTab({
+    super.key,
+    required this.notifications,
+    required this.isLoading,
+    required this.error,
+    required this.onMarkRead,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (error) {
+      return const Center(child: Text('Could not load notifications.'));
+    }
+    if (notifications.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.notifications_none, size: 52, color: Colors.white54),
+              SizedBox(height: 14),
+              Text(
+                'No notifications yet',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              SizedBox(height: 6),
+              Text(
+                'Join request updates will appear here.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white60),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: notifications.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final notification = notifications[index];
+        return Card(
+          color: notification.read
+              ? const Color(0xFF18211D)
+              : const Color(0xFF203A2D),
+          child: ListTile(
+            onTap: () => onOpen(notification),
+            leading: Icon(
+              notification.type == AppNotificationType.joinRequest
+                  ? Icons.person_add_alt_1
+                  : notification.type == AppNotificationType.joinApproved
+                  ? Icons.check_circle_outline
+                  : Icons.cancel_outlined,
+              color: notification.read ? Colors.white60 : Colors.greenAccent,
+            ),
+            title: Text(
+              notification.title,
+              style: TextStyle(
+                fontWeight: notification.read
+                    ? FontWeight.w500
+                    : FontWeight.w700,
+              ),
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(notification.message),
+            ),
+            trailing: notification.read
+                ? const Icon(Icons.chevron_right)
+                : IconButton(
+                    tooltip: 'Mark as read',
+                    onPressed: () => onMarkRead(notification),
+                    icon: const Icon(Icons.mark_email_read_outlined),
+                  ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 enum MatchParticipationState { organizer, confirmed, pending, available }
@@ -812,11 +1040,22 @@ MatchParticipationState resolveMatchParticipationState({
   String? requestStatus,
 }) {
   if (isOrganizer) return MatchParticipationState.organizer;
-  if (isConfirmedPlayer || requestStatus == 'approved') {
-    return MatchParticipationState.confirmed;
-  }
+  if (isConfirmedPlayer) return MatchParticipationState.confirmed;
   if (requestStatus == 'pending') return MatchParticipationState.pending;
   return MatchParticipationState.available;
+}
+
+String matchParticipationButtonLabel(
+  MatchParticipationState state, {
+  required int spotsLeft,
+}) {
+  return switch (state) {
+    MatchParticipationState.organizer => 'Cancel Match',
+    MatchParticipationState.confirmed => 'Leave Match',
+    MatchParticipationState.pending => 'Request Pending',
+    MatchParticipationState.available when spotsLeft <= 0 => 'Match Full',
+    MatchParticipationState.available => 'Request to Join',
+  };
 }
 
 int _parseSpotsLeft(Object? value) {
@@ -1009,13 +1248,38 @@ Map<String, dynamic> buildReviewRequestUpdate(
 Map<String, dynamic> buildRequestStatusUpdate(
   Map<String, dynamic> requestData, {
   required bool approve,
+  String? eventId,
 }) {
   if (requestData['status']?.toString() != 'pending') {
     throw const MatchActionException(
       'This join request has already been reviewed.',
     );
   }
-  return {'status': approve ? 'approved' : 'declined'};
+  return {
+    'status': approve ? 'approved' : 'declined',
+    if ((requestData['eventId']?.toString() ?? '').isEmpty && eventId != null)
+      'eventId': eventId,
+  };
+}
+
+Future<String> resolveOrganizerNotificationUid(
+  Map<String, dynamic> matchData,
+) async {
+  final uid = matchCreatorUid(matchData);
+  if (uid.isNotEmpty) return uid;
+  final email = matchCreatorEmail(matchData);
+  if (email.isEmpty) {
+    throw const MatchActionException('Could not identify the match organizer.');
+  }
+  final profiles = await FirebaseFirestore.instance
+      .collection('users')
+      .where('email', isEqualTo: email)
+      .limit(2)
+      .get();
+  if (profiles.docs.length != 1) {
+    throw const MatchActionException('Could not identify the match organizer.');
+  }
+  return profiles.docs.single.id;
 }
 
 Future<UserProfile?> _loadUserProfile(String uid) async {
@@ -1053,6 +1317,17 @@ class _HomeScreenState extends State<HomeScreen> {
     await FirebaseAuth.instance.signOut();
   }
 
+  Future<void> _markNotificationRead(AppNotification notification) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || notification.read) return;
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('notifications')
+        .doc(notification.id)
+        .update({'read': true});
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -1084,12 +1359,32 @@ class _HomeScreenState extends State<HomeScreen> {
             final pendingMatches = matches
                 .where((match) => pendingMatchIds.contains(match.id))
                 .toList();
-            return _buildScaffold(
-              snapshot,
-              matches,
-              pendingMatches,
-              currentUid,
-              requestsError: requestSnapshot.hasError,
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(currentUid)
+                  .collection('notifications')
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, notificationSnapshot) {
+                final notifications = notificationSnapshot.hasData
+                    ? notificationSnapshot.data!.docs
+                          .map(AppNotification.fromDocument)
+                          .toList()
+                    : <AppNotification>[];
+                return _buildScaffold(
+                  snapshot,
+                  matches,
+                  pendingMatches,
+                  currentUid,
+                  requestsError: requestSnapshot.hasError,
+                  notifications: notifications,
+                  notificationsLoading:
+                      notificationSnapshot.connectionState ==
+                      ConnectionState.waiting,
+                  notificationsError: notificationSnapshot.hasError,
+                );
+              },
             );
           },
         );
@@ -1103,6 +1398,9 @@ class _HomeScreenState extends State<HomeScreen> {
     List<Match> pendingMatches,
     String currentUid, {
     bool requestsError = false,
+    List<AppNotification> notifications = const [],
+    bool notificationsLoading = false,
+    bool notificationsError = false,
   }) {
     final now = DateTime.now();
     final currentEmail = FirebaseAuth.instance.currentUser?.email ?? '';
@@ -1133,6 +1431,26 @@ class _HomeScreenState extends State<HomeScreen> {
         currentEmail: currentEmail,
         isLoading: snapshot.connectionState == ConnectionState.waiting,
         error: snapshot.hasError || requestsError,
+      ),
+      NotificationsTab(
+        notifications: notifications,
+        isLoading: notificationsLoading,
+        error: notificationsError,
+        onMarkRead: _markNotificationRead,
+        onOpen: (notification) {
+          _markNotificationRead(notification);
+          final matching = matches.where(
+            (match) => match.id == notification.matchId,
+          );
+          if (matching.isNotEmpty) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => MatchDetailsScreen(match: matching.first),
+              ),
+            );
+          }
+        },
       ),
       const ProfileTab(),
     ];
@@ -1166,17 +1484,30 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedIndex: _selectedIndex,
         onDestinationSelected: _onItemTapped,
         backgroundColor: const Color(0xFF121A16),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+          const NavigationDestination(
             icon: Icon(Icons.sports_tennis),
             label: 'Matches',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.event_available),
             label: 'My Matches',
           ),
-          NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
+          NavigationDestination(
+            icon: NotificationBadge(
+              count: unreadNotificationCount(notifications),
+            ),
+            selectedIcon: NotificationBadge(
+              count: unreadNotificationCount(notifications),
+              selected: true,
+            ),
+            label: 'Notifications',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.person),
+            label: 'Profile',
+          ),
         ],
       ),
     );
@@ -2186,6 +2517,34 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           .collection('matches')
           .doc(widget.match.id);
       final requestRef = matchRef.collection('joinRequests').doc(user.uid);
+      final initialMatch = await matchRef.get();
+      if (!initialMatch.exists) {
+        throw const MatchActionException('This match no longer exists.');
+      }
+      final organizerUid = await resolveOrganizerNotificationUid(
+        initialMatch.data() ?? <String, dynamic>{},
+      );
+      final eventId = FirebaseFirestore.instance.collection('events').doc().id;
+      final request = JoinRequest(
+        userId: user.uid,
+        email: user.email ?? profile?.email ?? '',
+        displayName: profile?.displayName ?? '',
+        level: profile?.level ?? '',
+        status: 'pending',
+        requestedAt: DateTime.now(),
+        eventId: eventId,
+      );
+      final notificationRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(organizerUid)
+          .collection('notifications')
+          .doc(
+            notificationDocumentId(
+              AppNotificationType.joinRequest,
+              widget.match.id,
+              eventId,
+            ),
+          );
 
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snapshot = await transaction.get(matchRef);
@@ -2200,19 +2559,21 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
             'The organizer cannot join their own match.',
           );
         }
-        final request = JoinRequest(
-          userId: user.uid,
-          email: user.email ?? profile?.email ?? '',
-          displayName: profile?.displayName ?? '',
-          level: profile?.level ?? '',
-          status: 'pending',
-          requestedAt: DateTime.now(),
-        );
         validateJoinRequest(data, requestSnapshot.data(), request);
         transaction.set(requestRef, {
           ...request.toMap(),
           'requestedAt': FieldValue.serverTimestamp(),
         });
+        transaction.set(
+          notificationRef,
+          buildJoinRequestNotification(
+            recipientUid: organizerUid,
+            matchId: widget.match.id,
+            eventId: eventId,
+            actorUid: user.uid,
+            actorDisplayName: request.displayName,
+          ),
+        );
       });
 
       _showMessage('Join request sent.');
@@ -2233,6 +2594,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
     setState(() => _processingRequestIds.add(request.userId));
 
     final action = approve ? 'approval' : 'decline';
+    final fallbackEventId = FirebaseFirestore.instance
+        .collection('events')
+        .doc()
+        .id;
     void logCheckpoint(String checkpoint, [Object? details]) {
       debugPrint(
         'Join request $action [match=${widget.match.id}, '
@@ -2291,6 +2656,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
             'This join request no longer exists.',
           );
         }
+        final requestData = requestSnapshot.data()!;
+        final eventId = requestData['eventId']?.toString().isNotEmpty == true
+            ? requestData['eventId'].toString()
+            : fallbackEventId;
 
         if (approve) {
           logCheckpoint(
@@ -2299,7 +2668,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           );
           final matchUpdate = buildReviewRequestUpdate(
             data,
-            requestSnapshot.data()!,
+            requestData,
             onCheckpoint: logCheckpoint,
           );
           final normalizedPlayers = matchUpdate['players'] as List;
@@ -2312,11 +2681,37 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           logCheckpoint('match update queued');
         }
         final requestUpdate = buildRequestStatusUpdate(
-          requestSnapshot.data()!,
+          requestData,
           approve: approve,
+          eventId: eventId,
         );
         transaction.update(requestRef, requestUpdate);
         logCheckpoint('request update queued', requestUpdate);
+        final notificationType = approve
+            ? AppNotificationType.joinApproved
+            : AppNotificationType.joinDeclined;
+        final notificationRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(request.userId)
+            .collection('notifications')
+            .doc(
+              notificationDocumentId(
+                notificationType,
+                widget.match.id,
+                eventId,
+              ),
+            );
+        transaction.set(
+          notificationRef,
+          buildReviewNotification(
+            approve: approve,
+            recipientUid: request.userId,
+            matchId: widget.match.id,
+            club: data['club']?.toString() ?? '',
+            eventId: eventId,
+            actorUid: user.uid,
+          ),
+        );
       });
       logCheckpoint('transaction completion');
       _showMessage(
@@ -2364,9 +2759,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       final matchRef = FirebaseFirestore.instance
           .collection('matches')
           .doc(widget.match.id);
+      final requestRef = matchRef.collection('joinRequests').doc(user.uid);
 
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snapshot = await transaction.get(matchRef);
+        final requestSnapshot = await transaction.get(requestRef);
         if (!snapshot.exists) {
           throw const MatchActionException('This match no longer exists.');
         }
@@ -2399,6 +2796,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
               ? restoredSpots
               : capacityRemaining,
         });
+        if (requestSnapshot.exists &&
+            requestSnapshot.data()?['status']?.toString() == 'approved') {
+          transaction.update(requestRef, {'status': 'declined'});
+        }
       });
 
       _showMessage('You left the match.');
@@ -2687,12 +3088,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                               ? 'Loading request...'
                               : requestReadFailed
                               ? 'Could not load request'
-                              : participationState ==
-                                    MatchParticipationState.pending
-                              ? 'Request Pending'
-                              : match.spotsLeft <= 0
-                              ? 'Match Full'
-                              : 'Request to Join',
+                              : matchParticipationButtonLabel(
+                                  participationState,
+                                  spotsLeft: match.spotsLeft,
+                                ),
                         ),
                       ),
                     ),

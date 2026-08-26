@@ -491,6 +491,129 @@ void main() {
     );
   });
 
+  test('join request creates one deterministic organizer notification', () {
+    final data = buildJoinRequestNotification(
+      recipientUid: 'organizer',
+      matchId: 'match-1',
+      eventId: 'event-1',
+      actorUid: 'player',
+      actorDisplayName: 'Ana',
+    );
+
+    expect(data['recipientUid'], 'organizer');
+    expect(data['message'], 'Ana requested to join your match.');
+    expect(data['read'], isFalse);
+    expect(data['createdAt'], isA<FieldValue>());
+    expect(
+      notificationDocumentId(
+        AppNotificationType.joinRequest,
+        'match-1',
+        'event-1',
+      ),
+      notificationDocumentId(
+        AppNotificationType.joinRequest,
+        'match-1',
+        'event-1',
+      ),
+    );
+  });
+
+  test('approval and decline notifications contain the match club', () {
+    final approved = buildReviewNotification(
+      approve: true,
+      recipientUid: 'player',
+      matchId: 'match-1',
+      club: 'Roma Padel',
+      eventId: 'event-1',
+      actorUid: 'organizer',
+    );
+    final declined = buildReviewNotification(
+      approve: false,
+      recipientUid: 'player',
+      matchId: 'match-1',
+      club: 'Roma Padel',
+      eventId: 'event-1',
+      actorUid: 'organizer',
+    );
+
+    expect(
+      approved['message'],
+      'Your request to join the match at Roma Padel was approved.',
+    );
+    expect(
+      declined['message'],
+      'Your request to join the match at Roma Padel was declined.',
+    );
+  });
+
+  test('notification ownership denies another user', () {
+    expect(canReadNotification('recipient', 'recipient'), isTrue);
+    expect(canReadNotification('another-user', 'recipient'), isFalse);
+    expect(canReadNotification('', 'recipient'), isFalse);
+  });
+
+  test('unread notification count ignores read items', () {
+    expect(
+      unreadNotificationCount([
+        _notification(id: 'one'),
+        _notification(id: 'two', read: true),
+        _notification(id: 'three'),
+      ]),
+      2,
+    );
+  });
+
+  testWidgets('notifications show empty state', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: const [],
+            isLoading: false,
+            error: false,
+            onMarkRead: (_) {},
+            onOpen: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('No notifications yet'), findsOneWidget);
+  });
+
+  testWidgets('unread notification can be marked read', (
+    WidgetTester tester,
+  ) async {
+    AppNotification? markedRead;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: [_notification(id: 'one')],
+            isLoading: false,
+            error: false,
+            onMarkRead: (notification) => markedRead = notification,
+            onOpen: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byTooltip('Mark as read'), findsOneWidget);
+    await tester.tap(find.byTooltip('Mark as read'));
+    expect(markedRead?.id, 'one');
+  });
+
+  testWidgets('notification badge displays unread count', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: NotificationBadge(count: 3))),
+    );
+
+    expect(find.text('3'), findsOneWidget);
+  });
+
   test('a declined player can submit a new pending request', () {
     expect(
       () => validateJoinRequest(
@@ -550,14 +673,64 @@ void main() {
     );
   });
 
-  test('an approved request is treated as confirmed after reload', () {
+  test(
+    'leave refresh makes live membership authoritative for button state',
+    () {
+      final beforeLeave = resolveMatchParticipationState(
+        isOrganizer: false,
+        isConfirmedPlayer: true,
+        requestStatus: 'approved',
+      );
+      final afterLeave = resolveMatchParticipationState(
+        isOrganizer: false,
+        isConfirmedPlayer: false,
+        requestStatus: 'declined',
+      );
+
+      expect(
+        matchParticipationButtonLabel(beforeLeave, spotsLeft: 1),
+        'Leave Match',
+      );
+      expect(
+        matchParticipationButtonLabel(afterLeave, spotsLeft: 2),
+        'Request to Join',
+      );
+    },
+  );
+
+  test('approved request alone does not create stale confirmed membership', () {
     expect(
       resolveMatchParticipationState(
         isOrganizer: false,
         isConfirmedPlayer: false,
         requestStatus: 'approved',
       ),
-      MatchParticipationState.confirmed,
+      MatchParticipationState.available,
+    );
+  });
+
+  test('pending request and organizer button behavior remain unchanged', () {
+    expect(
+      matchParticipationButtonLabel(
+        resolveMatchParticipationState(
+          isOrganizer: false,
+          isConfirmedPlayer: false,
+          requestStatus: 'pending',
+        ),
+        spotsLeft: 2,
+      ),
+      'Request Pending',
+    );
+    expect(
+      matchParticipationButtonLabel(
+        resolveMatchParticipationState(
+          isOrganizer: true,
+          isConfirmedPlayer: false,
+          requestStatus: 'pending',
+        ),
+        spotsLeft: 2,
+      ),
+      'Cancel Match',
     );
   });
 
@@ -822,5 +995,21 @@ Future<void> _pumpMatches(WidgetTester tester, List<Match> matches) async {
         body: MatchesTab(matches: matches, isLoading: false, error: false),
       ),
     ),
+  );
+}
+
+AppNotification _notification({required String id, bool read = false}) {
+  return AppNotification(
+    id: id,
+    type: AppNotificationType.joinRequest,
+    recipientUid: 'recipient',
+    matchId: 'match-1',
+    title: 'New join request',
+    message: 'Ana requested to join your match.',
+    read: read,
+    createdAt: DateTime.utc(2026, 8, 26),
+    eventId: 'event-$id',
+    actorUid: 'player',
+    actorDisplayName: 'Ana',
   );
 }

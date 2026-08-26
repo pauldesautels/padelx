@@ -272,18 +272,143 @@ service cloud.firestore {
         );
     }
 
+    function matchContainsPlayer(matchData, playerUidValue) {
+      let players = playersIn(matchData);
+      return (players.size() > 0 && playerUid(players[0]) == playerUidValue)
+        || (players.size() > 1 && playerUid(players[1]) == playerUidValue)
+        || (players.size() > 2 && playerUid(players[2]) == playerUidValue);
+    }
+
+    function leaveUpdatesMatch(matchId, playerUidValue) {
+      let matchBefore = get(
+        /databases/$(database)/documents/matches/$(matchId)
+      ).data;
+      let matchAfter = getAfter(
+        /databases/$(database)/documents/matches/$(matchId)
+      ).data;
+      return matchContainsPlayer(matchBefore, playerUidValue)
+        && !matchContainsPlayer(matchAfter, playerUidValue)
+        && playersIn(matchAfter).size() == playersIn(matchBefore).size() - 1;
+    }
+
     function validRequestFields() {
       return request.resource.data.keys().hasAll([
-          'userId', 'displayName', 'level', 'email', 'status', 'requestedAt'
+          'userId', 'displayName', 'level', 'email', 'status', 'requestedAt',
+          'eventId'
         ])
         && request.resource.data.keys().hasOnly([
-          'userId', 'displayName', 'level', 'email', 'status', 'requestedAt'
+          'userId', 'displayName', 'level', 'email', 'status', 'requestedAt',
+          'eventId'
         ])
         && request.resource.data.userId is string
         && request.resource.data.displayName is string
         && request.resource.data.level is string
         && request.resource.data.email is string
+        && request.resource.data.eventId is string
+        && request.resource.data.eventId != ''
         && request.resource.data.requestedAt == request.time;
+    }
+
+    function notificationRecipientIsOrganizer(matchData, recipientUid) {
+      return (
+          'creatorUid' in matchData
+          && matchData.creatorUid != ''
+          && matchData.creatorUid == recipientUid
+        )
+        || (
+          (!('creatorUid' in matchData) || matchData.creatorUid == '')
+          && 'createdBy' in matchData
+          && matchData.createdBy == recipientUid
+        )
+        || (
+          (!('creatorUid' in matchData) || matchData.creatorUid == '')
+          && !('createdBy' in matchData)
+          && 'creatorEmail' in matchData
+          && get(/databases/$(database)/documents/users/$(recipientUid))
+            .data.email == matchData.creatorEmail
+        )
+        || (
+          (!('creatorUid' in matchData) || matchData.creatorUid == '')
+          && !('createdBy' in matchData)
+          && !('creatorEmail' in matchData)
+          && 'createdByEmail' in matchData
+          && get(/databases/$(database)/documents/users/$(recipientUid))
+            .data.email == matchData.createdByEmail
+        );
+    }
+
+    function validJoinRequestNotification(recipientUid, notificationId) {
+      let data = request.resource.data;
+      let matchData = get(
+        /databases/$(database)/documents/matches/$(data.matchId)
+      ).data;
+      let requestPath = /databases/$(database)/documents/matches/$(data.matchId)/joinRequests/$(request.auth.uid);
+      let requestAfter = getAfter(requestPath).data;
+      return data.keys().hasOnly([
+          'type', 'recipientUid', 'matchId', 'title', 'message', 'read',
+          'createdAt', 'eventId', 'actorUid', 'actorDisplayName'
+        ])
+        && data.type == 'joinRequest'
+        && data.recipientUid == recipientUid
+        && data.actorUid == request.auth.uid
+        && data.actorDisplayName == requestAfter.displayName
+        && data.title == 'New join request'
+        && data.message == requestAfter.displayName
+          + ' requested to join your match.'
+        && data.read == false
+        && data.createdAt == request.time
+        && data.eventId is string
+        && data.eventId != ''
+        && notificationId == 'joinRequest_' + data.matchId + '_' + data.eventId
+        && notificationRecipientIsOrganizer(matchData, recipientUid)
+        && requestAfter.userId == request.auth.uid
+        && requestAfter.status == 'pending'
+        && requestAfter.eventId == data.eventId
+        && (
+          (!exists(requestPath) && existsAfter(requestPath))
+          || (
+            exists(requestPath)
+            && get(requestPath).data.status == 'declined'
+            && (
+              !('eventId' in get(requestPath).data)
+              || get(requestPath).data.eventId != data.eventId
+            )
+          )
+        );
+    }
+
+    function validReviewNotification(recipientUid, notificationId) {
+      let data = request.resource.data;
+      let matchData = get(
+        /databases/$(database)/documents/matches/$(data.matchId)
+      ).data;
+      let requestPath = /databases/$(database)/documents/matches/$(data.matchId)/joinRequests/$(recipientUid);
+      let requestBefore = get(requestPath).data;
+      let requestAfter = getAfter(requestPath).data;
+      let approved = data.type == 'joinApproved';
+      let expectedStatus = approved ? 'approved' : 'declined';
+      let expectedTitle = approved ? 'Request approved' : 'Request declined';
+      let expectedMessage = 'Your request to join the match at '
+        + matchData.club + ' was ' + expectedStatus + '.';
+      return data.keys().hasOnly([
+          'type', 'recipientUid', 'matchId', 'title', 'message', 'read',
+          'createdAt', 'eventId', 'actorUid'
+        ])
+        && data.type in ['joinApproved', 'joinDeclined']
+        && data.recipientUid == recipientUid
+        && data.actorUid == request.auth.uid
+        && data.title == expectedTitle
+        && data.message == expectedMessage
+        && data.read == false
+        && data.createdAt == request.time
+        && data.eventId is string
+        && data.eventId != ''
+        && notificationId == data.type + '_' + data.matchId + '_' + data.eventId
+        && isOrganizer(data.matchId)
+        && requestBefore.userId == recipientUid
+        && requestBefore.status == 'pending'
+        && requestAfter.status == expectedStatus
+        && requestAfter.eventId == data.eventId;
     }
 
     match /users/{userId} {
@@ -297,6 +422,21 @@ service cloud.firestore {
         && resource.data.uid == userId
         && request.resource.data.uid == userId;
       allow delete: if signedIn() && request.auth.uid == userId;
+
+      match /notifications/{notificationId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow create: if signedIn() && (
+          validJoinRequestNotification(userId, notificationId)
+          || validReviewNotification(userId, notificationId)
+        );
+        allow update: if signedIn()
+          && request.auth.uid == userId
+          && resource.data.read == false
+          && request.resource.data.read == true
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['read']);
+        allow delete: if false;
+      }
     }
 
     match /matches/{matchId} {
@@ -344,10 +484,29 @@ service cloud.firestore {
             && validRequestFields()
           )
           || (
+            request.auth.uid == userId
+            && resource.data.status == 'approved'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status'])
+            && request.resource.data.status == 'declined'
+            && leaveUpdatesMatch(matchId, userId)
+          )
+          || (
             isOrganizer(matchId)
             && resource.data.status == 'pending'
             && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['status'])
+              .hasOnly(['status', 'eventId'])
+            && (
+              (
+                'eventId' in resource.data
+                && request.resource.data.eventId == resource.data.eventId
+              )
+              || (
+                !('eventId' in resource.data)
+                && request.resource.data.eventId is string
+                && request.resource.data.eventId != ''
+              )
+            )
             && request.resource.data.status in ['approved', 'declined']
             && (
               request.resource.data.status == 'declined'
