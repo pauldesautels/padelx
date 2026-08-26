@@ -1,0 +1,363 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOrganizer(matchId) {
+      let matchData = get(
+        /databases/$(database)/documents/matches/$(matchId)
+      ).data;
+      return signedIn() && (
+        (
+          'creatorUid' in matchData
+          && matchData.creatorUid != ''
+          && matchData.creatorUid == request.auth.uid
+        )
+        || (
+          (
+            !('creatorUid' in matchData)
+            || matchData.creatorUid == ''
+          )
+          && 'createdBy' in matchData
+          && matchData.createdBy == request.auth.uid
+        )
+        || (
+          (
+            !('creatorUid' in matchData)
+            || matchData.creatorUid == ''
+          )
+          && !('createdBy' in matchData)
+          && 'creatorEmail' in matchData
+          && 'email' in request.auth.token
+          && request.auth.token.email is string
+          && matchData.creatorEmail == request.auth.token.email
+        )
+        || (
+          (
+            !('creatorUid' in matchData)
+            || matchData.creatorUid == ''
+          )
+          && !('createdBy' in matchData)
+          && !('creatorEmail' in matchData)
+          && 'createdByEmail' in matchData
+          && 'email' in request.auth.token
+          && request.auth.token.email is string
+          && matchData.createdByEmail == request.auth.token.email
+        )
+      );
+    }
+
+    function playersIn(matchData) {
+      return 'players' in matchData && matchData.players is list
+        ? matchData.players
+        : [];
+    }
+
+    function existingPlayers() {
+      return playersIn(resource.data);
+    }
+
+    function spotsLeftIn(matchData) {
+      return !('spotsLeft' in matchData)
+        ? -1
+        : matchData.spotsLeft is int
+        ? matchData.spotsLeft
+        : matchData.spotsLeft in ['1', '1 spot', '1 spot left']
+        ? 1
+        : matchData.spotsLeft in ['2', '2 spots', '2 spots left']
+        ? 2
+        : matchData.spotsLeft in ['3', '3 spots', '3 spots left']
+        ? 3
+        : -1;
+    }
+
+    function existingSpotsLeft() {
+      return spotsLeftIn(resource.data);
+    }
+
+    function playerUid(player) {
+      return 'uid' in player
+        ? player.uid
+        : 'userId' in player
+        ? player.userId
+        : '';
+    }
+
+    function playerIsNotOrganizer(playerUidValue, playerEmail) {
+      return (
+          !('creatorUid' in resource.data)
+          || resource.data.creatorUid != playerUidValue
+        )
+        && (
+          !('creatorEmail' in resource.data)
+          || resource.data.creatorEmail != playerEmail
+        );
+    }
+
+    function removesOnlyAuthenticatedPlayer() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['players', 'spotsLeft'])
+        && request.resource.data.players is list
+        && resource.data.players is list
+        && request.resource.data.spotsLeft is int
+        && existingSpotsLeft() >= 0
+        && (
+          (
+            existingSpotsLeft() + 1
+              <= 3 - request.resource.data.players.size()
+            && request.resource.data.spotsLeft
+              == existingSpotsLeft() + 1
+          )
+          || (
+            existingSpotsLeft() + 1
+              > 3 - request.resource.data.players.size()
+            && request.resource.data.spotsLeft
+              == 3 - request.resource.data.players.size()
+          )
+        )
+        && (
+          (
+            resource.data.players.size() == 1
+            && request.resource.data.players.size() == 0
+            && playerUid(resource.data.players[0]) == request.auth.uid
+          )
+          || (
+            resource.data.players.size() == 2
+            && request.resource.data.players.size() == 1
+            && (
+              (
+                playerUid(resource.data.players[0]) == request.auth.uid
+                && request.resource.data.players[0] == resource.data.players[1]
+              )
+              || (
+                playerUid(resource.data.players[1]) == request.auth.uid
+                && request.resource.data.players[0] == resource.data.players[0]
+              )
+            )
+          )
+          || (
+            resource.data.players.size() == 3
+            && request.resource.data.players.size() == 2
+            && (
+              (
+                playerUid(resource.data.players[0]) == request.auth.uid
+                && request.resource.data.players[0] == resource.data.players[1]
+                && request.resource.data.players[1] == resource.data.players[2]
+              )
+              || (
+                playerUid(resource.data.players[1]) == request.auth.uid
+                && request.resource.data.players[0] == resource.data.players[0]
+                && request.resource.data.players[1] == resource.data.players[2]
+              )
+              || (
+                playerUid(resource.data.players[2]) == request.auth.uid
+                && request.resource.data.players[0] == resource.data.players[0]
+                && request.resource.data.players[1] == resource.data.players[1]
+              )
+            )
+          )
+        );
+    }
+
+    function preservesPlayersAndAppendsOne() {
+      return request.resource.data.players.size()
+          == existingPlayers().size() + 1
+        && request.resource.data.players.size() <= 3
+        && (
+          existingPlayers().size() == 0
+          || (
+            existingPlayers().size() == 1
+            && request.resource.data.players[0] == existingPlayers()[0]
+          )
+          || (
+            existingPlayers().size() == 2
+            && request.resource.data.players[0] == existingPlayers()[0]
+            && request.resource.data.players[1] == existingPlayers()[1]
+          )
+        );
+    }
+
+    function appendedPlayerUid() {
+      return request.resource.data.players[existingPlayers().size()].uid;
+    }
+
+    function appendedPlayerIsUnique() {
+      return existingPlayers().size() == 0
+        || (
+          existingPlayers().size() == 1
+          && playerUid(existingPlayers()[0]) != appendedPlayerUid()
+        )
+        || (
+          existingPlayers().size() == 2
+          && playerUid(existingPlayers()[0]) != appendedPlayerUid()
+          && playerUid(existingPlayers()[1]) != appendedPlayerUid()
+        );
+    }
+
+    function requestIsAtomicallyApproved(matchId, playerUid) {
+      return get(
+          /databases/$(database)/documents/matches/$(matchId)/joinRequests/$(playerUid)
+        ).data.status == 'pending'
+        && getAfter(
+          /databases/$(database)/documents/matches/$(matchId)/joinRequests/$(playerUid)
+        ).data.status == 'approved';
+    }
+
+    function appendedPlayerMatchesRequest(matchId, playerUid) {
+      let joinRequest = get(
+        /databases/$(database)/documents/matches/$(matchId)/joinRequests/$(playerUid)
+      ).data;
+      let player = request.resource.data.players[existingPlayers().size()];
+      return player.keys().hasOnly(['uid', 'email', 'displayName', 'level'])
+        && player.uid == joinRequest.userId
+        && player.email == joinRequest.email
+        && player.displayName == joinRequest.displayName
+        && player.level == joinRequest.level;
+    }
+
+    function organizerApprovesPendingRequest(matchId) {
+      let playerUid = appendedPlayerUid();
+      return isOrganizer(matchId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['players', 'spotsLeft'])
+        && request.resource.data.players is list
+        && request.resource.data.spotsLeft is int
+        && existingSpotsLeft() > 0
+        && preservesPlayersAndAppendsOne()
+        && (
+          (
+            existingSpotsLeft() - 1
+              <= 3 - request.resource.data.players.size()
+            && request.resource.data.spotsLeft
+              == existingSpotsLeft() - 1
+          )
+          || (
+            existingSpotsLeft() - 1
+              > 3 - request.resource.data.players.size()
+            && request.resource.data.spotsLeft
+              == 3 - request.resource.data.players.size()
+          )
+        )
+        && playerUid is string
+        && playerIsNotOrganizer(
+          playerUid,
+          request.resource.data.players[existingPlayers().size()].email
+        )
+        && appendedPlayerIsUnique()
+        && requestIsAtomicallyApproved(matchId, playerUid)
+        && appendedPlayerMatchesRequest(matchId, playerUid);
+    }
+
+    function approvalUpdatesMatch(matchId, playerUid) {
+      let matchBefore = get(
+        /databases/$(database)/documents/matches/$(matchId)
+      ).data;
+      let matchAfter = getAfter(
+        /databases/$(database)/documents/matches/$(matchId)
+      ).data;
+      return matchAfter.players.size() == playersIn(matchBefore).size() + 1
+        && matchAfter.players[playersIn(matchBefore).size()].uid == playerUid
+        && (
+          (
+            spotsLeftIn(matchBefore) - 1 <= 3 - matchAfter.players.size()
+            && matchAfter.spotsLeft == spotsLeftIn(matchBefore) - 1
+          )
+          || (
+            spotsLeftIn(matchBefore) - 1 > 3 - matchAfter.players.size()
+            && matchAfter.spotsLeft == 3 - matchAfter.players.size()
+          )
+        );
+    }
+
+    function validRequestFields() {
+      return request.resource.data.keys().hasAll([
+          'userId', 'displayName', 'level', 'email', 'status', 'requestedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'userId', 'displayName', 'level', 'email', 'status', 'requestedAt'
+        ])
+        && request.resource.data.userId is string
+        && request.resource.data.displayName is string
+        && request.resource.data.level is string
+        && request.resource.data.email is string
+        && request.resource.data.requestedAt == request.time;
+    }
+
+    match /users/{userId} {
+      // Match participants need profiles to show current display names/levels.
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId;
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && resource.data.uid == userId
+        && request.resource.data.uid == userId;
+      allow delete: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /matches/{matchId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.creatorUid == request.auth.uid
+        && request.resource.data.players is list
+        && request.resource.data.players.size() == 0
+        && request.resource.data.spotsLeft is int
+        && request.resource.data.spotsLeft >= 1
+        && request.resource.data.spotsLeft <= 3;
+      allow delete: if isOrganizer(matchId);
+
+      // Match updates are limited to an atomic organizer approval or a player
+      // removing their exact own entry. Neither path can change creatorUid.
+      allow update: if signedIn()
+        && (
+          organizerApprovesPendingRequest(matchId)
+          || removesOnlyAuthenticatedPlayer()
+        );
+
+      match /joinRequests/{userId} {
+        allow get: if signedIn()
+          && (request.auth.uid == userId || isOrganizer(matchId));
+        allow list: if signedIn()
+          && (isOrganizer(matchId) || request.auth.uid == resource.data.userId);
+
+        // A non-organizer can create only their own pending request.
+        allow create: if signedIn()
+          && request.auth.uid == userId
+          && !isOrganizer(matchId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.status == 'pending'
+          && validRequestFields();
+
+        // Requesters may retry only after decline. Only the organizer may
+        // transition a pending request to approved or declined.
+        allow update: if signedIn() && (
+          (
+            request.auth.uid == userId
+            && !isOrganizer(matchId)
+            && resource.data.status == 'declined'
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.status == 'pending'
+            && validRequestFields()
+          )
+          || (
+            isOrganizer(matchId)
+            && resource.data.status == 'pending'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status'])
+            && request.resource.data.status in ['approved', 'declined']
+            && (
+              request.resource.data.status == 'declined'
+              || approvalUpdatesMatch(matchId, userId)
+            )
+          )
+        );
+
+        allow delete: if isOrganizer(matchId);
+      }
+    }
+  }
+}

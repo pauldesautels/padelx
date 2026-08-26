@@ -627,8 +627,8 @@ class Match {
       club: data['club']?.toString() ?? '',
       level: data['level']?.toString() ?? '',
       spotsLeft: _parseSpotsLeft(data['spotsLeft']),
-      creatorUid: data['creatorUid']?.toString() ?? '',
-      creatorEmail: data['creatorEmail']?.toString() ?? '',
+      creatorUid: matchCreatorUid(data),
+      creatorEmail: matchCreatorEmail(data),
       creatorDisplayName: data['creatorDisplayName']?.toString() ?? '',
       creatorLevel: data['creatorLevel']?.toString() ?? '',
       scheduledAt: _parseScheduledAt(data['scheduledAt']),
@@ -639,6 +639,14 @@ class Match {
     );
   }
 }
+
+String matchCreatorUid(Map<dynamic, dynamic> data) =>
+    data['creatorUid']?.toString() ?? data['createdBy']?.toString() ?? '';
+
+String matchCreatorEmail(Map<dynamic, dynamic> data) =>
+    data['creatorEmail']?.toString() ??
+    data['createdByEmail']?.toString() ??
+    '';
 
 DateTime? _parseScheduledAt(Object? value) {
   if (value is Timestamp) return value.toDate();
@@ -708,12 +716,107 @@ class MatchPlayer {
 
   factory MatchPlayer.fromMap(Map<dynamic, dynamic> data) {
     return MatchPlayer(
-      uid: data['uid']?.toString() ?? '',
+      uid: data['uid']?.toString() ?? data['userId']?.toString() ?? '',
       email: data['email']?.toString() ?? '',
       displayName: data['displayName']?.toString() ?? '',
       level: data['level']?.toString() ?? '',
     );
   }
+}
+
+bool isOrganizerIdentity(
+  Map<dynamic, dynamic> matchData,
+  String uid,
+  String email,
+) {
+  final creatorUid = matchCreatorUid(matchData);
+  if (creatorUid.isNotEmpty) return creatorUid == uid;
+  final creatorEmail = matchCreatorEmail(matchData).toLowerCase();
+  return creatorEmail.isNotEmpty && creatorEmail == email.toLowerCase();
+}
+
+bool _isMatchOrganizer(Match match, String uid, String email) =>
+    isOrganizerIdentity(
+      {'creatorUid': match.creatorUid, 'creatorEmail': match.creatorEmail},
+      uid,
+      email,
+    );
+
+String _playerUid(Map<dynamic, dynamic> player) =>
+    player['uid']?.toString() ?? player['userId']?.toString() ?? '';
+
+class JoinRequest {
+  final String matchId;
+  final String userId;
+  final String displayName;
+  final String level;
+  final String email;
+  final String status;
+  final DateTime? requestedAt;
+
+  const JoinRequest({
+    this.matchId = '',
+    required this.userId,
+    required this.displayName,
+    required this.level,
+    required this.email,
+    required this.status,
+    this.requestedAt,
+  });
+
+  factory JoinRequest.fromMap(Map<dynamic, dynamic> data) {
+    return JoinRequest(
+      userId: data['userId']?.toString() ?? '',
+      displayName: data['displayName']?.toString() ?? '',
+      level: data['level']?.toString() ?? '',
+      email: data['email']?.toString() ?? '',
+      status: data['status']?.toString() ?? '',
+      requestedAt: _parseScheduledAt(data['requestedAt']),
+    );
+  }
+
+  factory JoinRequest.fromDocument(
+    DocumentSnapshot<Map<String, dynamic>> document,
+  ) {
+    final request = JoinRequest.fromMap(
+      document.data() ?? const <String, dynamic>{},
+    );
+    return JoinRequest(
+      matchId: document.reference.parent.parent?.id ?? '',
+      userId: request.userId,
+      displayName: request.displayName,
+      level: request.level,
+      email: request.email,
+      status: request.status,
+      requestedAt: request.requestedAt,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'userId': userId,
+    'displayName': displayName,
+    'level': level,
+    'email': email,
+    'status': status,
+    'requestedAt': requestedAt == null
+        ? Timestamp.now()
+        : Timestamp.fromDate(requestedAt!),
+  };
+}
+
+enum MatchParticipationState { organizer, confirmed, pending, available }
+
+MatchParticipationState resolveMatchParticipationState({
+  required bool isOrganizer,
+  required bool isConfirmedPlayer,
+  String? requestStatus,
+}) {
+  if (isOrganizer) return MatchParticipationState.organizer;
+  if (isConfirmedPlayer || requestStatus == 'approved') {
+    return MatchParticipationState.confirmed;
+  }
+  if (requestStatus == 'pending') return MatchParticipationState.pending;
+  return MatchParticipationState.available;
 }
 
 int _parseSpotsLeft(Object? value) {
@@ -722,6 +825,197 @@ int _parseSpotsLeft(Object? value) {
         RegExp(r'\d+').firstMatch(value?.toString() ?? '')?.group(0) ?? '',
       ) ??
       0;
+}
+
+Object? normalizeFirestoreValue(Object? value) {
+  if (value == null ||
+      value is String ||
+      value is num ||
+      value is bool ||
+      value is Timestamp ||
+      value is GeoPoint ||
+      value is Blob ||
+      value is DocumentReference) {
+    return value;
+  }
+  if (value is DateTime) return Timestamp.fromDate(value);
+  if (value is Map) {
+    final normalized = <String, dynamic>{};
+    for (final entry in value.entries) {
+      if (entry.key is! String) {
+        throw FormatException(
+          'Firestore map keys must be strings, found ${entry.key.runtimeType}.',
+        );
+      }
+      normalized[entry.key as String] = normalizeFirestoreValue(entry.value);
+    }
+    return normalized;
+  }
+  if (value is Iterable) {
+    return value.map(normalizeFirestoreValue).toList(growable: true);
+  }
+  throw FormatException(
+    'Unsupported Firestore player value type: ${value.runtimeType}.',
+  );
+}
+
+List<Map<String, dynamic>> normalizeLegacyPlayers(Object? value) {
+  if (value == null) return <Map<String, dynamic>>[];
+  final normalized = normalizeFirestoreValue(value);
+  if (normalized is! List) {
+    throw FormatException(
+      'The legacy players field must be a list, found ${value.runtimeType}.',
+    );
+  }
+  return normalized
+      .map((player) {
+        if (player is! Map<String, dynamic>) {
+          throw FormatException(
+            'Every legacy player must be a map, found ${player.runtimeType}.',
+          );
+        }
+        return player;
+      })
+      .toList(growable: true);
+}
+
+({Object error, StackTrace stackTrace}) _unboxWebError(
+  Object error,
+  StackTrace stackTrace,
+) {
+  try {
+    final dynamic boxedError = error;
+    final dynamic innerError = boxedError.error;
+    if (innerError is Object) {
+      final dynamic innerStack = boxedError.stack;
+      return (
+        error: innerError,
+        stackTrace: innerStack is StackTrace
+            ? innerStack
+            : StackTrace.fromString(
+                innerStack?.toString() ?? stackTrace.toString(),
+              ),
+      );
+    }
+  } catch (_) {
+    // Native platforms and ordinary Dart errors do not expose boxed JS fields.
+  }
+  return (error: error, stackTrace: stackTrace);
+}
+
+void validateJoinRequest(
+  Map<String, dynamic> matchData,
+  Map<String, dynamic>? existingRequestData,
+  JoinRequest request,
+) {
+  final players = normalizeLegacyPlayers(matchData['players']);
+  if (players.whereType<Map>().any(
+    (player) => _playerUid(player) == request.userId,
+  )) {
+    throw const MatchActionException(
+      'You are already a confirmed player in this match.',
+    );
+  }
+
+  if (existingRequestData?['status']?.toString() == 'pending') {
+    throw const MatchActionException('Your request is already pending.');
+  }
+  if (existingRequestData?['status']?.toString() == 'approved') {
+    throw const MatchActionException(
+      'You are already a confirmed player in this match.',
+    );
+  }
+}
+
+Map<String, dynamic> buildReviewRequestUpdate(
+  Map<String, dynamic> matchData,
+  Map<String, dynamic> requestData, {
+  void Function(String checkpoint, Object? details)? onCheckpoint,
+}) {
+  void checkpoint(String name, [Object? details]) =>
+      onCheckpoint?.call(name, details);
+
+  checkpoint('request status access starting');
+  if (requestData['status']?.toString() != 'pending') {
+    throw const MatchActionException(
+      'This join request has already been reviewed.',
+    );
+  }
+  checkpoint('request status validated');
+
+  checkpoint('legacy player normalization starting');
+  final players = normalizeLegacyPlayers(matchData['players']);
+  checkpoint('legacy player normalization complete', 'count=${players.length}');
+  checkpoint('confirmed ID calculation starting');
+  final confirmedIds = players
+      .whereType<Map>()
+      .map(_playerUid)
+      .where((uid) => uid.isNotEmpty)
+      .toSet();
+  checkpoint(
+    'confirmed ID calculation complete',
+    'count=${confirmedIds.length}',
+  );
+  checkpoint('request userId access starting');
+  final requestUserId = requestData['userId']?.toString() ?? '';
+  checkpoint(
+    'request userId access complete',
+    'isEmpty=${requestUserId.isEmpty}',
+  );
+  checkpoint('duplicate check starting');
+  if (confirmedIds.contains(requestUserId)) {
+    throw const MatchActionException('This player is already confirmed.');
+  }
+  checkpoint('duplicate check complete');
+  checkpoint(
+    'spotsLeft parsing starting',
+    'type=${matchData['spotsLeft'].runtimeType}',
+  );
+  final spotsLeft = _parseSpotsLeft(matchData['spotsLeft']);
+  checkpoint('spotsLeft parsing complete', spotsLeft);
+  checkpoint('capacity check starting');
+  if (confirmedIds.length >= 3 || spotsLeft <= 0) {
+    throw const MatchActionException(
+      'This match is full. The request was not approved.',
+    );
+  }
+  checkpoint('capacity check complete');
+  checkpoint('approved player construction starting');
+  players.add({
+    'uid': requestUserId,
+    'email': requestData['email']?.toString() ?? '',
+    'displayName': requestData['displayName']?.toString() ?? '',
+    'level': requestData['level']?.toString() ?? '',
+  });
+  checkpoint(
+    'approved player construction complete',
+    players.last.keys.toList(),
+  );
+  checkpoint('remaining capacity calculation starting');
+  final capacityRemaining = 3 - (confirmedIds.length + 1);
+  final configuredRemaining = spotsLeft - 1;
+  checkpoint(
+    'remaining capacity calculation complete',
+    'configured=$configuredRemaining, capacity=$capacityRemaining',
+  );
+  return {
+    'players': players,
+    'spotsLeft': configuredRemaining < capacityRemaining
+        ? configuredRemaining
+        : capacityRemaining,
+  };
+}
+
+Map<String, dynamic> buildRequestStatusUpdate(
+  Map<String, dynamic> requestData, {
+  required bool approve,
+}) {
+  if (requestData['status']?.toString() != 'pending') {
+    throw const MatchActionException(
+      'This join request has already been reviewed.',
+    );
+  }
+  return {'status': approve ? 'approved' : 'declined'};
 }
 
 Future<UserProfile?> _loadUserProfile(String uid) async {
@@ -770,84 +1064,121 @@ class _HomeScreenState extends State<HomeScreen> {
         final matches = snapshot.hasData
             ? snapshot.data!.docs.map((doc) => Match.fromDocument(doc)).toList()
             : <Match>[];
-        final now = DateTime.now();
-        final openMatches = sortedMatches(
-          matches.where((match) => !isPastMatch(match, now)),
-        );
         final currentUid = FirebaseAuth.instance.currentUser?.uid;
-        final myMatches = currentUid == null
-            ? <Match>[]
-            : matches
-                  .where(
-                    (match) =>
-                        match.creatorUid == currentUid ||
-                        match.players.any((player) => player.uid == currentUid),
-                  )
-                  .toList();
-
-        final screens = [
-          HomeTab(
-            onCreateMatch: _openCreateMatchScreen,
-            openMatchesCount: openMatches.length,
-          ),
-          MatchesTab(
-            matches: openMatches,
-            isLoading: snapshot.connectionState == ConnectionState.waiting,
-            error: snapshot.hasError,
-          ),
-          MyMatchesTab(
-            matches: myMatches,
-            currentUid: currentUid ?? '',
-            isLoading: snapshot.connectionState == ConnectionState.waiting,
-            error: snapshot.hasError,
-          ),
-          const ProfileTab(),
-        ];
-
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text(
-              'PadelX',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            centerTitle: true,
-            backgroundColor: const Color(0xFF0F1412),
-            elevation: 0,
-            actions: [
-              IconButton(
-                tooltip: 'Log out',
-                onPressed: _logout,
-                icon: const Icon(Icons.logout),
-              ),
-            ],
-          ),
-          body: screens[_selectedIndex],
-          floatingActionButton: _selectedIndex == 1
-              ? FloatingActionButton.extended(
-                  onPressed: _openCreateMatchScreen,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Create'),
-                )
-              : null,
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: _onItemTapped,
-            backgroundColor: const Color(0xFF121A16),
-            destinations: const [
-              NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
-              NavigationDestination(
-                icon: Icon(Icons.sports_tennis),
-                label: 'Matches',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.event_available),
-                label: 'My Matches',
-              ),
-              NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
-            ],
-          ),
+        if (currentUid == null) {
+          return _buildScaffold(snapshot, matches, const [], '');
+        }
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collectionGroup('joinRequests')
+              .where('userId', isEqualTo: currentUid)
+              .snapshots(),
+          builder: (context, requestSnapshot) {
+            final pendingMatchIds = requestSnapshot.hasData
+                ? requestSnapshot.data!.docs
+                      .map(JoinRequest.fromDocument)
+                      .where((request) => request.status == 'pending')
+                      .map((request) => request.matchId)
+                      .toSet()
+                : <String>{};
+            final pendingMatches = matches
+                .where((match) => pendingMatchIds.contains(match.id))
+                .toList();
+            return _buildScaffold(
+              snapshot,
+              matches,
+              pendingMatches,
+              currentUid,
+              requestsError: requestSnapshot.hasError,
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildScaffold(
+    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
+    List<Match> matches,
+    List<Match> pendingMatches,
+    String currentUid, {
+    bool requestsError = false,
+  }) {
+    final now = DateTime.now();
+    final currentEmail = FirebaseAuth.instance.currentUser?.email ?? '';
+    final openMatches = sortedMatches(
+      matches.where((match) => !isPastMatch(match, now)),
+    );
+    final myMatches = matches
+        .where(
+          (match) =>
+              _isMatchOrganizer(match, currentUid, currentEmail) ||
+              match.players.any((player) => player.uid == currentUid),
+        )
+        .toList();
+    final screens = [
+      HomeTab(
+        onCreateMatch: _openCreateMatchScreen,
+        openMatchesCount: openMatches.length,
+      ),
+      MatchesTab(
+        matches: openMatches,
+        isLoading: snapshot.connectionState == ConnectionState.waiting,
+        error: snapshot.hasError,
+      ),
+      MyMatchesTab(
+        matches: myMatches,
+        pendingMatches: pendingMatches,
+        currentUid: currentUid,
+        currentEmail: currentEmail,
+        isLoading: snapshot.connectionState == ConnectionState.waiting,
+        error: snapshot.hasError || requestsError,
+      ),
+      const ProfileTab(),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'PadelX',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        backgroundColor: const Color(0xFF0F1412),
+        elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Log out',
+            onPressed: _logout,
+            icon: const Icon(Icons.logout),
+          ),
+        ],
+      ),
+      body: screens[_selectedIndex],
+      floatingActionButton: _selectedIndex == 1
+          ? FloatingActionButton.extended(
+              onPressed: _openCreateMatchScreen,
+              icon: const Icon(Icons.add),
+              label: const Text('Create'),
+            )
+          : null,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: _onItemTapped,
+        backgroundColor: const Color(0xFF121A16),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+          NavigationDestination(
+            icon: Icon(Icons.sports_tennis),
+            label: 'Matches',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.event_available),
+            label: 'My Matches',
+          ),
+          NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
+        ],
+      ),
     );
   }
 }
@@ -1249,14 +1580,18 @@ class MatchCard extends StatelessWidget {
 
 class MyMatchesTab extends StatelessWidget {
   final List<Match> matches;
+  final List<Match> pendingMatches;
   final String currentUid;
+  final String currentEmail;
   final bool isLoading;
   final bool error;
 
   const MyMatchesTab({
     super.key,
     required this.matches,
+    this.pendingMatches = const [],
     required this.currentUid,
+    this.currentEmail = '',
     required this.isLoading,
     required this.error,
   });
@@ -1271,7 +1606,7 @@ class MyMatchesTab extends StatelessWidget {
       return const Center(child: Text('Could not load your matches.'));
     }
 
-    if (matches.isEmpty) {
+    if (matches.isEmpty && pendingMatches.isEmpty) {
       return const Center(child: Text('You have no matches yet'));
     }
 
@@ -1296,6 +1631,18 @@ class MyMatchesTab extends StatelessWidget {
           style: TextStyle(fontSize: 16, color: Colors.white70),
         ),
         const SizedBox(height: 20),
+        if (pendingMatches.isNotEmpty) ...[
+          const Text(
+            'Pending Requests',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          ...sortedMatches(pendingMatches).map(
+            (match) =>
+                MatchCard(match: match, relationshipLabel: 'Request Pending'),
+          ),
+          const SizedBox(height: 12),
+        ],
         const Text(
           'Upcoming',
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
@@ -1312,7 +1659,8 @@ class MyMatchesTab extends StatelessWidget {
         ...upcomingMatches.map(
           (match) => MatchCard(
             match: match,
-            relationshipLabel: match.creatorUid == currentUid
+            relationshipLabel:
+                _isMatchOrganizer(match, currentUid, currentEmail)
                 ? 'Organizing'
                 : 'Joined',
           ),
@@ -1332,7 +1680,8 @@ class MyMatchesTab extends StatelessWidget {
           ...pastMatches.map(
             (match) => MatchCard(
               match: match,
-              relationshipLabel: match.creatorUid == currentUid
+              relationshipLabel:
+                  _isMatchOrganizer(match, currentUid, currentEmail)
                   ? 'Organizing'
                   : 'Joined',
             ),
@@ -1622,6 +1971,14 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       );
       return;
     }
+    if (spotsLeft > 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('A padel match can have at most 4 players.'),
+        ),
+      );
+      return;
+    }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -1809,74 +2166,188 @@ class MatchDetailsScreen extends StatefulWidget {
 }
 
 class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
-  bool _isJoining = false;
+  bool _isRequesting = false;
   bool _isLeaving = false;
   bool _isCancelling = false;
+  final Set<String> _processingRequestIds = {};
 
-  Future<void> _joinMatch() async {
+  Future<void> _requestToJoin() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showMessage('Please log in to join a match.');
+      _showMessage('Please log in to request to join a match.');
       return;
     }
 
-    setState(() => _isJoining = true);
+    setState(() => _isRequesting = true);
 
     try {
       final profile = await _loadUserProfile(user.uid);
       final matchRef = FirebaseFirestore.instance
           .collection('matches')
           .doc(widget.match.id);
+      final requestRef = matchRef.collection('joinRequests').doc(user.uid);
 
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snapshot = await transaction.get(matchRef);
+        final requestSnapshot = await transaction.get(requestRef);
         if (!snapshot.exists) {
-          throw const JoinMatchException('This match no longer exists.');
+          throw const MatchActionException('This match no longer exists.');
         }
 
         final data = snapshot.data() ?? <String, dynamic>{};
-        if (data['creatorUid']?.toString() == user.uid) {
+        if (isOrganizerIdentity(data, user.uid, user.email ?? '')) {
           throw const MatchActionException(
             'The organizer cannot join their own match.',
           );
         }
-        final players = List<dynamic>.from(
-          data['players'] as List? ?? const [],
+        final request = JoinRequest(
+          userId: user.uid,
+          email: user.email ?? profile?.email ?? '',
+          displayName: profile?.displayName ?? '',
+          level: profile?.level ?? '',
+          status: 'pending',
+          requestedAt: DateTime.now(),
         );
-        final hasJoined = players.whereType<Map>().any(
-          (player) => player['uid']?.toString() == user.uid,
-        );
-
-        if (hasJoined) {
-          throw const JoinMatchException('You have already joined this match.');
-        }
-
-        final spotsLeft = _parseSpotsLeft(data['spotsLeft']);
-        if (spotsLeft <= 0) {
-          throw const JoinMatchException('This match has no spots remaining.');
-        }
-
-        players.add({
-          'uid': user.uid,
-          'email': user.email ?? '',
-          'displayName': profile?.displayName ?? '',
-          'level': profile?.level ?? '',
-        });
-        transaction.update(matchRef, {
-          'players': players,
-          'spotsLeft': spotsLeft - 1,
+        validateJoinRequest(data, requestSnapshot.data(), request);
+        transaction.set(requestRef, {
+          ...request.toMap(),
+          'requestedAt': FieldValue.serverTimestamp(),
         });
       });
 
-      _showMessage('You joined the match successfully.');
-    } on JoinMatchException catch (error) {
+      _showMessage('Join request sent.');
+    } on MatchActionException catch (error) {
       _showMessage(error.message);
     } on FirebaseException catch (error) {
-      _showMessage(error.message ?? 'Could not join the match.');
+      _showMessage(error.message ?? 'Could not send your join request.');
     } catch (_) {
-      _showMessage('Could not join the match. Please try again.');
+      _showMessage('Could not send your join request. Please try again.');
     } finally {
-      if (mounted) setState(() => _isJoining = false);
+      if (mounted) setState(() => _isRequesting = false);
+    }
+  }
+
+  Future<void> _reviewRequest(JoinRequest request, bool approve) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || _processingRequestIds.contains(request.userId)) return;
+    setState(() => _processingRequestIds.add(request.userId));
+
+    final action = approve ? 'approval' : 'decline';
+    void logCheckpoint(String checkpoint, [Object? details]) {
+      debugPrint(
+        'Join request $action [match=${widget.match.id}, '
+        'request=${request.userId}] $checkpoint'
+        '${details == null ? '' : ': $details'}',
+      );
+    }
+
+    try {
+      final matchRef = FirebaseFirestore.instance
+          .collection('matches')
+          .doc(widget.match.id);
+      final requestRef = matchRef
+          .collection('joinRequests')
+          .doc(request.userId);
+      logCheckpoint('transaction start');
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        logCheckpoint('match read starting');
+        final snapshot = await transaction.get(matchRef);
+        logCheckpoint(
+          'match read complete',
+          'exists=${snapshot.exists}, fields=${snapshot.data()?.keys.toList()}',
+        );
+        logCheckpoint('request read starting');
+        final requestSnapshot = await transaction.get(requestRef);
+        logCheckpoint(
+          'request read complete',
+          'exists=${requestSnapshot.exists}, '
+              'status=${requestSnapshot.data()?['status']}',
+        );
+        if (!snapshot.exists) {
+          throw const MatchActionException('This match no longer exists.');
+        }
+        final data = snapshot.data() ?? <String, dynamic>{};
+        logCheckpoint(
+          'organizer identity check starting',
+          'uidField=${matchCreatorUid(data).isNotEmpty}, '
+              'emailField=${matchCreatorEmail(data).isNotEmpty}',
+        );
+        final organizerRecognized = isOrganizerIdentity(
+          data,
+          user.uid,
+          user.email ?? '',
+        );
+        logCheckpoint(
+          'organizer identity check complete',
+          'recognized=$organizerRecognized',
+        );
+        if (!organizerRecognized) {
+          throw const MatchActionException(
+            'Only the organizer can review join requests.',
+          );
+        }
+        if (!requestSnapshot.exists) {
+          throw const MatchActionException(
+            'This join request no longer exists.',
+          );
+        }
+
+        if (approve) {
+          logCheckpoint(
+            'player normalization starting',
+            'rawType=${data['players'].runtimeType}',
+          );
+          final matchUpdate = buildReviewRequestUpdate(
+            data,
+            requestSnapshot.data()!,
+            onCheckpoint: logCheckpoint,
+          );
+          final normalizedPlayers = matchUpdate['players'] as List;
+          logCheckpoint(
+            'player normalization complete',
+            'count=${normalizedPlayers.length}, '
+                'types=${normalizedPlayers.map((player) => player.runtimeType).toList()}',
+          );
+          transaction.update(matchRef, matchUpdate);
+          logCheckpoint('match update queued');
+        }
+        final requestUpdate = buildRequestStatusUpdate(
+          requestSnapshot.data()!,
+          approve: approve,
+        );
+        transaction.update(requestRef, requestUpdate);
+        logCheckpoint('request update queued', requestUpdate);
+      });
+      logCheckpoint('transaction completion');
+      _showMessage(
+        approve ? 'Join request approved.' : 'Join request declined.',
+      );
+    } on MatchActionException catch (error) {
+      _showMessage(error.message);
+    } on FirebaseException catch (error, stackTrace) {
+      debugPrint(
+        'Join request ${approve ? 'approval' : 'decline'} failed '
+        '[${error.code}]: ${error.message}\n$stackTrace',
+      );
+      _showMessage(
+        'Could not ${approve ? 'approve' : 'decline'} request '
+        '(${error.code}). ${error.message ?? 'Please try again.'}',
+      );
+    } catch (error, stackTrace) {
+      final unboxed = _unboxWebError(error, stackTrace);
+      debugPrint(
+        'Join request $action failed '
+        '[${unboxed.error.runtimeType}]: ${unboxed.error}\n'
+        '${unboxed.stackTrace}',
+      );
+      _showMessage(
+        'Could not ${approve ? 'approve' : 'decline'} request. '
+        'Error: ${unboxed.error}',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _processingRequestIds.remove(request.userId));
+      }
     }
   }
 
@@ -1901,7 +2372,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         }
 
         final data = snapshot.data() ?? <String, dynamic>{};
-        if (data['creatorUid']?.toString() == user.uid) {
+        if (isOrganizerIdentity(data, user.uid, user.email ?? '')) {
           throw const MatchActionException(
             'The organizer cannot leave their own match.',
           );
@@ -1911,7 +2382,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           data['players'] as List? ?? const [],
         );
         final playerIndex = players.indexWhere(
-          (player) => player is Map && player['uid']?.toString() == user.uid,
+          (player) => player is Map && _playerUid(player) == user.uid,
         );
 
         if (playerIndex == -1) {
@@ -1920,9 +2391,13 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
 
         players.removeAt(playerIndex);
         final spotsLeft = _parseSpotsLeft(data['spotsLeft']);
+        final capacityRemaining = 3 - players.length;
+        final restoredSpots = spotsLeft + 1;
         transaction.update(matchRef, {
           'players': players,
-          'spotsLeft': spotsLeft + 1,
+          'spotsLeft': restoredSpots < capacityRemaining
+              ? restoredSpots
+              : capacityRemaining,
         });
       });
 
@@ -1979,8 +2454,8 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           throw const MatchActionException('This match no longer exists.');
         }
 
-        final creatorUid = snapshot.data()?['creatorUid']?.toString() ?? '';
-        if (creatorUid != user.uid) {
+        final data = snapshot.data() ?? <String, dynamic>{};
+        if (!isOrganizerIdentity(data, user.uid, user.email ?? '')) {
           throw const MatchActionException(
             'Only the organizer can cancel this match.',
           );
@@ -2027,133 +2502,301 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           (player) => player.uid == currentUid,
         );
         final isOrganizer =
-            currentUid != null && match.creatorUid == currentUid;
-        final isBusy = _isJoining || _isLeaving || _isCancelling;
+            currentUid != null &&
+            _isMatchOrganizer(
+              match,
+              currentUid,
+              FirebaseAuth.instance.currentUser?.email ?? '',
+            );
+        final requestsCollection = FirebaseFirestore.instance
+            .collection('matches')
+            .doc(match.id)
+            .collection('joinRequests');
+        final requestsStream = isOrganizer
+            ? requestsCollection.snapshots().map(
+                (snapshot) =>
+                    snapshot.docs.map(JoinRequest.fromDocument).toList(),
+              )
+            : requestsCollection
+                  .doc(currentUid ?? '__signed_out__')
+                  .snapshots()
+                  .map(
+                    (document) => document.exists
+                        ? [JoinRequest.fromDocument(document)]
+                        : <JoinRequest>[],
+                  );
 
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Match Details'),
-            backgroundColor: const Color(0xFF0F1412),
-          ),
-          body: ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              Text(
-                match.title,
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
+        return StreamBuilder<List<JoinRequest>>(
+          stream: requestsStream,
+          builder: (context, requestSnapshot) {
+            final requests = requestSnapshot.data ?? const <JoinRequest>[];
+            final ownRequest = isOrganizer || requests.isEmpty
+                ? null
+                : requests.first;
+            final participationState = resolveMatchParticipationState(
+              isOrganizer: isOrganizer,
+              isConfirmedPlayer: hasJoined,
+              requestStatus: ownRequest?.status,
+            );
+            final pendingRequests = requests
+                .where((request) => request.status == 'pending')
+                .toList();
+            final isBusy = _isRequesting || _isLeaving || _isCancelling;
+            final requestIsLoading =
+                !isOrganizer &&
+                requestSnapshot.connectionState == ConnectionState.waiting;
+            final requestReadFailed = requestSnapshot.hasError;
+
+            return Scaffold(
+              appBar: AppBar(
+                title: const Text('Match Details'),
+                backgroundColor: const Color(0xFF0F1412),
               ),
-              const SizedBox(height: 12),
-              Text(match.club, style: const TextStyle(fontSize: 20)),
-              const SizedBox(height: 18),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              body: ListView(
+                padding: const EdgeInsets.all(20),
                 children: [
-                  _InfoChip(text: match.level, icon: Icons.leaderboard),
-                  _InfoChip(text: match.spotsLeftLabel, icon: Icons.group),
+                  Text(
+                    match.title,
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(match.club, style: const TextStyle(fontSize: 20)),
+                  const SizedBox(height: 18),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _InfoChip(text: match.level, icon: Icons.leaderboard),
+                      _InfoChip(text: match.spotsLeftLabel, icon: Icons.group),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+                  const Text(
+                    'Players',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  if (match.creatorUid.isNotEmpty ||
+                      match.creatorEmail.isNotEmpty)
+                    _ProfilePlayerTile(
+                      uid: match.creatorUid,
+                      fallbackName: match.creatorDisplayName.isNotEmpty
+                          ? match.creatorDisplayName
+                          : match.creatorEmail,
+                      fallbackLevel: match.creatorLevel,
+                      role: 'Organizer',
+                    ),
+                  ...match.players.map(
+                    (player) => player.uid == match.creatorUid
+                        ? const SizedBox.shrink()
+                        : _ProfilePlayerTile(
+                            uid: player.uid,
+                            fallbackName: player.displayName.isNotEmpty
+                                ? player.displayName
+                                : player.email,
+                            fallbackLevel: player.level,
+                            role: 'Confirmed',
+                          ),
+                  ),
+                  if (participationState ==
+                      MatchParticipationState.organizer) ...[
+                    const SizedBox(height: 24),
+                    JoinRequestsSection(
+                      requests: pendingRequests,
+                      loading:
+                          requestSnapshot.connectionState ==
+                          ConnectionState.waiting,
+                      errorMessage: requestReadFailed
+                          ? joinRequestReadErrorMessage(requestSnapshot.error)
+                          : null,
+                      processingUserIds: _processingRequestIds,
+                      onApprove: (request) => _reviewRequest(request, true),
+                      onDecline: (request) => _reviewRequest(request, false),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  if (participationState == MatchParticipationState.organizer)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: OutlinedButton.icon(
+                        onPressed: isBusy ? null : _cancelMatch,
+                        icon: _isCancelling
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.cancel_outlined),
+                        label: Text(
+                          _isCancelling ? 'Cancelling...' : 'Cancel Match',
+                        ),
+                      ),
+                    )
+                  else if (participationState ==
+                      MatchParticipationState.confirmed)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: OutlinedButton.icon(
+                        onPressed: isBusy ? null : _leaveMatch,
+                        icon: _isLeaving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.logout),
+                        label: Text(_isLeaving ? 'Leaving...' : 'Leave Match'),
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton.icon(
+                        onPressed:
+                            isBusy ||
+                                requestIsLoading ||
+                                requestReadFailed ||
+                                match.spotsLeft <= 0 ||
+                                participationState ==
+                                    MatchParticipationState.pending
+                            ? null
+                            : _requestToJoin,
+                        icon: _isRequesting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.group_add),
+                        label: Text(
+                          _isRequesting
+                              ? 'Requesting...'
+                              : requestIsLoading
+                              ? 'Loading request...'
+                              : requestReadFailed
+                              ? 'Could not load request'
+                              : participationState ==
+                                    MatchParticipationState.pending
+                              ? 'Request Pending'
+                              : match.spotsLeft <= 0
+                              ? 'Match Full'
+                              : 'Request to Join',
+                        ),
+                      ),
+                    ),
                 ],
               ),
-              const SizedBox(height: 28),
-              const Text(
-                'Players',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              if (match.creatorUid.isNotEmpty || match.creatorEmail.isNotEmpty)
-                _ProfilePlayerTile(
-                  uid: match.creatorUid,
-                  fallbackName: match.creatorDisplayName.isNotEmpty
-                      ? match.creatorDisplayName
-                      : match.creatorEmail,
-                  fallbackLevel: match.creatorLevel,
-                  role: 'Organizer',
-                ),
-              ...match.players.map(
-                (player) => player.uid == match.creatorUid
-                    ? const SizedBox.shrink()
-                    : _ProfilePlayerTile(
-                        uid: player.uid,
-                        fallbackName: player.displayName.isNotEmpty
-                            ? player.displayName
-                            : player.email,
-                        fallbackLevel: player.level,
-                        role: 'Confirmed',
-                      ),
-              ),
-              const SizedBox(height: 24),
-              if (isOrganizer)
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: OutlinedButton.icon(
-                    onPressed: isBusy ? null : _cancelMatch,
-                    icon: _isCancelling
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.cancel_outlined),
-                    label: Text(
-                      _isCancelling ? 'Cancelling...' : 'Cancel Match',
-                    ),
-                  ),
-                )
-              else if (hasJoined)
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: OutlinedButton.icon(
-                    onPressed: isBusy ? null : _leaveMatch,
-                    icon: _isLeaving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.logout),
-                    label: Text(_isLeaving ? 'Leaving...' : 'Leave Match'),
-                  ),
-                )
-              else
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: FilledButton.icon(
-                    onPressed: isBusy || match.spotsLeft <= 0
-                        ? null
-                        : _joinMatch,
-                    icon: _isJoining
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.group_add),
-                    label: Text(
-                      _isJoining
-                          ? 'Joining...'
-                          : match.spotsLeft <= 0
-                          ? 'Match Full'
-                          : 'Join Match',
-                    ),
-                  ),
-                ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
 }
 
-class JoinMatchException implements Exception {
-  final String message;
+class JoinRequestsSection extends StatelessWidget {
+  final List<JoinRequest> requests;
+  final bool loading;
+  final String? errorMessage;
+  final Set<String> processingUserIds;
+  final ValueChanged<JoinRequest> onApprove;
+  final ValueChanged<JoinRequest> onDecline;
 
-  const JoinMatchException(this.message);
+  const JoinRequestsSection({
+    super.key,
+    required this.requests,
+    this.loading = false,
+    this.errorMessage,
+    this.processingUserIds = const {},
+    required this.onApprove,
+    required this.onDecline,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Join Requests',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        if (loading)
+          const Row(
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Text('Loading join requests...'),
+            ],
+          )
+        else if (errorMessage != null)
+          Text(errorMessage!, style: const TextStyle(color: Colors.redAccent))
+        else if (requests.isEmpty)
+          const Text(
+            'No pending requests.',
+            style: TextStyle(color: Colors.white70),
+          ),
+        ...requests.map((request) {
+          final isProcessing = processingUserIds.contains(request.userId);
+          return Card(
+            child: ListTile(
+              title: Text(
+                request.displayName.isEmpty
+                    ? request.email
+                    : request.displayName,
+              ),
+              subtitle: Text(
+                request.level.isEmpty ? 'Level not set' : request.level,
+              ),
+              trailing: Wrap(
+                spacing: 8,
+                children: [
+                  TextButton(
+                    onPressed: isProcessing ? null : () => onDecline(request),
+                    child: const Text('Decline'),
+                  ),
+                  FilledButton(
+                    onPressed: isProcessing ? null : () => onApprove(request),
+                    child: isProcessing
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Approve'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+}
+
+String joinRequestReadErrorMessage(Object? error) {
+  if (error is FirebaseException && error.code == 'permission-denied') {
+    return 'Permission denied while loading join requests.';
+  }
+  return 'Could not load join requests.';
 }
 
 class MatchActionException implements Exception {

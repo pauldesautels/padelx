@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:padelx/main.dart';
 
@@ -387,6 +388,406 @@ void main() {
       ),
     );
     expect(find.text('Could not load your matches.'), findsOneWidget);
+  });
+
+  test(
+    'requesting to join creates a pending request without adding a player',
+    () {
+      const request = JoinRequest(
+        userId: 'player',
+        displayName: 'Ana',
+        level: 'Level 3',
+        email: 'ana@example.com',
+        status: 'pending',
+      );
+      validateJoinRequest({'players': <Map<String, dynamic>>[]}, null, request);
+
+      final document = request.toMap();
+      expect(document['userId'], 'player');
+      expect(document['status'], 'pending');
+    },
+  );
+
+  test('a duplicate pending join request is rejected', () {
+    expect(
+      () => validateJoinRequest(
+        {'players': <Map<String, dynamic>>[]},
+        {'userId': 'player', 'status': 'pending'},
+        const JoinRequest(
+          userId: 'player',
+          displayName: 'Ana',
+          level: 'Level 3',
+          email: 'ana@example.com',
+          status: 'pending',
+        ),
+      ),
+      throwsA(isA<MatchActionException>()),
+    );
+  });
+
+  test('an approved requester cannot submit another request', () {
+    expect(
+      () => validateJoinRequest(
+        {'players': <Map<String, dynamic>>[]},
+        {'userId': 'player', 'status': 'approved'},
+        const JoinRequest(
+          userId: 'player',
+          displayName: 'Ana',
+          level: 'Level 3',
+          email: 'ana@example.com',
+          status: 'pending',
+        ),
+      ),
+      throwsA(isA<MatchActionException>()),
+    );
+  });
+
+  test('legacy player maps using userId are recognized as confirmed', () {
+    final player = MatchPlayer.fromMap({
+      'userId': 'legacy-player',
+      'email': 'legacy@example.com',
+    });
+
+    expect(player.uid, 'legacy-player');
+    expect(
+      () => validateJoinRequest(
+        {
+          'players': [
+            {'userId': 'legacy-player', 'email': 'legacy@example.com'},
+          ],
+        },
+        null,
+        const JoinRequest(
+          userId: 'legacy-player',
+          displayName: 'Legacy Player',
+          level: 'Level 2',
+          email: 'legacy@example.com',
+          status: 'pending',
+        ),
+      ),
+      throwsA(isA<MatchActionException>()),
+    );
+  });
+
+  test('legacy createdBy fields resolve to the organizer identity', () {
+    final data = {
+      'createdBy': 'rwW6TOBywxYII1Zeee7Bc1cTzzC3',
+      'createdByEmail': 'pauldesautels@hotmail.com',
+    };
+
+    expect(matchCreatorUid(data), 'rwW6TOBywxYII1Zeee7Bc1cTzzC3');
+    expect(matchCreatorEmail(data), 'pauldesautels@hotmail.com');
+    expect(
+      isOrganizerIdentity(
+        data,
+        'rwW6TOBywxYII1Zeee7Bc1cTzzC3',
+        'pauldesautels@hotmail.com',
+      ),
+      isTrue,
+    );
+    expect(
+      isOrganizerIdentity(data, 'different-user', 'other@example.com'),
+      isFalse,
+    );
+  });
+
+  test('a declined player can submit a new pending request', () {
+    expect(
+      () => validateJoinRequest(
+        {'players': <Map<String, dynamic>>[]},
+        {'userId': 'player', 'status': 'declined'},
+        const JoinRequest(
+          userId: 'player',
+          displayName: 'Ana',
+          level: 'Level 3',
+          email: 'ana@example.com',
+          status: 'pending',
+        ),
+      ),
+      returnsNormally,
+    );
+  });
+
+  test('match participation state restores persisted request status', () {
+    expect(
+      resolveMatchParticipationState(
+        isOrganizer: false,
+        isConfirmedPlayer: true,
+        requestStatus: 'pending',
+      ),
+      MatchParticipationState.confirmed,
+    );
+    expect(
+      resolveMatchParticipationState(
+        isOrganizer: false,
+        isConfirmedPlayer: false,
+        requestStatus: 'pending',
+      ),
+      MatchParticipationState.pending,
+    );
+    expect(
+      resolveMatchParticipationState(
+        isOrganizer: false,
+        isConfirmedPlayer: false,
+        requestStatus: 'declined',
+      ),
+      MatchParticipationState.available,
+    );
+    expect(
+      resolveMatchParticipationState(
+        isOrganizer: false,
+        isConfirmedPlayer: false,
+      ),
+      MatchParticipationState.available,
+    );
+    expect(
+      resolveMatchParticipationState(
+        isOrganizer: true,
+        isConfirmedPlayer: false,
+        requestStatus: 'pending',
+      ),
+      MatchParticipationState.organizer,
+    );
+  });
+
+  test('an approved request is treated as confirmed after reload', () {
+    expect(
+      resolveMatchParticipationState(
+        isOrganizer: false,
+        isConfirmedPlayer: false,
+        requestStatus: 'approved',
+      ),
+      MatchParticipationState.confirmed,
+    );
+  });
+
+  testWidgets('organizer sees pending requests and can approve or decline', (
+    WidgetTester tester,
+  ) async {
+    const request = JoinRequest(
+      userId: 'player',
+      displayName: 'Ana Player',
+      level: 'Level 3',
+      email: 'ana@example.com',
+      status: 'pending',
+    );
+    bool approved = false;
+    bool declined = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: JoinRequestsSection(
+            requests: const [request],
+            onApprove: (_) => approved = true,
+            onDecline: (_) => declined = true,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Join Requests'), findsOneWidget);
+    expect(find.text('Ana Player'), findsOneWidget);
+    expect(find.text('Level 3'), findsOneWidget);
+    await tester.tap(find.text('Approve'));
+    expect(approved, isTrue);
+    await tester.tap(find.text('Decline'));
+    expect(declined, isTrue);
+  });
+
+  testWidgets(
+    'organizer request section shows loading empty and error states',
+    (WidgetTester tester) async {
+      Widget section({bool loading = false, String? errorMessage}) {
+        return MaterialApp(
+          home: Scaffold(
+            body: JoinRequestsSection(
+              requests: const [],
+              loading: loading,
+              errorMessage: errorMessage,
+              onApprove: (_) {},
+              onDecline: (_) {},
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(section(loading: true));
+      expect(find.text('Loading join requests...'), findsOneWidget);
+      expect(find.text('No pending requests.'), findsNothing);
+
+      await tester.pumpWidget(section());
+      expect(find.text('No pending requests.'), findsOneWidget);
+
+      await tester.pumpWidget(
+        section(errorMessage: 'Permission denied while loading join requests.'),
+      );
+      expect(
+        find.text('Permission denied while loading join requests.'),
+        findsOneWidget,
+      );
+      expect(find.text('No pending requests.'), findsNothing);
+    },
+  );
+
+  test('approving adds one confirmed player and updates capacity', () {
+    final update = buildReviewRequestUpdate(
+      {'spotsLeft': 2, 'players': <Map<String, dynamic>>[]},
+      {
+        'userId': 'player',
+        'displayName': 'Ana',
+        'level': 'Level 3',
+        'email': 'ana@example.com',
+        'status': 'pending',
+      },
+    );
+
+    expect((update['players'] as List), hasLength(1));
+    expect(update['spotsLeft'], 1);
+    expect(buildRequestStatusUpdate({'status': 'pending'}, approve: true), {
+      'status': 'approved',
+    });
+  });
+
+  test(
+    'approval normalizes a legacy match without players and string spots',
+    () {
+      final update = buildReviewRequestUpdate(
+        {'spotsLeft': '2 spots left'},
+        {
+          'userId': 'player',
+          'displayName': 'Ana',
+          'level': 'Level 3',
+          'email': 'ana@example.com',
+          'status': 'pending',
+        },
+      );
+
+      expect(update['spotsLeft'], 1);
+      expect((update['players'] as List).single['uid'], 'player');
+    },
+  );
+
+  test(
+    'approval preserves legacy organizer fields and appends a clean player',
+    () {
+      final joinedAt = Timestamp.fromDate(DateTime.utc(2026, 5, 8));
+      final update = buildReviewRequestUpdate(
+        {
+          'spotsLeft': 2,
+          'players': [
+            {
+              'uid': 'organizer',
+              'email': 'organizer@example.com',
+              'role': 'Player',
+              'joinedAt': joinedAt,
+              'legacyMetadata': {
+                'clubs': ['Polanco'],
+              },
+            },
+          ],
+        },
+        {
+          'userId': 'requester',
+          'displayName': 'Paul2',
+          'level': '2',
+          'email': 'requester@example.com',
+          'status': 'pending',
+        },
+      );
+
+      final players = update['players'] as List;
+      expect(players.first['role'], 'Player');
+      expect(players.first['joinedAt'], same(joinedAt));
+      expect(players.first['legacyMetadata'], {
+        'clubs': ['Polanco'],
+      });
+      expect(players.first, isA<Map<String, dynamic>>());
+      expect(players.first['legacyMetadata'], isA<Map<String, dynamic>>());
+      expect(
+        (players.first['legacyMetadata'] as Map)['clubs'],
+        isA<List<dynamic>>(),
+      );
+      expect((players.last as Map).keys, {
+        'uid',
+        'email',
+        'displayName',
+        'level',
+      });
+      expect(update['spotsLeft'], 1);
+    },
+  );
+
+  test('legacy player normalization rejects non-Firestore values', () {
+    expect(
+      () => normalizeLegacyPlayers([
+        {'uid': 'organizer', 'unsupported': Object()},
+      ]),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('declining changes status without adding a confirmed player', () {
+    final update = buildRequestStatusUpdate({
+      'userId': 'player',
+      'status': 'pending',
+    }, approve: false);
+
+    expect(update, {'status': 'declined'});
+  });
+
+  test('approval is rejected when the four-person match is full', () {
+    expect(
+      () => buildReviewRequestUpdate(
+        {
+          'spotsLeft': 1,
+          'players': [
+            {'uid': 'one'},
+            {'uid': 'two'},
+            {'uid': 'three'},
+          ],
+        },
+        {'userId': 'four', 'status': 'pending'},
+      ),
+      throwsA(isA<MatchActionException>()),
+    );
+  });
+
+  test('approval cannot create duplicate participation', () {
+    expect(
+      () => buildReviewRequestUpdate(
+        {
+          'spotsLeft': 2,
+          'players': [
+            {'uid': 'player'},
+          ],
+        },
+        {'userId': 'player', 'status': 'pending'},
+      ),
+      throwsA(isA<MatchActionException>()),
+    );
+  });
+
+  testWidgets('pending requests are separate from joined matches', (
+    WidgetTester tester,
+  ) async {
+    final pending = _match(id: 'pending', club: 'Pending Club');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MyMatchesTab(
+            matches: const [],
+            pendingMatches: [pending],
+            currentUid: 'player',
+            isLoading: false,
+            error: false,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Pending Requests'), findsOneWidget);
+    expect(find.text('Request Pending'), findsOneWidget);
+    expect(find.text('Joined'), findsNothing);
   });
 }
 
