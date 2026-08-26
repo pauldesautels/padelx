@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'location.dart';
 
 import 'firebase_options.dart';
 
@@ -72,6 +73,7 @@ class UserProfile {
   final String level;
   final String email;
   final bool hasCreatedAt;
+  final DiscoveryLocation discoveryLocation;
 
   const UserProfile({
     required this.uid,
@@ -79,6 +81,11 @@ class UserProfile {
     required this.level,
     required this.email,
     this.hasCreatedAt = false,
+    this.discoveryLocation = const DiscoveryLocation(
+      country: '',
+      countryCode: '',
+      city: '',
+    ),
   });
 
   factory UserProfile.fromDocument(
@@ -91,6 +98,7 @@ class UserProfile {
       level: data['level']?.toString().trim() ?? '',
       email: data['email']?.toString().trim() ?? '',
       hasCreatedAt: data['createdAt'] != null,
+      discoveryLocation: DiscoveryLocation.fromMap(data['discoveryLocation']),
     );
   }
 
@@ -149,7 +157,7 @@ class _ProfileGateState extends State<ProfileGate> {
           );
         }
 
-        return const HomeScreen();
+        return HomeScreen(profile: profile);
       },
     );
   }
@@ -600,6 +608,8 @@ class Match {
   final String creatorLevel;
   final List<MatchPlayer> players;
   final DateTime? scheduledAt;
+  final MatchLocation? _location;
+  final String status;
 
   const Match({
     required this.id,
@@ -613,10 +623,22 @@ class Match {
     this.creatorLevel = '',
     required this.players,
     this.scheduledAt,
-  });
+    MatchLocation? location,
+    this.status = '',
+  }) : _location = location;
 
   String get spotsLeftLabel =>
       spotsLeft == 1 ? '1 spot left' : '$spotsLeft spots left';
+
+  MatchLocation get location =>
+      _location ??
+      MatchLocation(
+        clubName: club,
+        countryCode: '',
+        country: '',
+        region: '',
+        city: '',
+      );
 
   factory Match.fromDocument(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
@@ -624,7 +646,7 @@ class Match {
     return Match(
       id: doc.id,
       title: data['title']?.toString() ?? '',
-      club: data['club']?.toString() ?? '',
+      club: data['clubName']?.toString() ?? data['club']?.toString() ?? '',
       level: data['level']?.toString() ?? '',
       spotsLeft: _parseSpotsLeft(data['spotsLeft']),
       creatorUid: matchCreatorUid(data),
@@ -636,8 +658,18 @@ class Match {
           .whereType<Map>()
           .map((player) => MatchPlayer.fromMap(player))
           .toList(),
+      location: MatchLocation.fromMap(
+        data,
+        legacyClub: data['club']?.toString() ?? '',
+        legacyLocation: data['location'] is String
+            ? data['location'].toString()
+            : '',
+      ),
+      status: data['status']?.toString().toLowerCase() ?? '',
     );
   }
+
+  String get locationLabel => location.localityLabel;
 }
 
 String matchCreatorUid(Map<dynamic, dynamic> data) =>
@@ -913,8 +945,57 @@ Map<String, dynamic> buildReviewNotification({
 int unreadNotificationCount(Iterable<AppNotification> notifications) =>
     notifications.where((notification) => !notification.read).length;
 
+List<AppNotification> sortedNotifications(
+  Iterable<AppNotification> notifications,
+) {
+  final sorted = notifications.toList();
+  sorted.sort((a, b) {
+    if (a.createdAt == null && b.createdAt == null) {
+      return b.id.compareTo(a.id);
+    }
+    if (a.createdAt == null) return 1;
+    if (b.createdAt == null) return -1;
+    return b.createdAt!.compareTo(a.createdAt!);
+  });
+  return sorted;
+}
+
+String relativeNotificationTime(DateTime? createdAt, DateTime now) {
+  if (createdAt == null) return 'Time unavailable';
+  final difference = now.difference(createdAt);
+  if (difference.isNegative || difference.inMinutes < 1) return 'Just now';
+  if (difference.inMinutes < 60) return '${difference.inMinutes} min ago';
+  if (difference.inHours < 24) {
+    return '${difference.inHours} hr${difference.inHours == 1 ? '' : 's'} ago';
+  }
+  if (difference.inHours < 48) return 'Yesterday';
+  if (difference.inDays < 7) return '${difference.inDays} days ago';
+  return '${createdAt.month}/${createdAt.day}/${createdAt.year}';
+}
+
+String? joinRequestNotificationStatus(
+  AppNotification notification,
+  Map<String, dynamic>? requestData,
+) {
+  if (notification.type != AppNotificationType.joinRequest ||
+      notification.eventId.isEmpty) {
+    return null;
+  }
+  if (requestData == null) return 'No longer active';
+  final requestEventId = requestData['eventId']?.toString() ?? '';
+  if (requestEventId != notification.eventId) return 'No longer active';
+  return switch (requestData['status']?.toString()) {
+    'pending' => 'Pending',
+    'approved' => 'Approved',
+    'declined' => 'Declined',
+    _ => 'No longer active',
+  };
+}
+
 bool canReadNotification(String authenticatedUid, String recipientUid) =>
     authenticatedUid.isNotEmpty && authenticatedUid == recipientUid;
+
+Map<String, bool> notificationReadUpdate() => const {'read': true};
 
 class NotificationBadge extends StatelessWidget {
   final int count;
@@ -944,6 +1025,10 @@ class NotificationsTab extends StatelessWidget {
   final bool error;
   final ValueChanged<AppNotification> onMarkRead;
   final ValueChanged<AppNotification> onOpen;
+  final VoidCallback? onMarkAllRead;
+  final Stream<Map<String, dynamic>?> Function(AppNotification)?
+  joinRequestStream;
+  final DateTime? now;
 
   const NotificationsTab({
     super.key,
@@ -952,6 +1037,9 @@ class NotificationsTab extends StatelessWidget {
     required this.error,
     required this.onMarkRead,
     required this.onOpen,
+    this.onMarkAllRead,
+    this.joinRequestStream,
+    this.now,
   });
 
   @override
@@ -986,48 +1074,122 @@ class NotificationsTab extends StatelessWidget {
         ),
       );
     }
+    final ordered = sortedNotifications(notifications);
+    final hasUnread = unreadNotificationCount(ordered) > 0;
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: notifications.length,
+      itemCount: ordered.length + 1,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        final notification = notifications[index];
-        return Card(
-          color: notification.read
-              ? const Color(0xFF18211D)
-              : const Color(0xFF203A2D),
-          child: ListTile(
-            onTap: () => onOpen(notification),
-            leading: Icon(
-              notification.type == AppNotificationType.joinRequest
-                  ? Icons.person_add_alt_1
-                  : notification.type == AppNotificationType.joinApproved
-                  ? Icons.check_circle_outline
-                  : Icons.cancel_outlined,
-              color: notification.read ? Colors.white60 : Colors.greenAccent,
-            ),
-            title: Text(
-              notification.title,
-              style: TextStyle(
-                fontWeight: notification.read
-                    ? FontWeight.w500
-                    : FontWeight.w700,
+        if (index == 0) {
+          return Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Notifications',
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+                ),
               ),
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(notification.message),
-            ),
-            trailing: notification.read
-                ? const Icon(Icons.chevron_right)
-                : IconButton(
-                    tooltip: 'Mark as read',
-                    onPressed: () => onMarkRead(notification),
-                    icon: const Icon(Icons.mark_email_read_outlined),
-                  ),
-          ),
+              if (hasUnread && onMarkAllRead != null)
+                TextButton(
+                  onPressed: onMarkAllRead,
+                  child: const Text('Mark all as read'),
+                ),
+            ],
+          );
+        }
+        final notification = ordered[index - 1];
+        return NotificationCard(
+          notification: notification,
+          now: now ?? DateTime.now(),
+          onMarkRead: onMarkRead,
+          onOpen: onOpen,
+          requestStream: joinRequestStream?.call(notification),
         );
       },
+    );
+  }
+}
+
+class NotificationCard extends StatelessWidget {
+  final AppNotification notification;
+  final DateTime now;
+  final ValueChanged<AppNotification> onMarkRead;
+  final ValueChanged<AppNotification> onOpen;
+  final Stream<Map<String, dynamic>?>? requestStream;
+
+  const NotificationCard({
+    super.key,
+    required this.notification,
+    required this.now,
+    required this.onMarkRead,
+    required this.onOpen,
+    this.requestStream,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (requestStream != null &&
+        notification.type == AppNotificationType.joinRequest) {
+      return StreamBuilder<Map<String, dynamic>?>(
+        stream: requestStream,
+        builder: (context, snapshot) => _buildCard(
+          snapshot.connectionState == ConnectionState.waiting
+              ? null
+              : joinRequestNotificationStatus(notification, snapshot.data),
+        ),
+      );
+    }
+    return _buildCard(null);
+  }
+
+  Widget _buildCard(String? status) {
+    return Card(
+      key: ValueKey('notification-${notification.id}'),
+      color: notification.read
+          ? const Color(0xFF18211D)
+          : const Color(0xFF203A2D),
+      child: ListTile(
+        onTap: () => onOpen(notification),
+        leading: Icon(
+          notification.type == AppNotificationType.joinRequest
+              ? Icons.person_add_alt_1
+              : notification.type == AppNotificationType.joinApproved
+              ? Icons.check_circle_outline
+              : Icons.cancel_outlined,
+          color: notification.read ? Colors.white60 : Colors.greenAccent,
+        ),
+        title: Text(
+          notification.title,
+          style: TextStyle(
+            fontWeight: notification.read ? FontWeight.w500 : FontWeight.w700,
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(notification.message),
+              const SizedBox(height: 5),
+              Text(
+                [
+                  relativeNotificationTime(notification.createdAt, now),
+                  ?status,
+                ].join(' · '),
+                style: const TextStyle(fontSize: 12, color: Colors.white60),
+              ),
+            ],
+          ),
+        ),
+        trailing: notification.read
+            ? const Icon(Icons.chevron_right)
+            : IconButton(
+                tooltip: 'Mark as read',
+                onPressed: () => onMarkRead(notification),
+                icon: const Icon(Icons.mark_email_read_outlined),
+              ),
+      ),
     );
   }
 }
@@ -1291,7 +1453,8 @@ Future<UserProfile?> _loadUserProfile(String uid) async {
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final UserProfile? profile;
+  const HomeScreen({super.key, this.profile});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -1325,7 +1488,43 @@ class _HomeScreenState extends State<HomeScreen> {
         .doc(uid)
         .collection('notifications')
         .doc(notification.id)
-        .update({'read': true});
+        .update(notificationReadUpdate());
+  }
+
+  Future<void> _markAllNotificationsRead(
+    List<AppNotification> notifications,
+  ) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final unread = notifications.where((notification) => !notification.read);
+    if (unread.isEmpty) return;
+    final batch = FirebaseFirestore.instance.batch();
+    for (final notification in unread) {
+      batch.update(
+        FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('notifications')
+            .doc(notification.id),
+        notificationReadUpdate(),
+      );
+    }
+    await batch.commit();
+  }
+
+  Stream<Map<String, dynamic>?> _joinRequestForNotification(
+    AppNotification notification,
+  ) {
+    if (notification.actorUid.isEmpty || notification.matchId.isEmpty) {
+      return Stream.value(null);
+    }
+    return FirebaseFirestore.instance
+        .collection('matches')
+        .doc(notification.matchId)
+        .collection('joinRequests')
+        .doc(notification.actorUid)
+        .snapshots()
+        .map((document) => document.data());
   }
 
   @override
@@ -1364,7 +1563,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   .collection('users')
                   .doc(currentUid)
                   .collection('notifications')
-                  .orderBy('createdAt', descending: true)
                   .snapshots(),
               builder: (context, notificationSnapshot) {
                 final notifications = notificationSnapshot.hasData
@@ -1405,7 +1603,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final now = DateTime.now();
     final currentEmail = FirebaseAuth.instance.currentUser?.email ?? '';
     final openMatches = sortedMatches(
-      matches.where((match) => !isPastMatch(match, now)),
+      matches.where(
+        (match) => !isPastMatch(match, now) && match.status != 'cancelled',
+      ),
     );
     final myMatches = matches
         .where(
@@ -1421,6 +1621,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       MatchesTab(
         matches: openMatches,
+        currentUid: currentUid,
+        currentEmail: currentEmail,
+        pendingMatchIds: pendingMatches.map((match) => match.id).toSet(),
+        preferredLocation: widget.profile?.discoveryLocation,
         isLoading: snapshot.connectionState == ConnectionState.waiting,
         error: snapshot.hasError,
       ),
@@ -1437,6 +1641,8 @@ class _HomeScreenState extends State<HomeScreen> {
         isLoading: notificationsLoading,
         error: notificationsError,
         onMarkRead: _markNotificationRead,
+        onMarkAllRead: () => _markAllNotificationsRead(notifications),
+        joinRequestStream: _joinRequestForNotification,
         onOpen: (notification) {
           _markNotificationRead(notification);
           final matching = matches.where(
@@ -1609,16 +1815,74 @@ class HomeTab extends StatelessWidget {
 
 enum MatchDateFilter { all, today, tomorrow, thisWeek }
 
+List<Match> filterDiscoveredMatches(
+  Iterable<Match> matches, {
+  String search = '',
+  String? country,
+  String? city,
+  String? area,
+  MatchDateFilter date = MatchDateFilter.all,
+  String? level,
+  bool availableOnly = false,
+  DateTime? now,
+}) {
+  final current = now ?? DateTime.now();
+  final start = DateTime(current.year, current.month, current.day);
+  final tomorrow = start.add(const Duration(days: 1));
+  final dayAfterTomorrow = tomorrow.add(const Duration(days: 1));
+  final nextWeek = start.add(
+    Duration(days: DateTime.daysPerWeek - current.weekday + 1),
+  );
+  bool matchesDate(Match match) {
+    if (date == MatchDateFilter.all) return true;
+    final value = match.scheduledAt;
+    if (value == null) return false;
+    return switch (date) {
+      MatchDateFilter.all => true,
+      MatchDateFilter.today =>
+        !value.isBefore(start) && value.isBefore(tomorrow),
+      MatchDateFilter.tomorrow =>
+        !value.isBefore(tomorrow) && value.isBefore(dayAfterTomorrow),
+      MatchDateFilter.thisWeek =>
+        !value.isBefore(start) && value.isBefore(nextWeek),
+    };
+  }
+
+  final query = search.trim().toLowerCase();
+  return sortedMatches(
+    matches.where(
+      (match) =>
+          !isPastMatch(match, current) &&
+          match.status != 'cancelled' &&
+          (query.isEmpty || match.club.toLowerCase().contains(query)) &&
+          sameLocationValue(match.location.country, country) &&
+          sameLocationValue(match.location.city, city) &&
+          sameLocationValue(match.location.area, area) &&
+          (level == null || match.level == level) &&
+          (!availableOnly || match.spotsLeft > 0) &&
+          matchesDate(match),
+    ),
+  );
+}
+
 class MatchesTab extends StatefulWidget {
   final List<Match> matches;
   final bool isLoading;
   final bool error;
+  final String currentUid;
+  final String currentEmail;
+  final Set<String> pendingMatchIds;
+  final DiscoveryLocation? preferredLocation;
 
   const MatchesTab({
     super.key,
     required this.matches,
     required this.isLoading,
     required this.error,
+    this.currentUid = '',
+    this.currentEmail = '',
+    this.pendingMatchIds = const {},
+    this.preferredLocation,
   });
 
   @override
@@ -1630,12 +1894,28 @@ class _MatchesTabState extends State<MatchesTab> {
   final GlobalKey<FormFieldState<String>> _levelFieldKey = GlobalKey();
   MatchDateFilter _dateFilter = MatchDateFilter.all;
   String? _levelFilter;
+  String? _countryFilter;
+  String? _cityFilter;
+  String? _areaFilter;
   bool _availableOnly = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final preferred = widget.preferredLocation;
+    if (preferred?.isConfigured == true) {
+      _countryFilter = preferred!.country;
+      _cityFilter = preferred.city;
+    }
+  }
 
   bool get _hasFilters =>
       _searchController.text.isNotEmpty ||
       _dateFilter != MatchDateFilter.all ||
       _levelFilter != null ||
+      _countryFilter != null ||
+      _cityFilter != null ||
+      _areaFilter != null ||
       _availableOnly;
 
   @override
@@ -1644,45 +1924,16 @@ class _MatchesTabState extends State<MatchesTab> {
     super.dispose();
   }
 
-  bool _matchesDate(Match match, DateTime now) {
-    if (_dateFilter == MatchDateFilter.all) return true;
-    final scheduledAt = match.scheduledAt;
-    if (scheduledAt == null) return false;
-
-    final startOfToday = DateTime(now.year, now.month, now.day);
-    final startOfTomorrow = startOfToday.add(const Duration(days: 1));
-    final startOfDayAfterTomorrow = startOfTomorrow.add(
-      const Duration(days: 1),
-    );
-    final startOfNextWeek = startOfToday.add(
-      Duration(days: DateTime.daysPerWeek - now.weekday + 1),
-    );
-
-    return switch (_dateFilter) {
-      MatchDateFilter.all => true,
-      MatchDateFilter.today =>
-        !scheduledAt.isBefore(startOfToday) &&
-            scheduledAt.isBefore(startOfTomorrow),
-      MatchDateFilter.tomorrow =>
-        !scheduledAt.isBefore(startOfTomorrow) &&
-            scheduledAt.isBefore(startOfDayAfterTomorrow),
-      MatchDateFilter.thisWeek =>
-        !scheduledAt.isBefore(startOfToday) &&
-            scheduledAt.isBefore(startOfNextWeek),
-    };
-  }
-
   List<Match> get _filteredMatches {
-    final query = _searchController.text.trim().toLowerCase();
-    final now = DateTime.now();
-    return sortedMatches(
-      widget.matches.where(
-        (match) =>
-            (query.isEmpty || match.club.toLowerCase().contains(query)) &&
-            (_levelFilter == null || match.level == _levelFilter) &&
-            (!_availableOnly || match.spotsLeft > 0) &&
-            _matchesDate(match, now),
-      ),
+    return filterDiscoveredMatches(
+      widget.matches,
+      search: _searchController.text,
+      country: _countryFilter,
+      city: _cityFilter,
+      area: _areaFilter,
+      date: _dateFilter,
+      level: _levelFilter,
+      availableOnly: _availableOnly,
     );
   }
 
@@ -1692,6 +1943,9 @@ class _MatchesTabState extends State<MatchesTab> {
       _searchController.clear();
       _dateFilter = MatchDateFilter.all;
       _levelFilter = null;
+      _countryFilter = null;
+      _cityFilter = null;
+      _areaFilter = null;
       _availableOnly = false;
     });
   }
@@ -1714,6 +1968,36 @@ class _MatchesTabState extends State<MatchesTab> {
             .toList()
           ..sort();
     final filteredMatches = _filteredMatches;
+    final countries =
+        widget.matches
+            .map((match) => match.location.country)
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final cities =
+        widget.matches
+            .where(
+              (match) =>
+                  sameLocationValue(match.location.country, _countryFilter),
+            )
+            .map((match) => match.location.city)
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final areas =
+        widget.matches
+            .where(
+              (match) =>
+                  sameLocationValue(match.location.country, _countryFilter) &&
+                  sameLocationValue(match.location.city, _cityFilter),
+            )
+            .map((match) => match.location.area)
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
 
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -1739,6 +2023,79 @@ class _MatchesTabState extends State<MatchesTab> {
             isDense: true,
           ),
         ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                key: ValueKey('country-filter-$_countryFilter'),
+                initialValue: countries.contains(_countryFilter)
+                    ? _countryFilter
+                    : null,
+                decoration: const InputDecoration(
+                  labelText: 'Country',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                items: countries
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(value, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) => setState(() {
+                  _countryFilter = value;
+                  _cityFilter = null;
+                  _areaFilter = null;
+                }),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                key: ValueKey('city-filter-$_cityFilter'),
+                initialValue: cities.contains(_cityFilter) ? _cityFilter : null,
+                decoration: const InputDecoration(
+                  labelText: 'City',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                items: cities
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(value, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) => setState(() {
+                  _cityFilter = value;
+                  _areaFilter = null;
+                }),
+              ),
+            ),
+          ],
+        ),
+        if (areas.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            key: ValueKey('area-filter-$_areaFilter'),
+            initialValue: areas.contains(_areaFilter) ? _areaFilter : null,
+            decoration: const InputDecoration(
+              labelText: 'Area / Neighborhood',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+            items: areas
+                .map(
+                  (value) => DropdownMenuItem(value: value, child: Text(value)),
+                )
+                .toList(),
+            onChanged: (value) => setState(() => _areaFilter = value),
+          ),
+        ],
         const SizedBox(height: 12),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -1829,7 +2186,19 @@ class _MatchesTabState extends State<MatchesTab> {
             ),
           )
         else
-          ...filteredMatches.map((match) => MatchCard(match: match)),
+          ...filteredMatches.map((match) {
+            final state =
+                _isMatchOrganizer(match, widget.currentUid, widget.currentEmail)
+                ? 'ORGANIZER'
+                : match.players.any((player) => player.uid == widget.currentUid)
+                ? 'JOINED'
+                : widget.pendingMatchIds.contains(match.id)
+                ? 'PENDING'
+                : match.spotsLeft <= 0
+                ? 'FULL'
+                : 'OPEN';
+            return MatchCard(match: match, relationshipLabel: state);
+          }),
       ],
     );
   }
@@ -1892,6 +2261,13 @@ class MatchCard extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               Text(match.club, style: const TextStyle(fontSize: 16)),
+              if (match.locationLabel.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  match.locationLabel,
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ],
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
@@ -2070,6 +2446,18 @@ class ProfileTab extends StatelessWidget {
                 subtitle: Text(profile.level),
               ),
             ),
+            if (profile.discoveryLocation.isConfigured) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.public),
+                  title: const Text('Match discovery'),
+                  subtitle: Text(
+                    '${profile.discoveryLocation.city}, ${profile.discoveryLocation.country}',
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: () => Navigator.push(
@@ -2108,6 +2496,9 @@ class ProfileEditorScreen extends StatefulWidget {
 class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   late final TextEditingController _displayNameController;
   late final TextEditingController _levelController;
+  late final TextEditingController _discoveryCountryController;
+  late final TextEditingController _discoveryCountryCodeController;
+  late final TextEditingController _discoveryCityController;
   bool _isSaving = false;
 
   @override
@@ -2117,18 +2508,35 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       text: widget.profile?.displayName ?? widget.user.displayName ?? '',
     );
     _levelController = TextEditingController(text: widget.profile?.level ?? '');
+    _discoveryCountryController = TextEditingController(
+      text: widget.profile?.discoveryLocation.country ?? '',
+    );
+    _discoveryCountryCodeController = TextEditingController(
+      text: widget.profile?.discoveryLocation.countryCode ?? '',
+    );
+    _discoveryCityController = TextEditingController(
+      text: widget.profile?.discoveryLocation.city ?? '',
+    );
   }
 
   @override
   void dispose() {
     _displayNameController.dispose();
     _levelController.dispose();
+    _discoveryCountryController.dispose();
+    _discoveryCountryCodeController.dispose();
+    _discoveryCityController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     final displayName = _displayNameController.text.trim();
     final level = _levelController.text.trim();
+    final discovery = DiscoveryLocation(
+      country: _discoveryCountryController.text,
+      countryCode: _discoveryCountryCodeController.text,
+      city: _discoveryCityController.text,
+    );
     if (displayName.length < 2) {
       _showMessage('Please enter a display name with at least 2 characters.');
       return;
@@ -2145,6 +2553,19 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       _showMessage('Level must be 30 characters or fewer.');
       return;
     }
+    final hasDiscoveryValue =
+        discovery.country.isNotEmpty ||
+        discovery.countryCode.isNotEmpty ||
+        discovery.city.isNotEmpty;
+    if (hasDiscoveryValue &&
+        (discovery.country.isEmpty ||
+            discovery.countryCode.length != 2 ||
+            discovery.city.isEmpty)) {
+      _showMessage(
+        'Enter a country, 2-letter country code, and city for discovery.',
+      );
+      return;
+    }
 
     setState(() => _isSaving = true);
     try {
@@ -2156,6 +2577,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
         'displayName': displayName,
         'level': level,
         'email': widget.user.email ?? widget.profile?.email ?? '',
+        'discoveryLocation': discovery.toMap(),
         if (widget.profile?.hasCreatedAt != true)
           'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -2237,6 +2659,39 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
               border: OutlineInputBorder(),
             ),
           ),
+          const SizedBox(height: 16),
+          const Text(
+            'Preferred discovery location',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _discoveryCountryController,
+            decoration: const InputDecoration(
+              labelText: 'Country',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _discoveryCountryCodeController,
+            textCapitalization: TextCapitalization.characters,
+            maxLength: 2,
+            decoration: const InputDecoration(
+              labelText: 'ISO country code',
+              hintText: 'ES',
+              counterText: '',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _discoveryCityController,
+            decoration: const InputDecoration(
+              labelText: 'City',
+              border: OutlineInputBorder(),
+            ),
+          ),
           const SizedBox(height: 8),
           FilledButton(
             onPressed: _isSaving ? null : _save,
@@ -2263,6 +2718,11 @@ class CreateMatchScreen extends StatefulWidget {
 
 class _CreateMatchScreenState extends State<CreateMatchScreen> {
   final TextEditingController _clubController = TextEditingController();
+  final TextEditingController _countryController = TextEditingController();
+  final TextEditingController _countryCodeController = TextEditingController();
+  final TextEditingController _regionController = TextEditingController();
+  final TextEditingController _cityController = TextEditingController();
+  final TextEditingController _areaController = TextEditingController();
   final TextEditingController _dateTimeController = TextEditingController();
   final TextEditingController _levelController = TextEditingController();
   final TextEditingController _spotsController = TextEditingController();
@@ -2272,6 +2732,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   @override
   void dispose() {
     _clubController.dispose();
+    _countryController.dispose();
+    _countryCodeController.dispose();
+    _regionController.dispose();
+    _cityController.dispose();
+    _areaController.dispose();
     _dateTimeController.dispose();
     _levelController.dispose();
     _spotsController.dispose();
@@ -2283,12 +2748,21 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     final dateTime = _dateTimeController.text.trim();
     final level = _levelController.text.trim();
     final spots = _spotsController.text.trim();
+    final location = MatchLocation(
+      clubName: club,
+      countryCode: _countryCodeController.text,
+      country: _countryController.text,
+      region: _regionController.text,
+      city: _cityController.text,
+      area: _areaController.text,
+    );
 
     if (club.isEmpty ||
         dateTime.isEmpty ||
         _scheduledAt == null ||
         level.isEmpty ||
-        spots.isEmpty) {
+        spots.isEmpty ||
+        !location.isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill in all fields')),
       );
@@ -2328,6 +2802,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       await FirebaseFirestore.instance.collection('matches').add({
         'title': dateTime,
         'club': club,
+        'clubName': club,
+        'location': location.toMap(),
         'dateTime': dateTime,
         'scheduledAt': Timestamp.fromDate(_scheduledAt!),
         'level': level,
@@ -2434,6 +2910,68 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const Key('country-field'),
+                  controller: _countryController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Country',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 110,
+                child: TextField(
+                  key: const Key('country-code-field'),
+                  controller: _countryCodeController,
+                  textCapitalization: TextCapitalization.characters,
+                  maxLength: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'ISO code',
+                    hintText: 'US',
+                    counterText: '',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const Key('region-field'),
+            controller: _regionController,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Region / State / Province (optional)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const Key('city-field'),
+            controller: _cityController,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'City',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const Key('area-field'),
+            controller: _areaController,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Area / Neighborhood (optional)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
           TextField(
             controller: _dateTimeController,
             readOnly: true,
@@ -2470,6 +3008,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             width: double.infinity,
             height: 52,
             child: FilledButton.icon(
+              key: const Key('create-match-submit'),
               onPressed: _isCreating ? null : _createMatch,
               icon: _isCreating
                   ? const SizedBox(
@@ -2965,6 +3504,13 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(match.club, style: const TextStyle(fontSize: 20)),
+                  if (match.locationLabel.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      match.locationLabel,
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   Wrap(
                     spacing: 8,

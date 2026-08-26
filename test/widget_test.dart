@@ -92,9 +92,11 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: CreateMatchScreen()));
 
     expect(find.text('Set up a new game'), findsOneWidget);
-    expect(find.text('Create Match'), findsNWidgets(2));
+    expect(find.text('Create Match'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Create Match'));
+    await tester.drag(find.byType(ListView), const Offset(0, -1200));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('create-match-submit')).first);
     await tester.pump();
 
     expect(find.text('Please fill in all fields'), findsOneWidget);
