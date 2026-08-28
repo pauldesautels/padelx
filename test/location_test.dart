@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/location.dart';
 import 'package:padelx/main.dart';
+import 'package:padelx/places.dart';
 
 void main() {
   group('global match location', () {
@@ -64,6 +65,22 @@ void main() {
       );
       expect(location.clubName, 'Legacy Club');
       expect(location.localityLabel, 'Old Town');
+      expect(location.placeId, isEmpty);
+    });
+
+    test('serializes and restores an optional Google place ID', () {
+      const location = MatchLocation(
+        clubName: 'Padel Co Polanco',
+        countryCode: 'MX',
+        country: 'Mexico',
+        region: 'Mexico City',
+        city: 'Mexico City',
+        placeId: 'ChIJ-google-place-id',
+      );
+
+      final restored = MatchLocation.fromMap({'location': location.toMap()});
+      expect(location.toMap()['placeId'], 'ChIJ-google-place-id');
+      expect(restored.placeId, 'ChIJ-google-place-id');
     });
   });
 
@@ -81,6 +98,59 @@ void main() {
       city: 'Miami',
     );
     expect(miami.city, isNot(restored.city));
+  });
+
+  test('discovery location preserves normalized area and coordinates', () {
+    const discovery = DiscoveryLocation(
+      country: 'Mexico',
+      countryCode: 'mx',
+      city: 'Mexico City',
+      area: 'Polanco',
+      latitude: 19.4326,
+      longitude: -99.1332,
+    );
+    final restored = DiscoveryLocation.fromMap(discovery.toMap());
+    expect(restored.countryCode, 'MX');
+    expect(restored.area, 'Polanco');
+    expect(restored.latitude, 19.4326);
+    expect(restored.longitude, -99.1332);
+  });
+
+  test('Google place details normalize global address components', () {
+    final location = matchLocationFromPlaceDetails({
+      'displayName': {'text': 'Padel Co'},
+      'addressComponents': [
+        {
+          'longText': 'Polanco',
+          'shortText': 'Polanco',
+          'types': ['neighborhood'],
+        },
+        {
+          'longText': 'Mexico City',
+          'shortText': 'CDMX',
+          'types': ['locality'],
+        },
+        {
+          'longText': 'Ciudad de México',
+          'shortText': 'CDMX',
+          'types': ['administrative_area_level_1'],
+        },
+        {
+          'longText': 'Mexico',
+          'shortText': 'MX',
+          'types': ['country'],
+        },
+      ],
+      'location': {'latitude': 19.4326, 'longitude': -99.1332},
+    }, placeId: 'ChIJ-selected-prediction');
+    expect(location.clubName, 'Padel Co');
+    expect(location.country, 'Mexico');
+    expect(location.countryCode, 'MX');
+    expect(location.city, 'Mexico City');
+    expect(location.area, 'Polanco');
+    expect(location.latitude, 19.4326);
+    expect(location.longitude, -99.1332);
+    expect(location.placeId, 'ChIJ-selected-prediction');
   });
 
   test('participation states remain authoritative', () {

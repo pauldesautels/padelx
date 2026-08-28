@@ -439,6 +439,16 @@ service cloud.firestore {
       }
     }
 
+    // A collection-group query is not confined to the /matches parent path,
+    // so it needs an explicit recursive-wildcard rule. Join-request writes
+    // guarantee that userId belongs to the requester and later updates cannot
+    // change it. This therefore exposes only the signed-in player's own
+    // requests, while organizer collection reads remain match-scoped below.
+    match /{path=**}/joinRequests/{requestId} {
+      allow list: if signedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
     match /matches/{matchId} {
       allow read: if signedIn();
       allow create: if signedIn()

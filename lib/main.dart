@@ -3,6 +3,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'location.dart';
+import 'places.dart';
+import 'places_autocomplete.dart';
 
 import 'firebase_options.dart';
 
@@ -1463,6 +1465,22 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
+  void _reportStreamError(String streamName, AsyncSnapshot<Object?> snapshot) {
+    if (!snapshot.hasError) return;
+    final error = snapshot.error;
+    if (error is FirebaseException) {
+      debugPrint(
+        'Firestore $streamName stream failed '
+        '[${error.plugin}/${error.code}]: ${error.message}',
+      );
+    } else {
+      debugPrint('$streamName stream failed: $error');
+    }
+    if (snapshot.stackTrace != null) {
+      debugPrintStack(stackTrace: snapshot.stackTrace);
+    }
+  }
+
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
@@ -1535,6 +1553,7 @@ class _HomeScreenState extends State<HomeScreen> {
           .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
+        _reportStreamError('matches', snapshot);
         final matches = snapshot.hasData
             ? snapshot.data!.docs.map((doc) => Match.fromDocument(doc)).toList()
             : <Match>[];
@@ -1548,6 +1567,7 @@ class _HomeScreenState extends State<HomeScreen> {
               .where('userId', isEqualTo: currentUid)
               .snapshots(),
           builder: (context, requestSnapshot) {
+            _reportStreamError('current-user joinRequests', requestSnapshot);
             final pendingMatchIds = requestSnapshot.hasData
                 ? requestSnapshot.data!.docs
                       .map(JoinRequest.fromDocument)
@@ -1565,6 +1585,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   .collection('notifications')
                   .snapshots(),
               builder: (context, notificationSnapshot) {
+                _reportStreamError('notifications', notificationSnapshot);
                 final notifications = notificationSnapshot.hasData
                     ? notificationSnapshot.data!.docs
                           .map(AppNotification.fromDocument)
@@ -2499,6 +2520,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   late final TextEditingController _discoveryCountryController;
   late final TextEditingController _discoveryCountryCodeController;
   late final TextEditingController _discoveryCityController;
+  late final TextEditingController _discoveryAreaController;
+  double? _discoveryLatitude;
+  double? _discoveryLongitude;
   bool _isSaving = false;
 
   @override
@@ -2517,6 +2541,11 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
     _discoveryCityController = TextEditingController(
       text: widget.profile?.discoveryLocation.city ?? '',
     );
+    _discoveryAreaController = TextEditingController(
+      text: widget.profile?.discoveryLocation.area ?? '',
+    );
+    _discoveryLatitude = widget.profile?.discoveryLocation.latitude;
+    _discoveryLongitude = widget.profile?.discoveryLocation.longitude;
   }
 
   @override
@@ -2526,6 +2555,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
     _discoveryCountryController.dispose();
     _discoveryCountryCodeController.dispose();
     _discoveryCityController.dispose();
+    _discoveryAreaController.dispose();
     super.dispose();
   }
 
@@ -2536,6 +2566,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       country: _discoveryCountryController.text,
       countryCode: _discoveryCountryCodeController.text,
       city: _discoveryCityController.text,
+      area: _discoveryAreaController.text,
+      latitude: _discoveryLatitude,
+      longitude: _discoveryLongitude,
     );
     if (displayName.length < 2) {
       _showMessage('Please enter a display name with at least 2 characters.');
@@ -2556,7 +2589,8 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
     final hasDiscoveryValue =
         discovery.country.isNotEmpty ||
         discovery.countryCode.isNotEmpty ||
-        discovery.city.isNotEmpty;
+        discovery.city.isNotEmpty ||
+        discovery.area.isNotEmpty;
     if (hasDiscoveryValue &&
         (discovery.country.isEmpty ||
             discovery.countryCode.length != 2 ||
@@ -2665,8 +2699,27 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
+          PlacesAutocompleteField(
+            labelText: 'Search for your city',
+            hintText: 'Start typing a city',
+            citiesOnly: true,
+            enabled: !_isSaving,
+            onSelected: (location) => setState(() {
+              _discoveryCountryController.text = location.country;
+              _discoveryCountryCodeController.text = location.countryCode;
+              _discoveryCityController.text = location.city;
+              _discoveryAreaController.text = location.area;
+              _discoveryLatitude = location.latitude;
+              _discoveryLongitude = location.longitude;
+            }),
+          ),
+          if (googlePlacesApiKey.isNotEmpty) const SizedBox(height: 12),
           TextField(
             controller: _discoveryCountryController,
+            onChanged: (_) {
+              _discoveryLatitude = null;
+              _discoveryLongitude = null;
+            },
             decoration: const InputDecoration(
               labelText: 'Country',
               border: OutlineInputBorder(),
@@ -2675,6 +2728,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _discoveryCountryCodeController,
+            onChanged: (_) {
+              _discoveryLatitude = null;
+              _discoveryLongitude = null;
+            },
             textCapitalization: TextCapitalization.characters,
             maxLength: 2,
             decoration: const InputDecoration(
@@ -2687,8 +2744,24 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _discoveryCityController,
+            onChanged: (_) {
+              _discoveryLatitude = null;
+              _discoveryLongitude = null;
+            },
             decoration: const InputDecoration(
               labelText: 'City',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _discoveryAreaController,
+            onChanged: (_) {
+              _discoveryLatitude = null;
+              _discoveryLongitude = null;
+            },
+            decoration: const InputDecoration(
+              labelText: 'Area / Neighborhood (optional)',
               border: OutlineInputBorder(),
             ),
           ),
@@ -2728,6 +2801,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   final TextEditingController _spotsController = TextEditingController();
   bool _isCreating = false;
   DateTime? _scheduledAt;
+  String _placeId = '';
+  double? _latitude;
+  double? _longitude;
 
   @override
   void dispose() {
@@ -2755,6 +2831,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       region: _regionController.text,
       city: _cityController.text,
       area: _areaController.text,
+      placeId: _placeId,
+      latitude: _latitude,
+      longitude: _longitude,
     );
 
     if (club.isEmpty ||
@@ -2901,8 +2980,30 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             style: TextStyle(color: Colors.white70),
           ),
           const SizedBox(height: 24),
+          PlacesAutocompleteField(
+            labelText: 'Search for a padel club',
+            hintText: 'Club name or address',
+            enabled: !_isCreating,
+            onSelected: (location) => setState(() {
+              _clubController.text = location.clubName;
+              _countryController.text = location.country;
+              _countryCodeController.text = location.countryCode;
+              _regionController.text = location.region;
+              _cityController.text = location.city;
+              _areaController.text = location.area;
+              _placeId = location.placeId;
+              _latitude = location.latitude;
+              _longitude = location.longitude;
+            }),
+          ),
+          if (googlePlacesApiKey.isNotEmpty) const SizedBox(height: 16),
           TextField(
             controller: _clubController,
+            onChanged: (_) {
+              _placeId = '';
+              _latitude = null;
+              _longitude = null;
+            },
             decoration: const InputDecoration(
               labelText: 'Club name',
               prefixIcon: Icon(Icons.location_on),
@@ -2916,6 +3017,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 child: TextField(
                   key: const Key('country-field'),
                   controller: _countryController,
+                  onChanged: (_) {
+                    _latitude = null;
+                    _longitude = null;
+                  },
                   textCapitalization: TextCapitalization.words,
                   decoration: const InputDecoration(
                     labelText: 'Country',
@@ -2929,6 +3034,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 child: TextField(
                   key: const Key('country-code-field'),
                   controller: _countryCodeController,
+                  onChanged: (_) {
+                    _latitude = null;
+                    _longitude = null;
+                  },
                   textCapitalization: TextCapitalization.characters,
                   maxLength: 2,
                   decoration: const InputDecoration(
@@ -2945,6 +3054,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           TextField(
             key: const Key('region-field'),
             controller: _regionController,
+            onChanged: (_) {
+              _latitude = null;
+              _longitude = null;
+            },
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(
               labelText: 'Region / State / Province (optional)',
@@ -2955,6 +3068,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           TextField(
             key: const Key('city-field'),
             controller: _cityController,
+            onChanged: (_) {
+              _latitude = null;
+              _longitude = null;
+            },
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(
               labelText: 'City',
@@ -2965,6 +3082,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           TextField(
             key: const Key('area-field'),
             controller: _areaController,
+            onChanged: (_) {
+              _latitude = null;
+              _longitude = null;
+            },
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(
               labelText: 'Area / Neighborhood (optional)',

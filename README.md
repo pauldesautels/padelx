@@ -1,17 +1,22 @@
-# padelx
+# PadelX
 
-A new Flutter project.
+A Flutter application for PadelX.
 
-## Getting Started
+## Local web development
 
-This project is a starting point for a Flutter application.
+The app reads the Google Places API key at compile time using
+`String.fromEnvironment('GOOGLE_PLACES_API_KEY')`. Keep development secrets in
+`config/development.local.json`, which is ignored by Git.
 
-A few resources to get you started if this is your first Flutter project:
+1. Open `config/development.local.json` on your Mac and put your development
+   Google Places API key between the empty quotes.
+2. Launch the app from the project root:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+   ```sh
+   flutter run -d chrome --dart-define-from-file=config/development.local.json
+   ```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+`config/development.example.json` is a safe template that can be committed.
+Additional environments can use separate files and keys, such as an ignored
+`config/production.local.json`, selected with the same
+`--dart-define-from-file` option during the relevant build or run.

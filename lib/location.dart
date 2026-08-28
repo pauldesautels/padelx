@@ -1,5 +1,5 @@
 class MatchLocation {
-  final String clubName, countryCode, country, region, city, area;
+  final String clubName, countryCode, country, region, city, area, placeId;
   final double? latitude, longitude;
 
   const MatchLocation({
@@ -9,6 +9,7 @@ class MatchLocation {
     required this.region,
     required this.city,
     this.area = '',
+    this.placeId = '',
     this.latitude,
     this.longitude,
   });
@@ -35,6 +36,7 @@ class MatchLocation {
     'region': region.trim(),
     'city': city.trim(),
     'area': area.trim(),
+    if (placeId.trim().isNotEmpty) 'placeId': placeId.trim(),
     'latitude': ?latitude,
     'longitude': ?longitude,
   };
@@ -60,6 +62,7 @@ class MatchLocation {
       region: value('region'),
       city: value('city'),
       area: value('area').isNotEmpty ? value('area') : legacyLocation,
+      placeId: value('placeId'),
       latitude: coordinate('latitude'),
       longitude: coordinate('longitude'),
     );
@@ -67,17 +70,24 @@ class MatchLocation {
 }
 
 class DiscoveryLocation {
-  final String country, countryCode, city;
+  final String country, countryCode, city, area;
+  final double? latitude, longitude;
   const DiscoveryLocation({
     required this.country,
     required this.countryCode,
     required this.city,
+    this.area = '',
+    this.latitude,
+    this.longitude,
   });
   bool get isConfigured => city.trim().isNotEmpty;
-  Map<String, String> toMap() => {
+  Map<String, Object> toMap() => {
     'country': country.trim(),
     'countryCode': countryCode.trim().toUpperCase(),
     'city': city.trim(),
+    'area': area.trim(),
+    'latitude': ?latitude,
+    'longitude': ?longitude,
   };
   factory DiscoveryLocation.fromMap(Object? raw) {
     final data = raw is Map ? raw : const <dynamic, dynamic>{};
@@ -85,8 +95,25 @@ class DiscoveryLocation {
       country: data['country']?.toString().trim() ?? '',
       countryCode: data['countryCode']?.toString().trim() ?? '',
       city: data['city']?.toString().trim() ?? '',
+      area: data['area']?.toString().trim() ?? '',
+      latitude: data['latitude'] is num
+          ? (data['latitude'] as num).toDouble()
+          : null,
+      longitude: data['longitude'] is num
+          ? (data['longitude'] as num).toDouble()
+          : null,
     );
   }
+
+  factory DiscoveryLocation.fromMatchLocation(MatchLocation location) =>
+      DiscoveryLocation(
+        country: location.country,
+        countryCode: location.countryCode,
+        city: location.city,
+        area: location.area,
+        latitude: location.latitude,
+        longitude: location.longitude,
+      );
 }
 
 bool sameLocationValue(String actual, String? filter) =>
