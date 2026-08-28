@@ -255,6 +255,7 @@ service cloud.firestore {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       let location = request.resource.data.location;
       return isOrganizer(matchId)
+        && matchIsStillOpen(request.resource.data)
         && changed.hasOnly([
           'title', 'dateTime', 'scheduledAt', 'club', 'clubName', 'location',
           'level', 'spotsLeft'
@@ -316,6 +317,81 @@ service cloud.firestore {
       return (players.size() > 0 && playerUid(players[0]) == playerUidValue)
         || (players.size() > 1 && playerUid(players[1]) == playerUidValue)
         || (players.size() > 2 && playerUid(players[2]) == playerUidValue);
+    }
+
+    function matchOrganizerUid(matchData) {
+      return 'creatorUid' in matchData && matchData.creatorUid != ''
+        ? matchData.creatorUid
+        : 'createdBy' in matchData
+        ? matchData.createdBy
+        : '';
+    }
+
+    function matchOrganizerEmail(matchData) {
+      return 'creatorEmail' in matchData && matchData.creatorEmail != ''
+        ? matchData.creatorEmail
+        : 'createdByEmail' in matchData
+        ? matchData.createdByEmail
+        : '';
+    }
+
+    function userParticipated(matchData, uid) {
+      let userData = get(
+        /databases/$(database)/documents/users/$(uid)
+      ).data;
+      return matchContainsPlayer(matchData, uid)
+        || matchOrganizerUid(matchData) == uid
+        || (
+          matchOrganizerUid(matchData) == ''
+          && matchOrganizerEmail(matchData) != ''
+          && userData.email == matchOrganizerEmail(matchData)
+        );
+    }
+
+    function matchIsCompleted(matchData) {
+      return 'scheduledAt' in matchData
+        && matchData.scheduledAt is timestamp
+        && matchData.scheduledAt <= request.time;
+    }
+
+    function matchIsStillOpen(matchData) {
+      return 'scheduledAt' in matchData
+        && matchData.scheduledAt is timestamp
+        && matchData.scheduledAt > request.time;
+    }
+
+    function matchCanStillChange(matchId) {
+      let matchData = get(
+        /databases/$(database)/documents/matches/$(matchId)
+      ).data;
+      return !('scheduledAt' in matchData) || matchIsStillOpen(matchData);
+    }
+
+    function validRating(matchId, raterUid, ratedUid) {
+      let data = request.resource.data;
+      let matchData = get(
+        /databases/$(database)/documents/matches/$(matchId)
+      ).data;
+      return data.keys().hasAll([
+          'matchId', 'raterUid', 'ratedUid', 'rating', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'matchId', 'raterUid', 'ratedUid', 'rating', 'createdAt'
+        ])
+        && data.matchId == matchId
+        && data.raterUid == request.auth.uid
+        && data.raterUid == raterUid
+        && data.ratedUid is string
+        && data.ratedUid != ''
+        && data.ratedUid == ratedUid
+        && data.raterUid != data.ratedUid
+        && data.rating is int
+        && data.rating >= 1
+        && data.rating <= 5
+        && data.createdAt == request.time
+        && matchIsCompleted(matchData)
+        && userParticipated(matchData, data.raterUid)
+        && userParticipated(matchData, data.ratedUid);
     }
 
     function leaveUpdatesMatch(matchId, playerUidValue) {
@@ -496,21 +572,32 @@ service cloud.firestore {
         && resource.data.userId == request.auth.uid;
     }
 
+    // Public profiles aggregate immutable rating records with a targeted
+    // collection-group query. Writes remain match-scoped below.
+    match /{path=**}/ratings/{ratingId} {
+      allow list: if signedIn();
+    }
+
     match /matches/{matchId} {
       allow read: if signedIn();
       allow create: if signedIn()
         && request.resource.data.creatorUid == request.auth.uid
+        && matchIsStillOpen(request.resource.data)
         && request.resource.data.players is list
         && request.resource.data.players.size() == 0
         && request.resource.data.spotsLeft is int
         && request.resource.data.spotsLeft >= 1
         && request.resource.data.spotsLeft <= 3;
-      allow delete: if isOrganizer(matchId);
+      allow delete: if isOrganizer(matchId) && matchCanStillChange(matchId);
 
       // Match updates are limited to organizer detail edits, an atomic
       // organizer approval, or a player removing their exact own entry.
       // None of these paths can change ownership or join-request state.
       allow update: if signedIn()
+        && (
+          !('scheduledAt' in resource.data)
+          || matchIsStillOpen(resource.data)
+        )
         && (
           organizerEditsMatchDetails(matchId)
           || organizerApprovesPendingRequest(matchId)
@@ -525,6 +612,7 @@ service cloud.firestore {
 
         // A non-organizer can create only their own pending request.
         allow create: if signedIn()
+          && matchCanStillChange(matchId)
           && request.auth.uid == userId
           && !isOrganizer(matchId)
           && request.resource.data.userId == request.auth.uid
@@ -533,7 +621,7 @@ service cloud.firestore {
 
         // Requesters may retry only after decline. Only the organizer may
         // transition a pending request to approved or declined.
-        allow update: if signedIn() && (
+        allow update: if signedIn() && matchCanStillChange(matchId) && (
           (
             request.auth.uid == userId
             && !isOrganizer(matchId)
@@ -574,7 +662,15 @@ service cloud.firestore {
           )
         );
 
-        allow delete: if isOrganizer(matchId);
+        allow delete: if isOrganizer(matchId) && matchCanStillChange(matchId);
+      }
+
+
+      match /ratingRaters/{raterUid}/ratings/{ratedUid} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && validRating(matchId, raterUid, ratedUid);
+        allow update, delete: if false;
       }
     }
   }

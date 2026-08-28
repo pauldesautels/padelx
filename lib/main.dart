@@ -697,6 +697,12 @@ DateTime? _parseScheduledAt(Object? value) {
 bool isPastMatch(Match match, DateTime now) =>
     match.scheduledAt?.isBefore(now) ?? false;
 
+bool isUpcomingMatch(Match match, DateTime now) =>
+    match.scheduledAt?.isAfter(now) ?? false;
+
+bool matchAllowsChanges(Match match, DateTime now) =>
+    isUpcomingMatch(match, now);
+
 List<Match> sortedMatches(Iterable<Match> matches) {
   final sorted = matches.toList();
   sorted.sort((a, b) {
@@ -768,14 +774,95 @@ class PublicPlayerProfile {
   final String uid;
   final String displayName;
   final String level;
+  final String email;
   final List<Match> matches;
+  final List<PlayerRating> ratings;
 
   const PublicPlayerProfile({
     required this.uid,
     required this.displayName,
     required this.level,
+    this.email = '',
     required this.matches,
+    this.ratings = const [],
   });
+
+  RatingSummary get ratingSummary => RatingSummary.fromRatings(ratings);
+}
+
+class PlayerRating {
+  final String matchId;
+  final String raterUid;
+  final String ratedUid;
+  final int rating;
+  final DateTime? createdAt;
+
+  const PlayerRating({
+    required this.matchId,
+    required this.raterUid,
+    required this.ratedUid,
+    required this.rating,
+    this.createdAt,
+  });
+
+  factory PlayerRating.fromDocument(
+    QueryDocumentSnapshot<Map<String, dynamic>> document,
+  ) {
+    final data = document.data();
+    return PlayerRating(
+      matchId: data['matchId']?.toString() ?? '',
+      raterUid: data['raterUid']?.toString() ?? '',
+      ratedUid: data['ratedUid']?.toString() ?? '',
+      rating: data['rating'] is int ? data['rating'] as int : 0,
+      createdAt: _parseScheduledAt(data['createdAt']),
+    );
+  }
+}
+
+class RatingSummary {
+  final double average;
+  final int count;
+
+  const RatingSummary({required this.average, required this.count});
+
+  factory RatingSummary.fromRatings(Iterable<PlayerRating> ratings) {
+    final valid = ratings.where((item) => item.rating >= 1 && item.rating <= 5);
+    final count = valid.length;
+    final total = valid.fold<int>(0, (total, item) => total + item.rating);
+    return RatingSummary(average: count == 0 ? 0 : total / count, count: count);
+  }
+}
+
+bool isValidRatingValue(int rating) => rating >= 1 && rating <= 5;
+
+bool matchIncludesIdentity(Match match, String uid, String email) {
+  if (uid.isEmpty) return false;
+  if (match.creatorUid == uid) return true;
+  if (match.creatorEmail.isNotEmpty && email.isNotEmpty) {
+    if (match.creatorEmail.toLowerCase() == email.toLowerCase()) return true;
+  }
+  return match.players.any((player) => player.uid == uid);
+}
+
+List<Match> matchesForUser(Iterable<Match> matches, String uid, String email) =>
+    matches.where((match) => matchIncludesIdentity(match, uid, email)).toList();
+
+bool canRatePlayerForMatch({
+  required Match match,
+  required String raterUid,
+  required String raterEmail,
+  required String ratedUid,
+  required String ratedEmail,
+  required DateTime now,
+  PlayerRating? existingRating,
+}) {
+  return raterUid.isNotEmpty &&
+      ratedUid.isNotEmpty &&
+      raterUid != ratedUid &&
+      existingRating == null &&
+      isPastMatch(match, now) &&
+      matchIncludesIdentity(match, raterUid, raterEmail) &&
+      matchIncludesIdentity(match, ratedUid, ratedEmail);
 }
 
 typedef PublicPlayerProfileLoader =
@@ -816,9 +903,14 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
   final results = await Future.wait([
     firestore.collection('users').doc(uid).get(),
     firestore.collection('matches').get(),
+    firestore
+        .collectionGroup('ratings')
+        .where('ratedUid', isEqualTo: uid)
+        .get(),
   ]);
   final userDocument = results[0] as DocumentSnapshot<Map<String, dynamic>>;
   final matchSnapshot = results[1] as QuerySnapshot<Map<String, dynamic>>;
+  final ratingSnapshot = results[2] as QuerySnapshot<Map<String, dynamic>>;
   final profile = userDocument.exists
       ? UserProfile.fromDocument(userDocument)
       : null;
@@ -831,7 +923,9 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
     uid: uid,
     displayName: profile?.displayName ?? '',
     level: profile?.level ?? '',
+    email: profile?.email ?? '',
     matches: matches,
+    ratings: ratingSnapshot.docs.map(PlayerRating.fromDocument).toList(),
   );
 }
 
@@ -1778,16 +1872,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final currentEmail = FirebaseAuth.instance.currentUser?.email ?? '';
     final openMatches = sortedMatches(
       matches.where(
-        (match) => !isPastMatch(match, now) && match.status != 'cancelled',
+        (match) => isUpcomingMatch(match, now) && match.status != 'cancelled',
       ),
     );
-    final myMatches = matches
-        .where(
-          (match) =>
-              _isMatchOrganizer(match, currentUid, currentEmail) ||
-              match.players.any((player) => player.uid == currentUid),
-        )
-        .toList();
+    final myMatches = matchesForUser(matches, currentUid, currentEmail);
     final screens = [
       HomeTab(
         onCreateMatch: _openCreateMatchScreen,
@@ -2497,12 +2585,14 @@ class MatchCard extends StatelessWidget {
   final Match match;
   final String? relationshipLabel;
   final double? distanceKm;
+  final bool historical;
 
   const MatchCard({
     super.key,
     required this.match,
     this.relationshipLabel,
     this.distanceKm,
+    this.historical = false,
   });
 
   @override
@@ -2538,6 +2628,15 @@ class MatchCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
               ],
+              if (historical) ...[
+                const Chip(
+                  avatar: Icon(Icons.history, size: 18),
+                  label: Text('Completed'),
+                  backgroundColor: Color(0xFF3A403D),
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(height: 12),
+              ],
               Row(
                 children: [
                   const CircleAvatar(child: Icon(Icons.sports_tennis)),
@@ -2569,7 +2668,13 @@ class MatchCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   _InfoChip(text: match.level, icon: Icons.leaderboard),
-                  _InfoChip(text: match.spotsLeftLabel, icon: Icons.group),
+                  if (match.scheduledAt != null)
+                    _InfoChip(
+                      text: _friendlyDateTime(match.scheduledAt!),
+                      icon: Icons.schedule,
+                    ),
+                  if (!historical)
+                    _InfoChip(text: match.spotsLeftLabel, icon: Icons.group),
                   if (distanceKm != null)
                     _InfoChip(
                       text: '${distanceKm!.toStringAsFixed(1)} km away',
@@ -2592,6 +2697,7 @@ class MyMatchesTab extends StatelessWidget {
   final String currentEmail;
   final bool isLoading;
   final bool error;
+  final DateTime Function() nowProvider;
 
   const MyMatchesTab({
     super.key,
@@ -2601,7 +2707,8 @@ class MyMatchesTab extends StatelessWidget {
     this.currentEmail = '',
     required this.isLoading,
     required this.error,
-  });
+    DateTime Function()? nowProvider,
+  }) : nowProvider = nowProvider ?? DateTime.now;
 
   @override
   Widget build(BuildContext context) {
@@ -2617,9 +2724,9 @@ class MyMatchesTab extends StatelessWidget {
       return const Center(child: Text('You have no matches yet'));
     }
 
-    final now = DateTime.now();
+    final now = nowProvider();
     final upcomingMatches = sortedMatches(
-      matches.where((match) => !isPastMatch(match, now)),
+      matches.where((match) => isUpcomingMatch(match, now)),
     );
     final pastMatches = sortedMatches(
       matches.where((match) => isPastMatch(match, now)),
@@ -2680,13 +2787,15 @@ class MyMatchesTab extends StatelessWidget {
         const SizedBox(height: 12),
         if (pastMatches.isEmpty)
           const Text(
-            'No past matches.',
+            'No past matches yet.',
+            key: Key('no-past-matches'),
             style: TextStyle(color: Colors.white70),
           ),
         if (pastMatches.isNotEmpty)
           ...pastMatches.map(
             (match) => MatchCard(
               match: match,
+              historical: true,
               relationshipLabel:
                   _isMatchOrganizer(match, currentUid, currentEmail)
                   ? 'Organizing'
@@ -3704,6 +3813,8 @@ class PlayerProfileScreen extends StatefulWidget {
   final String fallbackName;
   final String fallbackLevel;
   final PublicPlayerProfileLoader loader;
+  final String? viewerUid;
+  final String? viewerEmail;
 
   const PlayerProfileScreen({
     super.key,
@@ -3711,6 +3822,8 @@ class PlayerProfileScreen extends StatefulWidget {
     this.fallbackName = '',
     this.fallbackLevel = '',
     this.loader = loadPublicPlayerProfile,
+    this.viewerUid,
+    this.viewerEmail,
   });
 
   @override
@@ -3718,7 +3831,94 @@ class PlayerProfileScreen extends StatefulWidget {
 }
 
 class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
-  late final Future<PublicPlayerProfile> _profile = widget.loader(widget.uid);
+  late Future<PublicPlayerProfile> _profile = widget.loader(widget.uid);
+  bool _isSubmittingRating = false;
+
+  User? get _firebaseUser =>
+      Firebase.apps.isEmpty ? null : FirebaseAuth.instance.currentUser;
+
+  String get _viewerUid => widget.viewerUid ?? _firebaseUser?.uid ?? '';
+  String get _viewerEmail => widget.viewerEmail ?? _firebaseUser?.email ?? '';
+
+  Future<void> _ratePlayer(Match match) async {
+    final user = _firebaseUser;
+    if (user == null || _isSubmittingRating) return;
+    var selected = 0;
+    final rating = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Rate player'),
+          content: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (index) {
+              final value = index + 1;
+              return IconButton(
+                key: Key('rating-star-$value'),
+                tooltip: '$value star${value == 1 ? '' : 's'}',
+                onPressed: () => setDialogState(() => selected = value),
+                icon: Icon(
+                  value <= selected ? Icons.star : Icons.star_border,
+                  color: Colors.amber,
+                ),
+              );
+            }),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: selected == 0
+                  ? null
+                  : () => Navigator.pop(dialogContext, selected),
+              child: const Text('Confirm'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (rating == null || !mounted) return;
+
+    setState(() => _isSubmittingRating = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('matches')
+          .doc(match.id)
+          .collection('ratingRaters')
+          .doc(user.uid)
+          .collection('ratings')
+          .doc(widget.uid)
+          .set({
+            'matchId': match.id,
+            'raterUid': user.uid,
+            'ratedUid': widget.uid,
+            'rating': rating,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+      if (!mounted) return;
+      setState(() {
+        _profile = widget.loader(widget.uid);
+        _isSubmittingRating = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Rating submitted.')));
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      setState(() => _isSubmittingRating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.code == 'permission-denied'
+                ? 'This match is not eligible for rating.'
+                : 'Could not submit rating.',
+          ),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3750,7 +3950,17 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
           final level = profile.level.isNotEmpty
               ? profile.level
               : widget.fallbackLevel.trim();
-          final recentMatches = recentPlayerMatches(profile.matches);
+          final recentMatches = recentPlayerMatches(
+            profile.matches,
+            limit: profile.matches.length,
+          );
+          final summary = profile.ratingSummary;
+          final viewerUid = _viewerUid;
+          final viewerEmail = _viewerEmail;
+          final ratingsByMatch = {
+            for (final rating in profile.ratings)
+              if (rating.raterUid == viewerUid) rating.matchId: rating,
+          };
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
@@ -3784,8 +3994,43 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                 ),
               ),
               const SizedBox(height: 24),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: summary.count == 0
+                      ? const Text(
+                          'No ratings yet',
+                          key: Key('public-profile-no-ratings'),
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: List.generate(
+                                5,
+                                (index) => Icon(
+                                  index < summary.average.round()
+                                      ? Icons.star
+                                      : Icons.star_border,
+                                  color: Colors.amber,
+                                  size: 22,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${summary.average.toStringAsFixed(1)} ★ '
+                              '(${summary.count} '
+                              '${summary.count == 1 ? 'rating' : 'ratings'})',
+                              key: const Key('public-profile-rating-summary'),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+              const SizedBox(height: 24),
               const Text(
-                'Recent matches',
+                'Match history',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
@@ -3795,8 +4040,20 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                   style: TextStyle(color: Colors.white70),
                 )
               else
-                ...recentMatches.map(
-                  (match) => Card(
+                ...recentMatches.map((match) {
+                  final existing = ratingsByMatch[match.id];
+                  final eligible =
+                      viewerUid.isNotEmpty &&
+                      canRatePlayerForMatch(
+                        match: match,
+                        raterUid: viewerUid,
+                        raterEmail: viewerEmail,
+                        ratedUid: profile.uid,
+                        ratedEmail: profile.email,
+                        now: DateTime.now(),
+                        existingRating: existing,
+                      );
+                  return Card(
                     child: ListTile(
                       title: Text(
                         match.club.isEmpty ? 'Padel match' : match.club,
@@ -3809,9 +4066,23 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                             : '${_friendlyDateTime(match.scheduledAt!)}'
                                   '${match.level.isEmpty ? '' : ' · ${match.level}'}',
                       ),
+                      trailing: existing != null
+                          ? Text(
+                              '${existing.rating} ★',
+                              key: Key('existing-rating-${match.id}'),
+                            )
+                          : eligible
+                          ? TextButton(
+                              key: Key('rate-player-${match.id}'),
+                              onPressed: _isSubmittingRating
+                                  ? null
+                                  : () => _ratePlayer(match),
+                              child: const Text('Rate player'),
+                            )
+                          : null,
                     ),
-                  ),
-                ),
+                  );
+                }),
             ],
           );
         },
@@ -3823,6 +4094,258 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
 String _publicFallbackName(String value) {
   final trimmed = value.trim();
   return trimmed.contains('@') ? '' : trimmed;
+}
+
+typedef MatchRatingsLoader =
+    Future<List<PlayerRating>> Function(String matchId, String raterUid);
+typedef MatchRatingSubmitter =
+    Future<void> Function(
+      String matchId,
+      String raterUid,
+      String ratedUid,
+      int rating,
+    );
+
+Future<List<PlayerRating>> loadMatchRatings(
+  String matchId,
+  String raterUid,
+) async {
+  final snapshot = await FirebaseFirestore.instance
+      .collection('matches')
+      .doc(matchId)
+      .collection('ratingRaters')
+      .doc(raterUid)
+      .collection('ratings')
+      .get();
+  return snapshot.docs.map(PlayerRating.fromDocument).toList();
+}
+
+Future<void> submitMatchRating(
+  String matchId,
+  String raterUid,
+  String ratedUid,
+  int rating,
+) async {
+  if (!isValidRatingValue(rating)) return;
+  await FirebaseFirestore.instance
+      .collection('matches')
+      .doc(matchId)
+      .collection('ratingRaters')
+      .doc(raterUid)
+      .collection('ratings')
+      .doc(ratedUid)
+      .set({
+        'matchId': matchId,
+        'raterUid': raterUid,
+        'ratedUid': ratedUid,
+        'rating': rating,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+}
+
+List<MatchPlayer> ratingCandidates(Match match, String currentUid) {
+  final candidates = <MatchPlayer>[
+    if (match.creatorUid.isNotEmpty)
+      MatchPlayer(
+        uid: match.creatorUid,
+        email: match.creatorEmail,
+        displayName: match.creatorDisplayName,
+        level: match.creatorLevel,
+      ),
+    ...match.players,
+  ];
+  final seen = <String>{};
+  return candidates
+      .where(
+        (player) =>
+            player.uid.isNotEmpty &&
+            player.uid != currentUid &&
+            seen.add(player.uid),
+      )
+      .toList();
+}
+
+class RatePlayersSection extends StatefulWidget {
+  final Match match;
+  final String currentUid;
+  final String currentEmail;
+  final MatchRatingsLoader ratingsLoader;
+  final MatchRatingSubmitter ratingSubmitter;
+  final PublicPlayerProfileLoader profileLoader;
+
+  const RatePlayersSection({
+    super.key,
+    required this.match,
+    required this.currentUid,
+    this.currentEmail = '',
+    this.ratingsLoader = loadMatchRatings,
+    this.ratingSubmitter = submitMatchRating,
+    this.profileLoader = loadPublicPlayerProfile,
+  });
+
+  @override
+  State<RatePlayersSection> createState() => _RatePlayersSectionState();
+}
+
+class _RatePlayersSectionState extends State<RatePlayersSection> {
+  late Future<List<PlayerRating>> _ratings = widget.ratingsLoader(
+    widget.match.id,
+    widget.currentUid,
+  );
+  final Set<String> _submitting = {};
+
+  Future<void> _rate(MatchPlayer player) async {
+    var selected = 0;
+    final rating = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            'Rate ${player.displayName.isEmpty ? 'player' : player.displayName}',
+          ),
+          content: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (index) {
+              final value = index + 1;
+              return IconButton(
+                key: Key('match-rating-star-$value'),
+                tooltip: '$value star${value == 1 ? '' : 's'}',
+                onPressed: () => setDialogState(() => selected = value),
+                icon: Icon(
+                  value <= selected ? Icons.star : Icons.star_border,
+                  color: Colors.amber,
+                ),
+              );
+            }),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: selected == 0
+                  ? null
+                  : () => Navigator.pop(dialogContext, selected),
+              child: const Text('Submit rating'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (rating == null || _submitting.contains(player.uid)) return;
+    setState(() => _submitting.add(player.uid));
+    try {
+      await widget.ratingSubmitter(
+        widget.match.id,
+        widget.currentUid,
+        player.uid,
+        rating,
+      );
+      if (!mounted) return;
+      setState(() {
+        _submitting.remove(player.uid);
+        _ratings = widget.ratingsLoader(widget.match.id, widget.currentUid);
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Rating submitted.')));
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      setState(() => _submitting.remove(player.uid));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.code == 'permission-denied'
+                ? 'This rating was already submitted or is not eligible.'
+                : 'Could not submit rating.',
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final candidates = ratingCandidates(widget.match, widget.currentUid);
+    return Column(
+      key: const Key('rate-players-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Rate players',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        if (candidates.isEmpty)
+          const Text(
+            'No other confirmed players to rate.',
+            style: TextStyle(color: Colors.white70),
+          )
+        else
+          FutureBuilder<List<PlayerRating>>(
+            future: _ratings,
+            builder: (context, snapshot) {
+              final existing = {
+                for (final rating in snapshot.data ?? const <PlayerRating>[])
+                  rating.ratedUid: rating,
+              };
+              return Column(
+                children: candidates.map((player) {
+                  final prior = existing[player.uid];
+                  final name = player.displayName.isNotEmpty
+                      ? player.displayName
+                      : player.email.isNotEmpty
+                      ? player.email
+                      : 'Player';
+                  return Card(
+                    child: ListTile(
+                      key: Key('rating-player-${player.uid}'),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => PlayerProfileScreen(
+                            uid: player.uid,
+                            fallbackName: name,
+                            fallbackLevel: player.level,
+                            loader: widget.profileLoader,
+                            viewerUid: widget.currentUid,
+                            viewerEmail: widget.currentEmail,
+                          ),
+                        ),
+                      ),
+                      leading: CircleAvatar(
+                        child: Text(name.substring(0, 1).toUpperCase()),
+                      ),
+                      title: Text(name),
+                      subtitle: Text(
+                        player.uid == widget.match.creatorUid
+                            ? 'Organizer'
+                            : 'Confirmed',
+                      ),
+                      trailing: prior == null
+                          ? TextButton(
+                              key: Key('rate-match-player-${player.uid}'),
+                              onPressed:
+                                  snapshot.connectionState ==
+                                          ConnectionState.waiting ||
+                                      _submitting.contains(player.uid)
+                                  ? null
+                                  : () => _rate(player),
+                              child: const Text('Rate player'),
+                            )
+                          : Text(
+                              'Submitted · ${prior.rating} ★',
+                              key: Key('rated-match-player-${player.uid}'),
+                            ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+      ],
+    );
+  }
 }
 
 class MatchDetailsScreen extends StatefulWidget {
@@ -3841,6 +4364,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   final Set<String> _processingRequestIds = {};
 
   Future<void> _requestToJoin() async {
+    if (!matchAllowsChanges(widget.match, DateTime.now())) {
+      _showMessage('This match has already been completed.');
+      return;
+    }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       _showMessage('Please log in to request to join a match.');
@@ -3926,6 +4453,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   }
 
   Future<void> _reviewRequest(JoinRequest request, bool approve) async {
+    if (!matchAllowsChanges(widget.match, DateTime.now())) {
+      _showMessage('Completed matches cannot be changed.');
+      return;
+    }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _processingRequestIds.contains(request.userId)) return;
     setState(() => _processingRequestIds.add(request.userId));
@@ -4083,6 +4614,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   }
 
   Future<void> _leaveMatch() async {
+    if (!matchAllowsChanges(widget.match, DateTime.now())) {
+      _showMessage('Completed matches cannot be changed.');
+      return;
+    }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       _showMessage('Please log in to leave a match.');
@@ -4151,6 +4686,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   }
 
   Future<void> _cancelMatch() async {
+    if (!matchAllowsChanges(widget.match, DateTime.now())) {
+      _showMessage('Completed matches cannot be changed.');
+      return;
+    }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       _showMessage('Please log in to cancel a match.');
@@ -4245,11 +4784,15 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
               currentUid,
               FirebaseAuth.instance.currentUser?.email ?? '',
             );
+        final completed = isPastMatch(match, DateTime.now());
+        final currentEmail = FirebaseAuth.instance.currentUser?.email ?? '';
         final requestsCollection = FirebaseFirestore.instance
             .collection('matches')
             .doc(match.id)
             .collection('joinRequests');
-        final requestsStream = isOrganizer
+        final requestsStream = completed
+            ? Stream.value(const <JoinRequest>[])
+            : isOrganizer
             ? requestsCollection.snapshots().map(
                 (snapshot) =>
                     snapshot.docs.map(JoinRequest.fromDocument).toList(),
@@ -4289,7 +4832,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                 title: const Text('Match Details'),
                 backgroundColor: const Color(0xFF0F1412),
                 actions: [
-                  if (isOrganizer)
+                  if (isOrganizer && !completed)
                     TextButton.icon(
                       key: const Key('edit-match-action'),
                       onPressed: isBusy
@@ -4342,7 +4885,18 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                     runSpacing: 8,
                     children: [
                       _InfoChip(text: match.level, icon: Icons.leaderboard),
-                      _InfoChip(text: match.spotsLeftLabel, icon: Icons.group),
+                      if (match.scheduledAt != null)
+                        _InfoChip(
+                          text: _friendlyDateTime(match.scheduledAt!),
+                          icon: Icons.schedule,
+                        ),
+                      if (!completed)
+                        _InfoChip(
+                          text: match.spotsLeftLabel,
+                          icon: Icons.group,
+                        ),
+                      if (completed)
+                        const _InfoChip(text: 'Completed', icon: Icons.history),
                     ],
                   ),
                   const SizedBox(height: 28),
@@ -4373,8 +4927,9 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                             role: 'Confirmed',
                           ),
                   ),
-                  if (participationState ==
-                      MatchParticipationState.organizer) ...[
+                  if (!completed &&
+                      participationState ==
+                          MatchParticipationState.organizer) ...[
                     const SizedBox(height: 24),
                     JoinRequestsSection(
                       requests: pendingRequests,
@@ -4389,8 +4944,25 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                       onDecline: (request) => _reviewRequest(request, false),
                     ),
                   ],
+                  if (completed &&
+                      currentUid != null &&
+                      matchIncludesIdentity(
+                        match,
+                        currentUid,
+                        currentEmail,
+                      )) ...[
+                    const SizedBox(height: 24),
+                    RatePlayersSection(
+                      match: match,
+                      currentUid: currentUid,
+                      currentEmail: currentEmail,
+                    ),
+                  ],
                   const SizedBox(height: 24),
-                  if (participationState == MatchParticipationState.organizer)
+                  if (completed)
+                    const SizedBox.shrink()
+                  else if (participationState ==
+                      MatchParticipationState.organizer)
                     SizedBox(
                       width: double.infinity,
                       height: 52,

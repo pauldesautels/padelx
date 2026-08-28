@@ -293,12 +293,149 @@ void main() {
     expect(find.text('Past'), findsOneWidget);
     expect(find.text('Friday · 6:00 PM'), findsOneWidget);
     expect(find.text('Central Padel'), findsOneWidget);
-    expect(find.text('1 spot left'), findsOneWidget);
+    expect(find.text('2 spots left'), findsOneWidget);
+  });
+
+  testWidgets('my matches classifies and sorts around a deterministic clock', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final now = DateTime.utc(2026, 8, 28, 12);
+    final matches = [
+      _match(
+        id: 'future',
+        club: 'Future Club',
+        scheduledAt: now.add(const Duration(hours: 1)),
+      ),
+      _match(
+        id: 'older',
+        club: 'Older Past Club',
+        scheduledAt: now.subtract(const Duration(days: 2)),
+      ),
+      _match(
+        id: 'newer',
+        club: 'Newer Past Club',
+        scheduledAt: now.subtract(const Duration(hours: 1)),
+      ),
+      _match(id: 'boundary', club: 'Boundary Club', scheduledAt: now),
+      const Match(
+        id: 'malformed',
+        title: 'Malformed',
+        club: 'Malformed Club',
+        level: '',
+        spotsLeft: 0,
+        creatorUid: 'creator',
+        creatorEmail: '',
+        players: [],
+      ),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MyMatchesTab(
+            matches: matches,
+            currentUid: 'creator',
+            isLoading: false,
+            error: false,
+            nowProvider: () => now,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Future Club'), findsOneWidget);
+    expect(find.text('Newer Past Club'), findsOneWidget);
+    expect(find.text('Older Past Club'), findsOneWidget);
+    expect(find.text('Boundary Club'), findsNothing);
+    expect(find.text('Malformed Club'), findsNothing);
+    expect(
+      tester.getTopLeft(find.text('Newer Past Club')).dy,
+      lessThan(tester.getTopLeft(find.text('Older Past Club')).dy),
+    );
+    expect(find.text('Completed'), findsNWidgets(2));
+    expect(find.textContaining('spot'), findsOneWidget);
+  });
+
+  testWidgets('my matches shows the no-past-matches empty state', (
+    tester,
+  ) async {
+    final now = DateTime.utc(2026, 8, 28, 12);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MyMatchesTab(
+            matches: [
+              _match(
+                id: 'future',
+                club: 'Future Club',
+                scheduledAt: now.add(const Duration(days: 1)),
+              ),
+            ],
+            currentUid: 'creator',
+            isLoading: false,
+            error: false,
+            nowProvider: () => now,
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('no-past-matches')), findsOneWidget);
+    expect(find.text('No past matches yet.'), findsOneWidget);
+  });
+
+  test(
+    'my matches membership includes organizer and confirmed player only',
+    () {
+      final match = Match(
+        id: 'shared',
+        title: 'Shared match',
+        club: 'Shared Club',
+        level: 'Level 3',
+        spotsLeft: 1,
+        creatorUid: 'creator',
+        creatorEmail: 'creator@example.com',
+        players: const [MatchPlayer(uid: 'confirmed', email: 'p@example.com')],
+        scheduledAt: DateTime.utc(2026, 8, 1),
+      );
+      expect(matchesForUser([match], 'creator', ''), [match]);
+      expect(matchesForUser([match], 'confirmed', ''), [match]);
+      expect(matchesForUser([match], 'unrelated', ''), isEmpty);
+    },
+  );
+
+  test('completed matches expose no mutation actions', () {
+    final now = DateTime.utc(2026, 8, 28, 12);
+    expect(
+      matchAllowsChanges(
+        _match(
+          id: 'completed',
+          club: 'Past Club',
+          scheduledAt: now.subtract(const Duration(minutes: 1)),
+        ),
+        now,
+      ),
+      isFalse,
+    );
+    expect(
+      matchAllowsChanges(
+        _match(
+          id: 'future',
+          club: 'Future Club',
+          scheduledAt: now.add(const Duration(minutes: 1)),
+        ),
+        now,
+      ),
+      isTrue,
+    );
   });
 
   testWidgets('open matches hides past matches and orders future matches', (
     WidgetTester tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final now = DateTime.now();
     final matches = [
       Match(
@@ -570,7 +707,7 @@ void main() {
     expect(find.textContaining('search for a location manually'), findsWidgets);
   });
 
-  test('legacy matches without a timestamp remain upcoming', () {
+  test('legacy matches without a timestamp fail classification gracefully', () {
     const legacyMatch = Match(
       id: 'legacy',
       title: 'Friday · 6:00 PM',
@@ -583,6 +720,7 @@ void main() {
     );
 
     expect(isPastMatch(legacyMatch, DateTime.now()), isFalse);
+    expect(isUpcomingMatch(legacyMatch, DateTime.now()), isFalse);
   });
 
   testWidgets('my matches shows empty and error states', (
