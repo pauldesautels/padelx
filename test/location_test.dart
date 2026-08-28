@@ -116,6 +116,132 @@ void main() {
     expect(restored.longitude, -99.1332);
   });
 
+  group('radius-based match discovery', () {
+    final now = DateTime(2026, 8, 28, 10);
+
+    Match match(
+      String id, {
+      required double? latitude,
+      required double? longitude,
+      int hours = 2,
+      String status = '',
+    }) => Match(
+      id: id,
+      title: id,
+      club: 'Test Club',
+      level: '3',
+      spotsLeft: 2,
+      creatorUid: 'owner',
+      creatorEmail: '',
+      players: const [],
+      scheduledAt: now.add(Duration(hours: hours)),
+      status: status,
+      location: MatchLocation(
+        clubName: 'Test Club',
+        countryCode: 'US',
+        country: 'USA',
+        region: '',
+        city: 'Test City',
+        latitude: latitude,
+        longitude: longitude,
+      ),
+    );
+
+    test('calculates straight-line distance in kilometres', () {
+      final distance = distanceBetweenKm(
+        fromLatitude: 0,
+        fromLongitude: 0,
+        toLatitude: 0,
+        toLongitude: 1,
+      );
+      expect(distance, closeTo(111.2, 0.2));
+    });
+
+    test('filters at 25, 50, and 100 km', () {
+      final matches = [
+        match('near', latitude: 0, longitude: 0.1),
+        match('medium', latitude: 0, longitude: 0.35),
+        match('far', latitude: 0, longitude: 0.8),
+      ];
+      Iterable<String> ids(double radius) => filterNearbyMatches(
+        matches,
+        centerLatitude: 0,
+        centerLongitude: 0,
+        radiusKm: radius,
+        now: now,
+      ).map((value) => value.id);
+
+      expect(ids(25), ['near']);
+      expect(ids(50), ['near', 'medium']);
+      expect(ids(100), ['near', 'medium', 'far']);
+    });
+
+    test('sorts primarily by scheduled time and uses distance for ties', () {
+      final result = filterNearbyMatches(
+        [
+          match('closer-later', latitude: 0, longitude: 0.01, hours: 3),
+          match('farther-earlier', latitude: 0, longitude: 0.2, hours: 1),
+          match('farther-tie', latitude: 0, longitude: 0.15, hours: 2),
+          match('closer-tie', latitude: 0, longitude: 0.05, hours: 2),
+        ],
+        centerLatitude: 0,
+        centerLongitude: 0,
+        radiusKm: 100,
+        now: now,
+      );
+      expect(result.map((value) => value.id), [
+        'farther-earlier',
+        'closer-tie',
+        'farther-tie',
+        'closer-later',
+      ]);
+    });
+
+    test('ignores missing, invalid, legacy, past, and cancelled matches', () {
+      final legacyLocation = MatchLocation.fromMap(
+        {'club': 'Old Club', 'location': 'Old Town'},
+        legacyClub: 'Old Club',
+        legacyLocation: 'Old Town',
+      );
+      final legacy = Match(
+        id: 'legacy',
+        title: 'Legacy',
+        club: 'Old Club',
+        level: '2',
+        spotsLeft: 1,
+        creatorUid: 'owner',
+        creatorEmail: '',
+        players: const [],
+        scheduledAt: now.add(const Duration(hours: 1)),
+        location: legacyLocation,
+      );
+      final result = filterNearbyMatches(
+        [
+          legacy,
+          match('missing', latitude: null, longitude: null),
+          match('invalid', latitude: 200, longitude: 0),
+          match('past', latitude: 0, longitude: 0, hours: -1),
+          match('cancelled', latitude: 0, longitude: 0, status: 'cancelled'),
+          match('valid', latitude: 0, longitude: 0),
+        ],
+        centerLatitude: 0,
+        centerLongitude: 0,
+        now: now,
+      );
+      expect(result.map((value) => value.id), ['valid']);
+      expect(legacy.locationLabel, 'Old Town');
+      expect(
+        distanceBetweenKm(
+          fromLatitude: 0,
+          fromLongitude: 0,
+          toLatitude: null,
+          toLongitude: null,
+        ),
+        isNull,
+      );
+    });
+  });
+
   test('Google place details normalize global address components', () {
     final location = matchLocationFromPlaceDetails({
       'displayName': {'text': 'Padel Co'},

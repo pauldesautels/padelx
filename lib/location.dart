@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 class MatchLocation {
   final String clubName, countryCode, country, region, city, area, placeId;
   final double? latitude, longitude;
@@ -67,6 +69,41 @@ class MatchLocation {
       longitude: coordinate('longitude'),
     );
   }
+}
+
+bool hasUsableCoordinates(double? latitude, double? longitude) =>
+    latitude != null &&
+    longitude != null &&
+    latitude.isFinite &&
+    longitude.isFinite &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180;
+
+double? distanceBetweenKm({
+  required double? fromLatitude,
+  required double? fromLongitude,
+  required double? toLatitude,
+  required double? toLongitude,
+}) {
+  if (!hasUsableCoordinates(fromLatitude, fromLongitude) ||
+      !hasUsableCoordinates(toLatitude, toLongitude)) {
+    return null;
+  }
+  const earthRadiusKm = 6371.0088;
+  double radians(double degrees) => degrees * math.pi / 180;
+  final latitudeDelta = radians(toLatitude! - fromLatitude!);
+  final longitudeDelta = radians(toLongitude! - fromLongitude!);
+  final a =
+      math.pow(math.sin(latitudeDelta / 2), 2) +
+      math.cos(radians(fromLatitude)) *
+          math.cos(radians(toLatitude)) *
+          math.pow(math.sin(longitudeDelta / 2), 2);
+  final normalized = a.clamp(0, 1).toDouble();
+  return earthRadiusKm *
+      2 *
+      math.atan2(math.sqrt(normalized), math.sqrt(1 - normalized));
 }
 
 class DiscoveryLocation {

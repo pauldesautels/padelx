@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'current_location.dart';
 import 'location.dart';
 import 'places.dart';
 import 'places_autocomplete.dart';
@@ -1646,6 +1647,7 @@ class _HomeScreenState extends State<HomeScreen> {
         currentEmail: currentEmail,
         pendingMatchIds: pendingMatches.map((match) => match.id).toSet(),
         preferredLocation: widget.profile?.discoveryLocation,
+        onCreateMatch: _openCreateMatchScreen,
         isLoading: snapshot.connectionState == ConnectionState.waiting,
         error: snapshot.hasError,
       ),
@@ -1875,7 +1877,9 @@ List<Match> filterDiscoveredMatches(
       (match) =>
           !isPastMatch(match, current) &&
           match.status != 'cancelled' &&
-          (query.isEmpty || match.club.toLowerCase().contains(query)) &&
+          (query.isEmpty ||
+              match.club.toLowerCase().contains(query) ||
+              match.locationLabel.toLowerCase().contains(query)) &&
           sameLocationValue(match.location.country, country) &&
           sameLocationValue(match.location.city, city) &&
           sameLocationValue(match.location.area, area) &&
@@ -1886,6 +1890,41 @@ List<Match> filterDiscoveredMatches(
   );
 }
 
+List<Match> filterNearbyMatches(
+  Iterable<Match> matches, {
+  required double centerLatitude,
+  required double centerLongitude,
+  double radiusKm = 25,
+  DateTime? now,
+}) {
+  final current = now ?? DateTime.now();
+  final distances = <String, double>{};
+  final nearby = matches.where((match) {
+    if (isPastMatch(match, current) || match.status == 'cancelled') {
+      return false;
+    }
+    final distance = distanceBetweenKm(
+      fromLatitude: centerLatitude,
+      fromLongitude: centerLongitude,
+      toLatitude: match.location.latitude,
+      toLongitude: match.location.longitude,
+    );
+    if (distance == null || distance > radiusKm) return false;
+    distances[match.id] = distance;
+    return true;
+  }).toList();
+  nearby.sort((a, b) {
+    final aDate = a.scheduledAt;
+    final bDate = b.scheduledAt;
+    if (aDate == null && bDate != null) return 1;
+    if (aDate != null && bDate == null) return -1;
+    final dateComparison = aDate?.compareTo(bDate!) ?? 0;
+    if (dateComparison != 0) return dateComparison;
+    return distances[a.id]!.compareTo(distances[b.id]!);
+  });
+  return nearby;
+}
+
 class MatchesTab extends StatefulWidget {
   final List<Match> matches;
   final bool isLoading;
@@ -1894,6 +1933,8 @@ class MatchesTab extends StatefulWidget {
   final String currentEmail;
   final Set<String> pendingMatchIds;
   final DiscoveryLocation? preferredLocation;
+  final VoidCallback? onCreateMatch;
+  final CurrentLocationProvider? currentLocationProvider;
 
   const MatchesTab({
     super.key,
@@ -1904,6 +1945,8 @@ class MatchesTab extends StatefulWidget {
     this.currentEmail = '',
     this.pendingMatchIds = const {},
     this.preferredLocation,
+    this.onCreateMatch,
+    this.currentLocationProvider,
   });
 
   @override
@@ -1915,18 +1958,31 @@ class _MatchesTabState extends State<MatchesTab> {
   final GlobalKey<FormFieldState<String>> _levelFieldKey = GlobalKey();
   MatchDateFilter _dateFilter = MatchDateFilter.all;
   String? _levelFilter;
-  String? _countryFilter;
-  String? _cityFilter;
-  String? _areaFilter;
   bool _availableOnly = false;
+  MatchLocation? _discoveryCenter;
+  double _radiusKm = 25;
+  bool _usingCurrentLocation = false;
+  bool _findingCurrentLocation = false;
+  String? _currentLocationError;
 
   @override
   void initState() {
     super.initState();
     final preferred = widget.preferredLocation;
     if (preferred?.isConfigured == true) {
-      _countryFilter = preferred!.country;
-      _cityFilter = preferred.city;
+      final configured = preferred!;
+      if (hasUsableCoordinates(configured.latitude, configured.longitude)) {
+        _discoveryCenter = MatchLocation(
+          clubName: '',
+          countryCode: configured.countryCode,
+          country: configured.country,
+          region: '',
+          city: configured.city,
+          area: configured.area,
+          latitude: configured.latitude,
+          longitude: configured.longitude,
+        );
+      }
     }
   }
 
@@ -1934,9 +1990,6 @@ class _MatchesTabState extends State<MatchesTab> {
       _searchController.text.isNotEmpty ||
       _dateFilter != MatchDateFilter.all ||
       _levelFilter != null ||
-      _countryFilter != null ||
-      _cityFilter != null ||
-      _areaFilter != null ||
       _availableOnly;
 
   @override
@@ -1946,12 +1999,18 @@ class _MatchesTabState extends State<MatchesTab> {
   }
 
   List<Match> get _filteredMatches {
+    final center = _discoveryCenter;
+    final locationMatches = center == null
+        ? widget.matches
+        : filterNearbyMatches(
+            widget.matches,
+            centerLatitude: center.latitude!,
+            centerLongitude: center.longitude!,
+            radiusKm: _radiusKm,
+          );
     return filterDiscoveredMatches(
-      widget.matches,
+      locationMatches,
       search: _searchController.text,
-      country: _countryFilter,
-      city: _cityFilter,
-      area: _areaFilter,
       date: _dateFilter,
       level: _levelFilter,
       availableOnly: _availableOnly,
@@ -1964,11 +2023,43 @@ class _MatchesTabState extends State<MatchesTab> {
       _searchController.clear();
       _dateFilter = MatchDateFilter.all;
       _levelFilter = null;
-      _countryFilter = null;
-      _cityFilter = null;
-      _areaFilter = null;
       _availableOnly = false;
     });
+  }
+
+  Future<void> _useCurrentLocation() async {
+    setState(() {
+      _findingCurrentLocation = true;
+      _currentLocationError = null;
+    });
+    try {
+      final coordinates =
+          await (widget.currentLocationProvider ??
+                  const GeolocatorCurrentLocationProvider())
+              .getCurrentLocation();
+      if (!mounted) return;
+      setState(() {
+        _discoveryCenter = MatchLocation(
+          clubName: '',
+          countryCode: '',
+          country: '',
+          region: '',
+          city: '',
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+        );
+        _usingCurrentLocation = true;
+        _radiusKm = 25;
+      });
+    } on CurrentLocationException catch (error) {
+      if (!mounted) return;
+      setState(() => _currentLocationError = error.userMessage);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.userMessage)));
+    } finally {
+      if (mounted) setState(() => _findingCurrentLocation = false);
+    }
   }
 
   @override
@@ -1989,37 +2080,6 @@ class _MatchesTabState extends State<MatchesTab> {
             .toList()
           ..sort();
     final filteredMatches = _filteredMatches;
-    final countries =
-        widget.matches
-            .map((match) => match.location.country)
-            .where((value) => value.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-    final cities =
-        widget.matches
-            .where(
-              (match) =>
-                  sameLocationValue(match.location.country, _countryFilter),
-            )
-            .map((match) => match.location.city)
-            .where((value) => value.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-    final areas =
-        widget.matches
-            .where(
-              (match) =>
-                  sameLocationValue(match.location.country, _countryFilter) &&
-                  sameLocationValue(match.location.city, _cityFilter),
-            )
-            .map((match) => match.location.area)
-            .where((value) => value.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -2033,6 +2093,99 @@ class _MatchesTabState extends State<MatchesTab> {
           style: TextStyle(fontSize: 16, color: Colors.white70),
         ),
         const SizedBox(height: 16),
+        PlacesAutocompleteField(
+          key: ValueKey(
+            _usingCurrentLocation
+                ? 'current-location'
+                : (_discoveryCenter?.placeId ?? 'discovery-location'),
+          ),
+          labelText: 'Find matches near',
+          hintText: 'Search for a city or area',
+          initialText: _usingCurrentLocation
+              ? 'Current location'
+              : (_discoveryCenter?.localityLabel ?? ''),
+          onSelected: (location) {
+            if (!hasUsableCoordinates(location.latitude, location.longitude)) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('That location has no coordinates.'),
+                ),
+              );
+              return;
+            }
+            setState(() {
+              _discoveryCenter = location;
+              _usingCurrentLocation = false;
+              _currentLocationError = null;
+              _radiusKm = 25;
+            });
+          },
+        ),
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            key: const Key('use-current-location'),
+            onPressed: _findingCurrentLocation ? null : _useCurrentLocation,
+            icon: _findingCurrentLocation
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.my_location),
+            label: Text(
+              _findingCurrentLocation
+                  ? 'Finding your location…'
+                  : 'Use my current location',
+            ),
+          ),
+        ),
+        if (_currentLocationError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              _currentLocationError!,
+              key: const Key('current-location-error'),
+              style: const TextStyle(color: Colors.orangeAccent),
+            ),
+          ),
+        if (_discoveryCenter != null) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.radar, size: 18, color: Color(0xFF53D68A)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _usingCurrentLocation
+                      ? 'Current location · ${_radiusKm.round()} km radius'
+                      : 'Search radius: ${_radiusKm.round()} km',
+                ),
+              ),
+              TextButton(
+                onPressed: () => setState(() {
+                  _discoveryCenter = null;
+                  _usingCurrentLocation = false;
+                  _currentLocationError = null;
+                }),
+                child: const Text('Clear location'),
+              ),
+            ],
+          ),
+          Wrap(
+            spacing: 8,
+            children: [25.0, 50.0, 100.0]
+                .map(
+                  (radius) => ChoiceChip(
+                    label: Text('${radius.round()} km'),
+                    selected: _radiusKm == radius,
+                    onSelected: (_) => setState(() => _radiusKm = radius),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+        const SizedBox(height: 12),
         TextField(
           key: const Key('match-search-field'),
           controller: _searchController,
@@ -2044,79 +2197,6 @@ class _MatchesTabState extends State<MatchesTab> {
             isDense: true,
           ),
         ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                key: ValueKey('country-filter-$_countryFilter'),
-                initialValue: countries.contains(_countryFilter)
-                    ? _countryFilter
-                    : null,
-                decoration: const InputDecoration(
-                  labelText: 'Country',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                ),
-                items: countries
-                    .map(
-                      (value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(value, overflow: TextOverflow.ellipsis),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() {
-                  _countryFilter = value;
-                  _cityFilter = null;
-                  _areaFilter = null;
-                }),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                key: ValueKey('city-filter-$_cityFilter'),
-                initialValue: cities.contains(_cityFilter) ? _cityFilter : null,
-                decoration: const InputDecoration(
-                  labelText: 'City',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                ),
-                items: cities
-                    .map(
-                      (value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(value, overflow: TextOverflow.ellipsis),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() {
-                  _cityFilter = value;
-                  _areaFilter = null;
-                }),
-              ),
-            ),
-          ],
-        ),
-        if (areas.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            key: ValueKey('area-filter-$_areaFilter'),
-            initialValue: areas.contains(_areaFilter) ? _areaFilter : null,
-            decoration: const InputDecoration(
-              labelText: 'Area / Neighborhood',
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-            items: areas
-                .map(
-                  (value) => DropdownMenuItem(value: value, child: Text(value)),
-                )
-                .toList(),
-            onChanged: (value) => setState(() => _areaFilter = value),
-          ),
-        ],
         const SizedBox(height: 12),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -2197,7 +2277,26 @@ class _MatchesTabState extends State<MatchesTab> {
               children: [
                 const Icon(Icons.search_off, size: 44, color: Colors.white54),
                 const SizedBox(height: 12),
-                Text(_hasFilters ? 'No matches found' : 'No open matches yet'),
+                Text(
+                  _discoveryCenter != null
+                      ? 'No matches within ${_radiusKm.round()} km'
+                      : (_hasFilters
+                            ? 'No matches found'
+                            : 'No open matches yet'),
+                ),
+                if (_discoveryCenter != null) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Try a wider radius or create a match nearby.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: widget.onCreateMatch,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Create Match'),
+                  ),
+                ],
                 if (_hasFilters)
                   TextButton(
                     onPressed: _clearFilters,
@@ -2218,7 +2317,20 @@ class _MatchesTabState extends State<MatchesTab> {
                 : match.spotsLeft <= 0
                 ? 'FULL'
                 : 'OPEN';
-            return MatchCard(match: match, relationshipLabel: state);
+            final center = _discoveryCenter;
+            final distance = center == null
+                ? null
+                : distanceBetweenKm(
+                    fromLatitude: center.latitude,
+                    fromLongitude: center.longitude,
+                    toLatitude: match.location.latitude,
+                    toLongitude: match.location.longitude,
+                  );
+            return MatchCard(
+              match: match,
+              relationshipLabel: state,
+              distanceKm: distance,
+            );
           }),
       ],
     );
@@ -2228,8 +2340,14 @@ class _MatchesTabState extends State<MatchesTab> {
 class MatchCard extends StatelessWidget {
   final Match match;
   final String? relationshipLabel;
+  final double? distanceKm;
 
-  const MatchCard({super.key, required this.match, this.relationshipLabel});
+  const MatchCard({
+    super.key,
+    required this.match,
+    this.relationshipLabel,
+    this.distanceKm,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2296,6 +2414,11 @@ class MatchCard extends StatelessWidget {
                 children: [
                   _InfoChip(text: match.level, icon: Icons.leaderboard),
                   _InfoChip(text: match.spotsLeftLabel, icon: Icons.group),
+                  if (distanceKm != null)
+                    _InfoChip(
+                      text: '${distanceKm!.toStringAsFixed(1)} km away',
+                      icon: Icons.near_me_outlined,
+                    ),
                 ],
               ),
             ],

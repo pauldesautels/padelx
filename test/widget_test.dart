@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:padelx/current_location.dart';
+import 'package:padelx/location.dart';
 import 'package:padelx/main.dart';
 
 void main() {
@@ -343,6 +345,85 @@ void main() {
     await tester.pump();
     expect(find.text('Roma Padel'), findsOneWidget);
     expect(find.text('No matches found'), findsNothing);
+  });
+
+  testWidgets('current location applies the default 25 km radius', (
+    WidgetTester tester,
+  ) async {
+    final now = DateTime.now().add(const Duration(days: 1));
+    Match locatedMatch(String id, double longitude) => Match(
+      id: id,
+      title: id,
+      club: '$id club',
+      level: 'Level 3',
+      spotsLeft: 2,
+      creatorUid: 'creator',
+      creatorEmail: 'creator@example.com',
+      players: const [],
+      scheduledAt: now,
+      location: MatchLocation(
+        clubName: '$id club',
+        countryCode: 'MX',
+        country: 'Mexico',
+        region: '',
+        city: 'Test City',
+        latitude: 0,
+        longitude: longitude,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MatchesTab(
+            matches: [locatedMatch('near', 0.1), locatedMatch('far', 0.3)],
+            isLoading: false,
+            error: false,
+            currentLocationProvider: const _FakeCurrentLocationProvider(
+              coordinates: CurrentCoordinates(latitude: 0, longitude: 0),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('use-current-location')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Current location · 25 km radius'), findsOneWidget);
+    expect(find.text('near club'), findsOneWidget);
+    expect(find.text('far club'), findsNothing);
+    expect(find.textContaining('km away'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, '25 km'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, '50 km'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, '100 km'), findsOneWidget);
+  });
+
+  testWidgets('location denial keeps matches and manual discovery available', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MatchesTab(
+            matches: [_match(id: 'one', club: 'Manual Search Club')],
+            isLoading: false,
+            error: false,
+            currentLocationProvider: const _FakeCurrentLocationProvider(
+              error: CurrentLocationError.permissionDenied,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('use-current-location')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Manual Search Club'), findsOneWidget);
+    expect(find.byKey(const Key('use-current-location')), findsOneWidget);
+    expect(find.byKey(const Key('current-location-error')), findsOneWidget);
+    expect(find.textContaining('search for a location manually'), findsWidgets);
   });
 
   test('legacy matches without a timestamp remain upcoming', () {
@@ -1014,4 +1095,17 @@ AppNotification _notification({required String id, bool read = false}) {
     actorUid: 'player',
     actorDisplayName: 'Ana',
   );
+}
+
+class _FakeCurrentLocationProvider implements CurrentLocationProvider {
+  final CurrentCoordinates? coordinates;
+  final CurrentLocationError? error;
+
+  const _FakeCurrentLocationProvider({this.coordinates, this.error});
+
+  @override
+  Future<CurrentCoordinates> getCurrentLocation() async {
+    if (error != null) throw CurrentLocationException(error!);
+    return coordinates!;
+  }
 }

@@ -11,6 +11,7 @@ class PlacesAutocompleteField extends StatefulWidget {
   final bool citiesOnly;
   final bool enabled;
   final GooglePlacesClient? client;
+  final String initialText;
   final ValueChanged<MatchLocation> onSelected;
 
   const PlacesAutocompleteField({
@@ -21,6 +22,7 @@ class PlacesAutocompleteField extends StatefulWidget {
     this.citiesOnly = false,
     this.enabled = true,
     this.client,
+    this.initialText = '',
   });
 
   @override
@@ -42,7 +44,17 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
   void initState() {
     super.initState();
     _client = widget.client ?? GooglePlacesClient();
+    _controller.text = widget.initialText;
     _sessionToken = _newSessionToken();
+  }
+
+  @override
+  void didUpdateWidget(covariant PlacesAutocompleteField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialText != oldWidget.initialText &&
+        widget.initialText != _controller.text) {
+      _controller.text = widget.initialText;
+    }
   }
 
   String _newSessionToken() =>
