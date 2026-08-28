@@ -251,6 +251,45 @@ service cloud.firestore {
         && appendedPlayerMatchesRequest(matchId, playerUid);
     }
 
+    function organizerEditsMatchDetails(matchId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let location = request.resource.data.location;
+      return isOrganizer(matchId)
+        && changed.hasOnly([
+          'title', 'dateTime', 'scheduledAt', 'club', 'clubName', 'location',
+          'level', 'spotsLeft'
+        ])
+        && changed.hasAny([
+          'title', 'dateTime', 'scheduledAt', 'club', 'clubName', 'location',
+          'level', 'spotsLeft'
+        ])
+        && request.resource.data.players == resource.data.players
+        && request.resource.data.spotsLeft is int
+        && request.resource.data.spotsLeft >= 0
+        && request.resource.data.spotsLeft <= 3 - existingPlayers().size()
+        && request.resource.data.title is string
+        && request.resource.data.dateTime is string
+        && request.resource.data.scheduledAt is timestamp
+        && request.resource.data.club is string
+        && request.resource.data.club != ''
+        && request.resource.data.clubName == request.resource.data.club
+        && request.resource.data.level is string
+        && request.resource.data.level != ''
+        && location is map
+        && location.clubName == request.resource.data.club
+        && location.countryCode is string
+        && location.countryCode.size() == 2
+        && location.country is string
+        && location.country != ''
+        && location.region is string
+        && location.city is string
+        && location.city != ''
+        && location.area is string
+        && (!('placeId' in location) || location.placeId is string)
+        && (!('latitude' in location) || location.latitude is number)
+        && (!('longitude' in location) || location.longitude is number);
+    }
+
     function approvalUpdatesMatch(matchId, playerUid) {
       let matchBefore = get(
         /databases/$(database)/documents/matches/$(matchId)
@@ -337,7 +376,7 @@ service cloud.firestore {
         );
     }
 
-    function validJoinRequestNotification(recipientUid, notificationId) {
+    function validJoinRequestNotification(notificationId) {
       let data = request.resource.data;
       let matchData = get(
         /databases/$(database)/documents/matches/$(data.matchId)
@@ -345,22 +384,24 @@ service cloud.firestore {
       let requestPath = /databases/$(database)/documents/matches/$(data.matchId)/joinRequests/$(request.auth.uid);
       let requestAfter = getAfter(requestPath).data;
       return data.keys().hasOnly([
-          'type', 'recipientUid', 'matchId', 'title', 'message', 'read',
-          'createdAt', 'eventId', 'actorUid', 'actorDisplayName'
+          'type', 'recipientUid', 'matchId', 'matchClubName', 'title',
+          'message', 'isRead', 'createdAt', 'eventId', 'actorUid',
+          'actorDisplayName'
         ])
-        && data.type == 'joinRequest'
-        && data.recipientUid == recipientUid
+        && data.type == 'join_request'
         && data.actorUid == request.auth.uid
+        && data.actorUid != data.recipientUid
         && data.actorDisplayName == requestAfter.displayName
+        && data.matchClubName == matchData.club
         && data.title == 'New join request'
         && data.message == requestAfter.displayName
-          + ' requested to join your match.'
-        && data.read == false
+          + ' requested to join your match at ' + matchData.club + '.'
+        && data.isRead == false
         && data.createdAt == request.time
         && data.eventId is string
         && data.eventId != ''
-        && notificationId == 'joinRequest_' + data.matchId + '_' + data.eventId
-        && notificationRecipientIsOrganizer(matchData, recipientUid)
+        && notificationId == 'join_request_' + data.matchId + '_' + data.eventId
+        && notificationRecipientIsOrganizer(matchData, data.recipientUid)
         && requestAfter.userId == request.auth.uid
         && requestAfter.status == 'pending'
         && requestAfter.eventId == data.eventId
@@ -377,35 +418,38 @@ service cloud.firestore {
         );
     }
 
-    function validReviewNotification(recipientUid, notificationId) {
+    function validReviewNotification(notificationId) {
       let data = request.resource.data;
       let matchData = get(
         /databases/$(database)/documents/matches/$(data.matchId)
       ).data;
-      let requestPath = /databases/$(database)/documents/matches/$(data.matchId)/joinRequests/$(recipientUid);
+      let requestPath = /databases/$(database)/documents/matches/$(data.matchId)/joinRequests/$(data.recipientUid);
       let requestBefore = get(requestPath).data;
       let requestAfter = getAfter(requestPath).data;
-      let approved = data.type == 'joinApproved';
+      let approved = data.type == 'join_approved';
       let expectedStatus = approved ? 'approved' : 'declined';
       let expectedTitle = approved ? 'Request approved' : 'Request declined';
       let expectedMessage = 'Your request to join the match at '
         + matchData.club + ' was ' + expectedStatus + '.';
       return data.keys().hasOnly([
-          'type', 'recipientUid', 'matchId', 'title', 'message', 'read',
-          'createdAt', 'eventId', 'actorUid'
+          'type', 'recipientUid', 'matchId', 'matchClubName', 'title',
+          'message', 'isRead', 'createdAt', 'eventId', 'actorUid',
+          'actorDisplayName'
         ])
-        && data.type in ['joinApproved', 'joinDeclined']
-        && data.recipientUid == recipientUid
+        && data.type in ['join_approved', 'join_declined']
         && data.actorUid == request.auth.uid
+        && data.actorUid != data.recipientUid
+        && data.actorDisplayName is string
+        && data.matchClubName == matchData.club
         && data.title == expectedTitle
         && data.message == expectedMessage
-        && data.read == false
+        && data.isRead == false
         && data.createdAt == request.time
         && data.eventId is string
         && data.eventId != ''
         && notificationId == data.type + '_' + data.matchId + '_' + data.eventId
         && isOrganizer(data.matchId)
-        && requestBefore.userId == recipientUid
+        && requestBefore.userId == data.recipientUid
         && requestBefore.status == 'pending'
         && requestAfter.status == expectedStatus
         && requestAfter.eventId == data.eventId;
@@ -423,20 +467,23 @@ service cloud.firestore {
         && request.resource.data.uid == userId;
       allow delete: if signedIn() && request.auth.uid == userId;
 
-      match /notifications/{notificationId} {
-        allow read: if signedIn() && request.auth.uid == userId;
-        allow create: if signedIn() && (
-          validJoinRequestNotification(userId, notificationId)
-          || validReviewNotification(userId, notificationId)
-        );
-        allow update: if signedIn()
-          && request.auth.uid == userId
-          && resource.data.read == false
-          && request.resource.data.read == true
-          && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['read']);
-        allow delete: if false;
-      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn()
+        && resource.data.recipientUid == request.auth.uid;
+      allow create: if signedIn() && (
+        validJoinRequestNotification(notificationId)
+        || validReviewNotification(notificationId)
+      );
+      allow update: if signedIn()
+        && resource.data.recipientUid == request.auth.uid
+        && request.resource.data.recipientUid == request.auth.uid
+        && resource.data.isRead == false
+        && request.resource.data.isRead == true
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['isRead']);
+      allow delete: if false;
     }
 
     // A collection-group query is not confined to the /matches parent path,
@@ -460,11 +507,13 @@ service cloud.firestore {
         && request.resource.data.spotsLeft <= 3;
       allow delete: if isOrganizer(matchId);
 
-      // Match updates are limited to an atomic organizer approval or a player
-      // removing their exact own entry. Neither path can change creatorUid.
+      // Match updates are limited to organizer detail edits, an atomic
+      // organizer approval, or a player removing their exact own entry.
+      // None of these paths can change ownership or join-request state.
       allow update: if signedIn()
         && (
-          organizerApprovesPendingRequest(matchId)
+          organizerEditsMatchDetails(matchId)
+          || organizerApprovesPendingRequest(matchId)
           || removesOnlyAuthenticatedPlayer()
         );
 

@@ -777,6 +777,51 @@ bool _isMatchOrganizer(Match match, String uid, String email) =>
       email,
     );
 
+bool canEditMatch(Match match, String? uid, String email) =>
+    uid != null && _isMatchOrganizer(match, uid, email);
+
+int matchTotalCapacity(Match match) =>
+    (1 + match.players.length + match.spotsLeft).clamp(
+      1 + match.players.length,
+      4,
+    );
+
+Map<String, dynamic> buildMatchEditUpdate({
+  required Match match,
+  required MatchLocation location,
+  required DateTime scheduledAt,
+  required String level,
+  required int totalCapacity,
+}) {
+  final confirmedCount = 1 + match.players.length;
+  if (totalCapacity < confirmedCount) {
+    throw MatchActionException(
+      'Capacity cannot be lower than the $confirmedCount confirmed players.',
+    );
+  }
+  if (totalCapacity > 4) {
+    throw const MatchActionException(
+      'A padel match can have at most 4 players.',
+    );
+  }
+  if (!location.isValid) {
+    throw const MatchActionException('Please select a complete club location.');
+  }
+  if (level.trim().isEmpty) {
+    throw const MatchActionException('Please enter a player level.');
+  }
+  return {
+    'title': _friendlyDateTime(scheduledAt),
+    'dateTime': _friendlyDateTime(scheduledAt),
+    'scheduledAt': Timestamp.fromDate(scheduledAt),
+    'club': location.clubName.trim(),
+    'clubName': location.clubName.trim(),
+    'location': location.toMap(),
+    'level': level.trim(),
+    'spotsLeft': totalCapacity - confirmedCount,
+  };
+}
+
 String _playerUid(Map<dynamic, dynamic> player) =>
     player['uid']?.toString() ?? player['userId']?.toString() ?? '';
 
@@ -846,11 +891,27 @@ class JoinRequest {
 
 enum AppNotificationType { joinRequest, joinApproved, joinDeclined }
 
+extension AppNotificationTypeStorage on AppNotificationType {
+  String get storageValue => switch (this) {
+    AppNotificationType.joinRequest => 'join_request',
+    AppNotificationType.joinApproved => 'join_approved',
+    AppNotificationType.joinDeclined => 'join_declined',
+  };
+
+  static AppNotificationType fromStorage(Object? value) =>
+      switch (value?.toString()) {
+        'join_approved' || 'joinApproved' => AppNotificationType.joinApproved,
+        'join_declined' || 'joinDeclined' => AppNotificationType.joinDeclined,
+        _ => AppNotificationType.joinRequest,
+      };
+}
+
 class AppNotification {
   final String id;
   final AppNotificationType type;
   final String recipientUid;
   final String matchId;
+  final String matchClubName;
   final String title;
   final String message;
   final bool read;
@@ -864,6 +925,7 @@ class AppNotification {
     required this.type,
     required this.recipientUid,
     required this.matchId,
+    this.matchClubName = '',
     required this.title,
     required this.message,
     required this.read,
@@ -876,19 +938,20 @@ class AppNotification {
   factory AppNotification.fromDocument(
     DocumentSnapshot<Map<String, dynamic>> document,
   ) {
-    final data = document.data() ?? const <String, dynamic>{};
-    final typeName = data['type']?.toString() ?? '';
+    return AppNotification.fromMap(document.id, document.data());
+  }
+
+  factory AppNotification.fromMap(String id, Map<String, dynamic>? value) {
+    final data = value ?? const <String, dynamic>{};
     return AppNotification(
-      id: document.id,
-      type: AppNotificationType.values.firstWhere(
-        (value) => value.name == typeName,
-        orElse: () => AppNotificationType.joinRequest,
-      ),
+      id: id,
+      type: AppNotificationTypeStorage.fromStorage(data['type']),
       recipientUid: data['recipientUid']?.toString() ?? '',
       matchId: data['matchId']?.toString() ?? '',
+      matchClubName: data['matchClubName']?.toString() ?? '',
       title: data['title']?.toString() ?? '',
       message: data['message']?.toString() ?? '',
-      read: data['read'] == true,
+      read: data['isRead'] == true || data['read'] == true,
       createdAt: _parseScheduledAt(data['createdAt']),
       eventId: data['eventId']?.toString() ?? '',
       actorUid: data['actorUid']?.toString() ?? '',
@@ -901,21 +964,24 @@ String notificationDocumentId(
   AppNotificationType type,
   String matchId,
   String eventId,
-) => '${type.name}_${matchId}_$eventId';
+) => '${type.storageValue}_${matchId}_$eventId';
 
 Map<String, dynamic> buildJoinRequestNotification({
   required String recipientUid,
   required String matchId,
+  required String matchClubName,
   required String eventId,
   required String actorUid,
   required String actorDisplayName,
 }) => {
-  'type': AppNotificationType.joinRequest.name,
+  'type': AppNotificationType.joinRequest.storageValue,
   'recipientUid': recipientUid,
   'matchId': matchId,
+  'matchClubName': matchClubName,
   'title': 'New join request',
-  'message': '$actorDisplayName requested to join your match.',
-  'read': false,
+  'message':
+      '$actorDisplayName requested to join your match at $matchClubName.',
+  'isRead': false,
   'createdAt': FieldValue.serverTimestamp(),
   'eventId': eventId,
   'actorUid': actorUid,
@@ -929,20 +995,23 @@ Map<String, dynamic> buildReviewNotification({
   required String club,
   required String eventId,
   required String actorUid,
+  required String actorDisplayName,
 }) => {
   'type': approve
-      ? AppNotificationType.joinApproved.name
-      : AppNotificationType.joinDeclined.name,
+      ? AppNotificationType.joinApproved.storageValue
+      : AppNotificationType.joinDeclined.storageValue,
   'recipientUid': recipientUid,
   'matchId': matchId,
+  'matchClubName': club,
   'title': approve ? 'Request approved' : 'Request declined',
   'message':
       'Your request to join the match at $club was '
       '${approve ? 'approved' : 'declined'}.',
-  'read': false,
+  'isRead': false,
   'createdAt': FieldValue.serverTimestamp(),
   'eventId': eventId,
   'actorUid': actorUid,
+  'actorDisplayName': actorDisplayName,
 };
 
 int unreadNotificationCount(Iterable<AppNotification> notifications) =>
@@ -998,7 +1067,18 @@ String? joinRequestNotificationStatus(
 bool canReadNotification(String authenticatedUid, String recipientUid) =>
     authenticatedUid.isNotEmpty && authenticatedUid == recipientUid;
 
-Map<String, bool> notificationReadUpdate() => const {'read': true};
+Map<String, bool> notificationReadUpdate() => const {'isRead': true};
+
+Match? matchForNotification(
+  AppNotification notification,
+  Iterable<Match> matches,
+) {
+  if (notification.matchId.isEmpty) return null;
+  for (final match in matches) {
+    if (match.id == notification.matchId) return match;
+  }
+  return null;
+}
 
 class NotificationBadge extends StatelessWidget {
   final int count;
@@ -1503,8 +1583,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || notification.read) return;
     await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
         .collection('notifications')
         .doc(notification.id)
         .update(notificationReadUpdate());
@@ -1521,8 +1599,6 @@ class _HomeScreenState extends State<HomeScreen> {
     for (final notification in unread) {
       batch.update(
         FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
             .collection('notifications')
             .doc(notification.id),
         notificationReadUpdate(),
@@ -1581,9 +1657,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 .toList();
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(currentUid)
                   .collection('notifications')
+                  .where('recipientUid', isEqualTo: currentUid)
+                  .orderBy('createdAt', descending: true)
                   .snapshots(),
               builder: (context, notificationSnapshot) {
                 _reportStreamError('notifications', notificationSnapshot);
@@ -1668,14 +1744,18 @@ class _HomeScreenState extends State<HomeScreen> {
         joinRequestStream: _joinRequestForNotification,
         onOpen: (notification) {
           _markNotificationRead(notification);
-          final matching = matches.where(
-            (match) => match.id == notification.matchId,
-          );
-          if (matching.isNotEmpty) {
+          final match = matchForNotification(notification, matches);
+          if (match != null) {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => MatchDetailsScreen(match: matching.first),
+                builder: (context) => MatchDetailsScreen(match: match),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('This match is no longer available.'),
               ),
             );
           }
@@ -3270,6 +3350,279 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   }
 }
 
+typedef MatchEditSaver = Future<void> Function(Map<String, dynamic> update);
+
+class EditMatchScreen extends StatefulWidget {
+  final Match match;
+  final MatchEditSaver? saver;
+
+  const EditMatchScreen({super.key, required this.match, this.saver});
+
+  @override
+  State<EditMatchScreen> createState() => _EditMatchScreenState();
+}
+
+class _EditMatchScreenState extends State<EditMatchScreen> {
+  late final TextEditingController _clubController;
+  late final TextEditingController _dateTimeController;
+  late final TextEditingController _levelController;
+  late final TextEditingController _capacityController;
+  late MatchLocation _location;
+  DateTime? _scheduledAt;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _location = widget.match.location;
+    _scheduledAt = widget.match.scheduledAt;
+    _clubController = TextEditingController(text: widget.match.club);
+    _dateTimeController = TextEditingController(
+      text: _scheduledAt == null
+          ? widget.match.title
+          : _friendlyDateTime(_scheduledAt!),
+    );
+    _levelController = TextEditingController(text: widget.match.level);
+    _capacityController = TextEditingController(
+      text: matchTotalCapacity(widget.match).toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _clubController.dispose();
+    _dateTimeController.dispose();
+    _levelController.dispose();
+    _capacityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _selectDateTime() async {
+    final now = DateTime.now();
+    final initial = _scheduledAt != null && _scheduledAt!.isAfter(now)
+        ? _scheduledAt!
+        : now.add(const Duration(hours: 1));
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    if (!selected.isAfter(now)) {
+      _showMessage('Please choose a future date and time.');
+      return;
+    }
+    setState(() {
+      _scheduledAt = selected;
+      _dateTimeController.text = _friendlyDateTime(selected);
+    });
+  }
+
+  Future<void> _save() async {
+    if (_isSaving) return;
+    try {
+      final scheduledAt = _scheduledAt;
+      if (scheduledAt == null) {
+        throw const MatchActionException('Please choose a date and time.');
+      }
+      final capacity = int.tryParse(_capacityController.text.trim());
+      if (capacity == null) {
+        throw const MatchActionException(
+          'Please enter a valid total capacity.',
+        );
+      }
+      final update = buildMatchEditUpdate(
+        match: widget.match,
+        location: _location,
+        scheduledAt: scheduledAt,
+        level: _levelController.text,
+        totalCapacity: capacity,
+      );
+      setState(() => _isSaving = true);
+      if (widget.saver != null) {
+        await widget.saver!(update);
+      } else {
+        await _saveToFirestore(update);
+      }
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } on MatchActionException catch (error) {
+      _showMessage(error.message);
+    } on FirebaseException catch (error) {
+      _showMessage(error.message ?? 'Could not save match changes.');
+    } catch (_) {
+      _showMessage('Could not save match changes. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _saveToFirestore(Map<String, dynamic> update) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw const MatchActionException('Please log in to edit this match.');
+    }
+    final reference = FirebaseFirestore.instance
+        .collection('matches')
+        .doc(widget.match.id);
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final snapshot = await transaction.get(reference);
+      if (!snapshot.exists) {
+        throw const MatchActionException('This match no longer exists.');
+      }
+      final data = snapshot.data() ?? <String, dynamic>{};
+      if (!isOrganizerIdentity(data, user.uid, user.email ?? '')) {
+        throw const MatchActionException(
+          'Only the organizer can edit this match.',
+        );
+      }
+      final latest = Match.fromDocument(snapshot);
+      final capacity =
+          (update['spotsLeft'] as int) + 1 + widget.match.players.length;
+      if (latest.players.length != widget.match.players.length ||
+          latest.players.asMap().entries.any(
+            (entry) => entry.value.uid != widget.match.players[entry.key].uid,
+          )) {
+        throw const MatchActionException(
+          'The player list changed. Reopen the editor and try again.',
+        );
+      }
+      final safeUpdate = buildMatchEditUpdate(
+        match: latest,
+        location: _location,
+        scheduledAt: _scheduledAt!,
+        level: _levelController.text,
+        totalCapacity: capacity,
+      );
+      transaction.update(reference, safeUpdate);
+    });
+  }
+
+  void _showMessage(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final confirmedCount = 1 + widget.match.players.length;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Edit Match'),
+        backgroundColor: const Color(0xFF0F1412),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const Text(
+            'Update match details',
+            style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Confirmed players and join requests will be preserved.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 24),
+          PlacesAutocompleteField(
+            initialText: widget.match.club,
+            labelText: 'Search for a padel club',
+            hintText: 'Club name or address',
+            enabled: !_isSaving,
+            onSelected: (location) => setState(() {
+              _location = location;
+              _clubController.text = location.clubName;
+            }),
+          ),
+          if (googlePlacesApiKey.isNotEmpty) const SizedBox(height: 16),
+          TextField(
+            key: const Key('edit-club-field'),
+            controller: _clubController,
+            readOnly: true,
+            decoration: InputDecoration(
+              labelText: 'Club',
+              helperText: _location.localityLabel.isEmpty
+                  ? 'Legacy location — search above to choose a structured location.'
+                  : _location.localityLabel,
+              prefixIcon: const Icon(Icons.location_on),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const Key('edit-date-time-field'),
+            controller: _dateTimeController,
+            readOnly: true,
+            enabled: !_isSaving,
+            onTap: _selectDateTime,
+            decoration: const InputDecoration(
+              labelText: 'Date and time',
+              prefixIcon: Icon(Icons.calendar_month),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const Key('edit-level-field'),
+            controller: _levelController,
+            enabled: !_isSaving,
+            decoration: const InputDecoration(
+              labelText: 'Level',
+              prefixIcon: Icon(Icons.leaderboard),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const Key('edit-capacity-field'),
+            controller: _capacityController,
+            enabled: !_isSaving,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: 'Total player capacity',
+              helperText:
+                  '$confirmedCount player${confirmedCount == 1 ? '' : 's'} currently confirmed · maximum 4',
+              prefixIcon: const Icon(Icons.group),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 28),
+          SizedBox(
+            height: 52,
+            child: FilledButton.icon(
+              key: const Key('edit-match-submit'),
+              onPressed: _isSaving ? null : _save,
+              icon: _isSaving
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: Text(_isSaving ? 'Saving...' : 'Save Changes'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class MatchDetailsScreen extends StatefulWidget {
   final Match match;
 
@@ -3318,8 +3671,6 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         eventId: eventId,
       );
       final notificationRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(organizerUid)
           .collection('notifications')
           .doc(
             notificationDocumentId(
@@ -3352,6 +3703,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           buildJoinRequestNotification(
             recipientUid: organizerUid,
             matchId: widget.match.id,
+            matchClubName: data['club']?.toString() ?? widget.match.club,
             eventId: eventId,
             actorUid: user.uid,
             actorDisplayName: request.displayName,
@@ -3474,8 +3826,6 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
             ? AppNotificationType.joinApproved
             : AppNotificationType.joinDeclined;
         final notificationRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(request.userId)
             .collection('notifications')
             .doc(
               notificationDocumentId(
@@ -3493,6 +3843,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
             club: data['club']?.toString() ?? '',
             eventId: eventId,
             actorUid: user.uid,
+            actorDisplayName: data['creatorDisplayName']?.toString() ?? '',
           ),
         );
       });
@@ -3735,6 +4086,34 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
               appBar: AppBar(
                 title: const Text('Match Details'),
                 backgroundColor: const Color(0xFF0F1412),
+                actions: [
+                  if (isOrganizer)
+                    TextButton.icon(
+                      key: const Key('edit-match-action'),
+                      onPressed: isBusy
+                          ? null
+                          : () async {
+                              final updated = await Navigator.of(context)
+                                  .push<bool>(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          EditMatchScreen(match: match),
+                                    ),
+                                  );
+                              if (updated == true && context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Match updated successfully.',
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Edit Match'),
+                    ),
+                ],
               ),
               body: ListView(
                 padding: const EdgeInsets.all(20),

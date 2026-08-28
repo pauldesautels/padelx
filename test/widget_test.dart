@@ -104,6 +104,150 @@ void main() {
     expect(find.text('Please fill in all fields'), findsOneWidget);
   });
 
+  test('only the organizer is eligible to edit a match', () {
+    final match = _match(id: 'editable', club: 'Padel Club');
+    expect(canEditMatch(match, 'creator', 'other@example.com'), isTrue);
+    expect(canEditMatch(match, 'another-user', 'other@example.com'), isFalse);
+    expect(canEditMatch(match, null, ''), isFalse);
+  });
+
+  testWidgets('edit match prepopulates current data and saves safely', (
+    WidgetTester tester,
+  ) async {
+    final scheduledAt = DateTime(2026, 9, 12, 18, 30);
+    final match = Match(
+      id: 'editable',
+      title: 'Saturday match',
+      club: 'Roma Padel',
+      level: 'Level 3',
+      spotsLeft: 1,
+      creatorUid: 'creator',
+      creatorEmail: 'creator@example.com',
+      players: const [
+        MatchPlayer(uid: 'confirmed', email: 'confirmed@example.com'),
+      ],
+      scheduledAt: scheduledAt,
+      location: const MatchLocation(
+        clubName: 'Roma Padel',
+        countryCode: 'MX',
+        country: 'Mexico',
+        region: 'CDMX',
+        city: 'Mexico City',
+        area: 'Roma Norte',
+        placeId: 'old-place',
+        latitude: 19.419,
+        longitude: -99.162,
+      ),
+    );
+    Map<String, dynamic>? saved;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EditMatchScreen(
+          match: match,
+          saver: (update) async => saved = update,
+        ),
+      ),
+    );
+
+    expect(find.text('Roma Padel'), findsWidgets);
+    expect(find.text('Level 3'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+    expect(find.textContaining('Mexico City'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('edit-level-field')),
+      'Level 4',
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -700));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('edit-match-submit')));
+    await tester.pumpAndSettle();
+
+    expect(saved, isNotNull);
+    expect(saved!['level'], 'Level 4');
+    expect(saved!['spotsLeft'], 1);
+    expect(saved!['location'], containsPair('placeId', 'old-place'));
+    expect(saved!['location'], containsPair('latitude', 19.419));
+    expect(saved!['location'], containsPair('longitude', -99.162));
+    expect(saved!.containsKey('players'), isFalse);
+    expect(saved!.containsKey('creatorUid'), isFalse);
+  });
+
+  test('structured location and schedule edits produce discovery fields', () {
+    final match = _match(id: 'location-edit', club: 'Old Club');
+    final scheduledAt = DateTime(2026, 10, 2, 9);
+    const location = MatchLocation(
+      clubName: 'New Club',
+      countryCode: 'ES',
+      country: 'Spain',
+      region: 'Madrid',
+      city: 'Madrid',
+      area: 'Centro',
+      placeId: 'new-place-id',
+      latitude: 40.4168,
+      longitude: -3.7038,
+    );
+    final update = buildMatchEditUpdate(
+      match: match,
+      location: location,
+      scheduledAt: scheduledAt,
+      level: 'Level 5',
+      totalCapacity: 4,
+    );
+
+    expect((update['scheduledAt'] as Timestamp).toDate(), scheduledAt);
+    expect(update['club'], 'New Club');
+    expect(update['level'], 'Level 5');
+    expect(update['location'], containsPair('placeId', 'new-place-id'));
+    expect(update['location'], containsPair('latitude', 40.4168));
+    expect(update.containsKey('players'), isFalse);
+  });
+
+  test('capacity cannot be reduced below confirmed player count', () {
+    final match = Match(
+      id: 'full-enough',
+      title: 'Match',
+      club: 'Club',
+      level: 'Level 3',
+      spotsLeft: 1,
+      creatorUid: 'creator',
+      creatorEmail: 'creator@example.com',
+      players: const [
+        MatchPlayer(uid: 'one', email: 'one@example.com'),
+        MatchPlayer(uid: 'two', email: 'two@example.com'),
+      ],
+      scheduledAt: DateTime(2026, 9, 1),
+    );
+    expect(
+      () => buildMatchEditUpdate(
+        match: match,
+        location: const MatchLocation(
+          clubName: 'Club',
+          countryCode: 'MX',
+          country: 'Mexico',
+          region: '',
+          city: 'Mexico City',
+        ),
+        scheduledAt: DateTime(2026, 9, 2),
+        level: 'Level 3',
+        totalCapacity: 2,
+      ),
+      throwsA(isA<MatchActionException>()),
+    );
+  });
+
+  testWidgets('legacy location opens without crashing', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EditMatchScreen(
+          match: _match(id: 'legacy', club: 'Legacy Club'),
+        ),
+      ),
+    );
+    expect(find.text('Edit Match'), findsOneWidget);
+    expect(find.textContaining('Legacy location'), findsOneWidget);
+  });
+
   testWidgets('my matches distinguishes organizing and joined matches', (
     WidgetTester tester,
   ) async {
@@ -578,15 +722,17 @@ void main() {
     final data = buildJoinRequestNotification(
       recipientUid: 'organizer',
       matchId: 'match-1',
+      matchClubName: 'Roma Padel',
       eventId: 'event-1',
       actorUid: 'player',
       actorDisplayName: 'Ana',
     );
 
     expect(data['recipientUid'], 'organizer');
-    expect(data['message'], 'Ana requested to join your match.');
-    expect(data['read'], isFalse);
+    expect(data['message'], 'Ana requested to join your match at Roma Padel.');
+    expect(data['isRead'], isFalse);
     expect(data['createdAt'], isA<FieldValue>());
+    expect(data['actorUid'], isNot(data['recipientUid']));
     expect(
       notificationDocumentId(
         AppNotificationType.joinRequest,
@@ -609,6 +755,7 @@ void main() {
       club: 'Roma Padel',
       eventId: 'event-1',
       actorUid: 'organizer',
+      actorDisplayName: 'Paul',
     );
     final declined = buildReviewNotification(
       approve: false,
@@ -617,6 +764,7 @@ void main() {
       club: 'Roma Padel',
       eventId: 'event-1',
       actorUid: 'organizer',
+      actorDisplayName: 'Paul',
     );
 
     expect(
@@ -627,6 +775,8 @@ void main() {
       declined['message'],
       'Your request to join the match at Roma Padel was declined.',
     );
+    expect(approved['actorUid'], isNot(approved['recipientUid']));
+    expect(declined['actorUid'], isNot(declined['recipientUid']));
   });
 
   test('notification ownership denies another user', () {

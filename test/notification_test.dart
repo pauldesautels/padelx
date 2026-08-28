@@ -134,8 +134,84 @@ void main() {
   });
 
   test('mark-read mutation cannot alter createdAt', () {
-    expect(notificationReadUpdate(), {'read': true});
+    expect(notificationReadUpdate(), {'isRead': true});
     expect(notificationReadUpdate().containsKey('createdAt'), isFalse);
+  });
+
+  test('notification serialization accepts current and malformed data', () {
+    final current = AppNotification.fromMap('one', {
+      'type': 'join_approved',
+      'recipientUid': 'player',
+      'matchId': 'match-1',
+      'matchClubName': 'Roma Padel',
+      'message': 'Approved',
+      'isRead': true,
+      'createdAt': DateTime.utc(2026, 8, 26),
+    });
+    expect(current.type, AppNotificationType.joinApproved);
+    expect(current.matchClubName, 'Roma Padel');
+    expect(current.read, isTrue);
+
+    final malformed = AppNotification.fromMap('legacy', {
+      'type': 42,
+      'message': null,
+      'isRead': 'not-a-bool',
+    });
+    expect(malformed.id, 'legacy');
+    expect(malformed.type, AppNotificationType.joinRequest);
+    expect(malformed.message, '');
+    expect(malformed.read, isFalse);
+  });
+
+  test('notification match navigation finds a match or returns null', () {
+    final match = Match(
+      id: 'match',
+      title: 'Friday match',
+      club: 'Roma Padel',
+      level: 'Level 3',
+      spotsLeft: 2,
+      creatorUid: 'organizer',
+      creatorEmail: 'organizer@example.com',
+      players: const [],
+    );
+    expect(matchForNotification(notification(id: 'one'), [match]), same(match));
+    expect(matchForNotification(notification(id: 'one'), const []), isNull);
+  });
+
+  testWidgets('mark all appears only for unread notifications', (tester) async {
+    var invoked = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: [notification(id: 'one')],
+            isLoading: false,
+            error: false,
+            onMarkRead: (_) {},
+            onOpen: (_) {},
+            onMarkAllRead: () => invoked = true,
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Mark all as read'));
+    expect(invoked, isTrue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: [notification(id: 'one', read: true)],
+            isLoading: false,
+            error: false,
+            onMarkRead: (_) {},
+            onOpen: (_) {},
+            onMarkAllRead: () {},
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Mark all as read'), findsNothing);
   });
 
   testWidgets('card shows relative time, status, and unread styling', (
