@@ -657,10 +657,7 @@ class Match {
       creatorDisplayName: data['creatorDisplayName']?.toString() ?? '',
       creatorLevel: data['creatorLevel']?.toString() ?? '',
       scheduledAt: _parseScheduledAt(data['scheduledAt']),
-      players: (data['players'] as List<dynamic>? ?? const [])
-          .whereType<Map>()
-          .map((player) => MatchPlayer.fromMap(player))
-          .toList(),
+      players: matchPlayersFromValue(data['players']),
       location: MatchLocation.fromMap(
         data,
         legacyClub: data['club']?.toString() ?? '',
@@ -673,6 +670,14 @@ class Match {
   }
 
   String get locationLabel => location.localityLabel;
+}
+
+List<MatchPlayer> matchPlayersFromValue(Object? value) {
+  if (value is! List) return const [];
+  return value
+      .whereType<Map>()
+      .map((player) => MatchPlayer.fromMap(player))
+      .toList();
 }
 
 String matchCreatorUid(Map<dynamic, dynamic> data) =>
@@ -757,6 +762,77 @@ class MatchPlayer {
       level: data['level']?.toString() ?? '',
     );
   }
+}
+
+class PublicPlayerProfile {
+  final String uid;
+  final String displayName;
+  final String level;
+  final List<Match> matches;
+
+  const PublicPlayerProfile({
+    required this.uid,
+    required this.displayName,
+    required this.level,
+    required this.matches,
+  });
+}
+
+typedef PublicPlayerProfileLoader =
+    Future<PublicPlayerProfile> Function(String uid);
+
+bool matchIncludesPlayer(Map<dynamic, dynamic> data, String uid) {
+  if (uid.isEmpty) return false;
+  if (matchCreatorUid(data) == uid) return true;
+  final players = data['players'];
+  return players is List &&
+      players.whereType<Map>().any((player) => _playerUid(player) == uid);
+}
+
+List<Match> recentPlayerMatches(Iterable<Match> matches, {int limit = 5}) {
+  final sorted = matches.toList()
+    ..sort((a, b) {
+      final aDate = a.scheduledAt;
+      final bDate = b.scheduledAt;
+      if (aDate == null && bDate == null) return a.id.compareTo(b.id);
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+      return bDate.compareTo(aDate);
+    });
+  return sorted.take(limit).toList();
+}
+
+Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
+  if (uid.isEmpty) {
+    return const PublicPlayerProfile(
+      uid: '',
+      displayName: '',
+      level: '',
+      matches: [],
+    );
+  }
+
+  final firestore = FirebaseFirestore.instance;
+  final results = await Future.wait([
+    firestore.collection('users').doc(uid).get(),
+    firestore.collection('matches').get(),
+  ]);
+  final userDocument = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+  final matchSnapshot = results[1] as QuerySnapshot<Map<String, dynamic>>;
+  final profile = userDocument.exists
+      ? UserProfile.fromDocument(userDocument)
+      : null;
+  final matches = matchSnapshot.docs
+      .where((document) => matchIncludesPlayer(document.data(), uid))
+      .map(Match.fromDocument)
+      .toList();
+
+  return PublicPlayerProfile(
+    uid: uid,
+    displayName: profile?.displayName ?? '',
+    level: profile?.level ?? '',
+    matches: matches,
+  );
 }
 
 bool isOrganizerIdentity(
@@ -3623,6 +3699,132 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
   }
 }
 
+class PlayerProfileScreen extends StatefulWidget {
+  final String uid;
+  final String fallbackName;
+  final String fallbackLevel;
+  final PublicPlayerProfileLoader loader;
+
+  const PlayerProfileScreen({
+    super.key,
+    required this.uid,
+    this.fallbackName = '',
+    this.fallbackLevel = '',
+    this.loader = loadPublicPlayerProfile,
+  });
+
+  @override
+  State<PlayerProfileScreen> createState() => _PlayerProfileScreenState();
+}
+
+class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
+  late final Future<PublicPlayerProfile> _profile = widget.loader(widget.uid);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Player Profile'),
+        backgroundColor: const Color(0xFF0F1412),
+      ),
+      body: FutureBuilder<PublicPlayerProfile>(
+        future: _profile,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('Could not load this player profile.'),
+              ),
+            );
+          }
+
+          final profile = snapshot.data!;
+          final fallbackName = _publicFallbackName(widget.fallbackName);
+          final name = profile.displayName.isNotEmpty
+              ? profile.displayName
+              : fallbackName;
+          final level = profile.level.isNotEmpty
+              ? profile.level
+              : widget.fallbackLevel.trim();
+          final recentMatches = recentPlayerMatches(profile.matches);
+          return ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              Text(
+                name.isEmpty ? 'Player' : name,
+                key: const Key('public-profile-name'),
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                level.isEmpty ? 'Level not set' : level,
+                key: const Key('public-profile-level'),
+                style: const TextStyle(fontSize: 18, color: Colors.white70),
+              ),
+              const SizedBox(height: 24),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.sports_tennis),
+                  title: const Text('Matches played'),
+                  trailing: Text(
+                    '${profile.matches.length}',
+                    key: const Key('public-profile-match-count'),
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Recent matches',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              if (recentMatches.isEmpty)
+                const Text(
+                  'No matches to show yet.',
+                  style: TextStyle(color: Colors.white70),
+                )
+              else
+                ...recentMatches.map(
+                  (match) => Card(
+                    child: ListTile(
+                      title: Text(
+                        match.club.isEmpty ? 'Padel match' : match.club,
+                      ),
+                      subtitle: Text(
+                        match.scheduledAt == null
+                            ? (match.level.isEmpty
+                                  ? 'Date unavailable'
+                                  : match.level)
+                            : '${_friendlyDateTime(match.scheduledAt!)}'
+                                  '${match.level.isEmpty ? '' : ' · ${match.level}'}',
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+String _publicFallbackName(String value) {
+  final trimmed = value.trim();
+  return trimmed.contains('@') ? '' : trimmed;
+}
+
 class MatchDetailsScreen extends StatefulWidget {
   final Match match;
 
@@ -4151,7 +4353,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                   const SizedBox(height: 12),
                   if (match.creatorUid.isNotEmpty ||
                       match.creatorEmail.isNotEmpty)
-                    _ProfilePlayerTile(
+                    ProfilePlayerTile(
                       uid: match.creatorUid,
                       fallbackName: match.creatorDisplayName.isNotEmpty
                           ? match.creatorDisplayName
@@ -4162,7 +4364,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                   ...match.players.map(
                     (player) => player.uid == match.creatorUid
                         ? const SizedBox.shrink()
-                        : _ProfilePlayerTile(
+                        : ProfilePlayerTile(
                             uid: player.uid,
                             fallbackName: player.displayName.isNotEmpty
                                 ? player.displayName
@@ -4426,8 +4628,9 @@ class _InfoChip extends StatelessWidget {
 class _PlayerTile extends StatelessWidget {
   final String name;
   final String subtitle;
+  final VoidCallback? onTap;
 
-  const _PlayerTile({required this.name, required this.subtitle});
+  const _PlayerTile({required this.name, required this.subtitle, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -4437,33 +4640,52 @@ class _PlayerTile extends StatelessWidget {
 
     return Card(
       child: ListTile(
+        onTap: onTap,
         leading: CircleAvatar(child: Text(firstLetter)),
         title: Text(name),
         subtitle: Text(subtitle),
+        trailing: onTap == null ? null : const Icon(Icons.chevron_right),
       ),
     );
   }
 }
 
-class _ProfilePlayerTile extends StatelessWidget {
+class ProfilePlayerTile extends StatelessWidget {
   final String uid;
   final String fallbackName;
   final String fallbackLevel;
   final String role;
+  final PublicPlayerProfileLoader? profileLoader;
 
-  const _ProfilePlayerTile({
+  const ProfilePlayerTile({
+    super.key,
     required this.uid,
     required this.fallbackName,
     required this.fallbackLevel,
     required this.role,
+    this.profileLoader,
   });
 
   @override
   Widget build(BuildContext context) {
+    void openProfile() {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PlayerProfileScreen(
+            uid: uid,
+            fallbackName: fallbackName,
+            fallbackLevel: fallbackLevel,
+            loader: profileLoader ?? loadPublicPlayerProfile,
+          ),
+        ),
+      );
+    }
+
     if (uid.isEmpty) {
       return _PlayerTile(
         name: fallbackName.isEmpty ? 'Player' : fallbackName,
         subtitle: _playerSubtitle(role, fallbackLevel),
+        onTap: openProfile,
       );
     }
 
@@ -4484,7 +4706,11 @@ class _ProfilePlayerTile extends StatelessWidget {
         final level = profile?.level.isNotEmpty == true
             ? profile!.level
             : fallbackLevel;
-        return _PlayerTile(name: name, subtitle: _playerSubtitle(role, level));
+        return _PlayerTile(
+          name: name,
+          subtitle: _playerSubtitle(role, level),
+          onTap: openProfile,
+        );
       },
     );
   }

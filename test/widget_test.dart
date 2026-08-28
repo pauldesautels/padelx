@@ -1195,6 +1195,121 @@ void main() {
     expect(find.text('Request Pending'), findsOneWidget);
     expect(find.text('Joined'), findsNothing);
   });
+
+  test('match participation supports organizer and legacy player shapes', () {
+    expect(
+      matchIncludesPlayer({'creatorUid': 'organizer'}, 'organizer'),
+      isTrue,
+    );
+    expect(
+      matchIncludesPlayer({'createdBy': 'legacy-owner'}, 'legacy-owner'),
+      isTrue,
+    );
+    expect(
+      matchIncludesPlayer({
+        'players': [
+          {'userId': 'legacy-player'},
+          {'uid': 'current-player'},
+          'malformed',
+        ],
+      }, 'legacy-player'),
+      isTrue,
+    );
+    expect(matchIncludesPlayer({'players': 'not-a-list'}, 'player'), isFalse);
+    expect(matchIncludesPlayer(const {}, ''), isFalse);
+    expect(matchPlayersFromValue('not-a-list'), isEmpty);
+    expect(
+      matchPlayersFromValue([
+        {'userId': 'legacy-player'},
+        null,
+      ]).single.uid,
+      'legacy-player',
+    );
+  });
+
+  test(
+    'recent history is newest first, limited, and tolerates missing dates',
+    () {
+      final matches = [
+        _match(id: 'old', club: 'Old', scheduledAt: DateTime(2026, 1, 1)),
+        _match(id: 'new', club: 'New', scheduledAt: DateTime(2026, 8, 1)),
+        const Match(
+          id: 'legacy',
+          title: '',
+          club: '',
+          level: '',
+          spotsLeft: 0,
+          creatorUid: 'creator',
+          creatorEmail: '',
+          players: [],
+        ),
+      ];
+
+      expect(recentPlayerMatches(matches, limit: 2).map((match) => match.id), [
+        'new',
+        'old',
+      ]);
+    },
+  );
+
+  testWidgets('public profile shows only public fields and computed history', (
+    WidgetTester tester,
+  ) async {
+    final matches = [
+      _match(id: 'one', club: 'Roma Padel'),
+      _match(id: 'two', club: 'Centro Padel'),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlayerProfileScreen(
+          uid: 'player',
+          fallbackName: 'private@example.com',
+          loader: (_) async => PublicPlayerProfile(
+            uid: 'player',
+            displayName: 'Ana',
+            level: 'Level 4',
+            matches: matches,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Player Profile'), findsOneWidget);
+    expect(find.text('Ana'), findsOneWidget);
+    expect(find.text('Level 4'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+    expect(find.text('Roma Padel'), findsOneWidget);
+    expect(find.text('private@example.com'), findsNothing);
+  });
+
+  testWidgets('even a malformed player row opens the public profile screen', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfilePlayerTile(
+            uid: '',
+            fallbackName: 'Legacy player',
+            fallbackLevel: '',
+            role: 'Organizer',
+            profileLoader: (_) async => const PublicPlayerProfile(
+              uid: '',
+              displayName: '',
+              level: '',
+              matches: [],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Legacy player'));
+    await tester.pumpAndSettle();
+    expect(find.text('Player Profile'), findsOneWidget);
+    expect(find.text('Legacy player'), findsOneWidget);
+  });
 }
 
 Match _match({
