@@ -1878,8 +1878,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final myMatches = matchesForUser(matches, currentUid, currentEmail);
     final screens = [
       HomeTab(
+        onFindMatch: () => _onItemTapped(1),
         onCreateMatch: _openCreateMatchScreen,
-        openMatchesCount: openMatches.length,
+        matches: openMatches,
+        preferredLocation: widget.profile?.discoveryLocation,
+        isLoading: snapshot.connectionState == ConnectionState.waiting,
+        error: snapshot.hasError,
       ),
       MatchesTab(
         matches: openMatches,
@@ -1988,94 +1992,237 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class HomeTab extends StatelessWidget {
+  final VoidCallback onFindMatch;
   final VoidCallback onCreateMatch;
-  final int openMatchesCount;
+  final List<Match> matches;
+  final DiscoveryLocation? preferredLocation;
+  final bool isLoading;
+  final bool error;
 
   const HomeTab({
     super.key,
+    required this.onFindMatch,
     required this.onCreateMatch,
-    required this.openMatchesCount,
+    this.matches = const [],
+    this.preferredLocation,
+    this.isLoading = false,
+    this.error = false,
   });
+
+  List<Match> get _relevantMatches {
+    final location = preferredLocation;
+    if (location == null || !location.isConfigured) return matches;
+    final nearby = filterDiscoveredMatches(
+      matches,
+      country: location.country,
+      city: location.city,
+      area: location.area,
+    );
+    return nearby;
+  }
+
+  String get _locationLabel {
+    final location = preferredLocation;
+    if (location == null || !location.isConfigured) return '';
+    return <String>[
+      if (location.area.trim().isNotEmpty) location.area.trim(),
+      location.city.trim(),
+    ].join(', ');
+  }
 
   @override
   Widget build(BuildContext context) {
+    final relevantMatches = _relevantMatches.take(3).toList();
     return ListView(
-      padding: const EdgeInsets.all(20),
+      key: const Key('home-scroll-view'),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
       children: [
         Container(
-          padding: const EdgeInsets.all(22),
+          key: const Key('home-hero'),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF1F7A4D), Color(0xFF194A37)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF237A4F), Color(0xFF123D2D)],
             ),
             borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0x4053D68A)),
           ),
-          child: const Column(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Find your next match',
+              const Text(
+                'Find padel matches near you.',
                 style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
                   height: 1.05,
                 ),
               ),
-              SizedBox(height: 10),
-              Text(
-                'Create games, fill missing spots, and play more padel.',
-                style: TextStyle(fontSize: 16, color: Colors.white70),
+              if (_locationLabel.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on_outlined,
+                      size: 19,
+                      color: Color(0xFFB7F7CF),
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        _locationLabel,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton.icon(
+                  key: const Key('home-find-match'),
+                  onPressed: onFindMatch,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFB7F7CF),
+                    foregroundColor: const Color(0xFF10271D),
+                  ),
+                  icon: const Icon(Icons.search),
+                  label: const Text('Find a Match'),
+                ),
+              ),
+              SizedBox(
+                width: double.infinity,
+                height: 42,
+                child: TextButton.icon(
+                  key: const Key('home-create-match'),
+                  onPressed: onCreateMatch,
+                  style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                  icon: const Icon(Icons.add, size: 19),
+                  label: const Text('Create a Match'),
+                ),
               ),
             ],
           ),
         ),
         const SizedBox(height: 24),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Expanded(
-              child: _StatCard(
-                label: 'Open matches',
-                value: '$openMatchesCount',
-                icon: Icons.sports_tennis,
-              ),
-            ),
-            const SizedBox(width: 12),
             const Expanded(
-              child: _StatCard(
-                label: 'Your level',
-                value: '3.5',
-                icon: Icons.trending_up,
+              child: Text(
+                'Upcoming matches',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
               ),
             ),
+            TextButton(onPressed: onFindMatch, child: const Text('See all')),
           ],
         ),
-        const SizedBox(height: 24),
-        Card(
-          child: ListTile(
-            onTap: onCreateMatch,
-            contentPadding: const EdgeInsets.all(16),
-            leading: const CircleAvatar(child: Icon(Icons.add)),
-            title: const Text(
-              'Create a match',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text('Set time, place, level, and spots'),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 18),
-          ),
-        ),
-        const SizedBox(height: 8),
-        const Card(
-          child: ListTile(
-            contentPadding: EdgeInsets.all(16),
-            leading: CircleAvatar(child: Icon(Icons.search)),
-            title: Text(
-              'Find open matches',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text('Join games near you'),
-          ),
-        ),
+        const SizedBox(height: 14),
+        if (isLoading)
+          const _HomeStatusCard(
+            key: Key('home-loading-state'),
+            icon: Icons.sports_tennis,
+            title: 'Finding nearby matches…',
+            showProgress: true,
+          )
+        else if (error)
+          _HomeStatusCard(
+            key: const Key('home-error-state'),
+            icon: Icons.cloud_off_outlined,
+            title: 'Matches are unavailable right now.',
+            message: 'Check your connection and try again.',
+            actionLabel: 'Browse Matches',
+            onAction: onFindMatch,
+          )
+        else if (relevantMatches.isEmpty)
+          _HomeStatusCard(
+            key: const Key('home-empty-state'),
+            icon: Icons.event_available_outlined,
+            title: 'No matches nearby yet.',
+            message: 'Create a match and get a game started.',
+            actionLabel: 'Create a Match',
+            onAction: onCreateMatch,
+          )
+        else
+          ...relevantMatches.map((match) {
+            final location = preferredLocation;
+            final distance = location == null
+                ? null
+                : distanceBetweenKm(
+                    fromLatitude: location.latitude,
+                    fromLongitude: location.longitude,
+                    toLatitude: match.location.latitude,
+                    toLongitude: match.location.longitude,
+                  );
+            return MatchCard(
+              match: match,
+              distanceKm: distance,
+              showSchedule: false,
+              explicitLevelLabel: true,
+            );
+          }),
       ],
+    );
+  }
+}
+
+class _HomeStatusCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  final bool showProgress;
+
+  const _HomeStatusCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.message,
+    this.actionLabel,
+    this.onAction,
+    this.showProgress = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
+        child: Column(
+          children: [
+            if (showProgress)
+              const SizedBox.square(
+                dimension: 32,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              )
+            else
+              Icon(icon, size: 40, color: const Color(0xFF53D68A)),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            if (message != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                message!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 16),
+              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -2586,6 +2733,8 @@ class MatchCard extends StatelessWidget {
   final String? relationshipLabel;
   final double? distanceKm;
   final bool historical;
+  final bool showSchedule;
+  final bool explicitLevelLabel;
 
   const MatchCard({
     super.key,
@@ -2593,7 +2742,15 @@ class MatchCard extends StatelessWidget {
     this.relationshipLabel,
     this.distanceKm,
     this.historical = false,
+    this.showSchedule = true,
+    this.explicitLevelLabel = false,
   });
+
+  String get _levelLabel {
+    final level = match.level.trim();
+    if (!explicitLevelLabel || level.isEmpty) return level;
+    return level.toLowerCase().startsWith('level ') ? level : 'Level $level';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2667,8 +2824,9 @@ class MatchCard extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _InfoChip(text: match.level, icon: Icons.leaderboard),
-                  if (match.scheduledAt != null)
+                  if (_levelLabel.isNotEmpty)
+                    _InfoChip(text: _levelLabel, icon: Icons.leaderboard),
+                  if (showSchedule && match.scheduledAt != null)
                     _InfoChip(
                       text: _friendlyDateTime(match.scheduledAt!),
                       icon: Icons.schedule,
@@ -5145,40 +5303,6 @@ class MatchActionException implements Exception {
   final String message;
 
   const MatchActionException(this.message);
-}
-
-class _StatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon),
-            const SizedBox(height: 14),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(label, style: const TextStyle(color: Colors.white70)),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _InfoChip extends StatelessWidget {

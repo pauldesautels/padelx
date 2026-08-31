@@ -111,6 +111,114 @@ void main() {
     expect(canEditMatch(match, null, ''), isFalse);
   });
 
+  testWidgets('Home shows the product message and discovery location', (
+    WidgetTester tester,
+  ) async {
+    await _pumpHome(
+      tester,
+      preferredLocation: const DiscoveryLocation(
+        country: 'Mexico',
+        countryCode: 'MX',
+        city: 'Mexico City',
+        area: 'Roma Norte',
+      ),
+    );
+
+    expect(find.text('Find padel matches near you.'), findsOneWidget);
+    expect(find.text('Roma Norte, Mexico City'), findsOneWidget);
+  });
+
+  testWidgets('Home core actions use their existing navigation callbacks', (
+    WidgetTester tester,
+  ) async {
+    var destination = '';
+    await _pumpHome(
+      tester,
+      onFindMatch: () => destination = 'matches',
+      onCreateMatch: () => destination = 'create',
+    );
+
+    await tester.tap(find.byKey(const Key('home-find-match')));
+    expect(destination, 'matches');
+    await tester.tap(find.byKey(const Key('home-create-match')));
+    expect(destination, 'create');
+  });
+
+  testWidgets('Home populated state shows useful match details', (
+    WidgetTester tester,
+  ) async {
+    await _pumpHome(
+      tester,
+      matches: [
+        _match(id: 'home', club: 'Roma Padel', level: '2', spotsLeft: 1),
+      ],
+    );
+
+    expect(find.text('Roma Padel'), findsOneWidget);
+    expect(find.text('Level 2'), findsOneWidget);
+    expect(find.text('2'), findsNothing);
+    expect(find.text('1 spot left'), findsOneWidget);
+    expect(find.byIcon(Icons.schedule), findsNothing);
+    expect(find.text('Unknown location'), findsNothing);
+  });
+
+  testWidgets('Home keeps the compact hierarchy free of redundant copy', (
+    WidgetTester tester,
+  ) async {
+    await _pumpHome(tester);
+
+    expect(find.text('FIND YOUR GAME'), findsNothing);
+    expect(find.text('Upcoming games to explore'), findsNothing);
+    expect(find.text('Upcoming matches'), findsOneWidget);
+    expect(find.text('See all'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('home-hero')),
+        matching: find.byKey(const Key('home-create-match')),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Home empty state offers Create a Match', (
+    WidgetTester tester,
+  ) async {
+    var created = false;
+    await _pumpHome(tester, onCreateMatch: () => created = true);
+
+    expect(find.text('No matches nearby yet.'), findsOneWidget);
+    expect(find.text('Create a match and get a game started.'), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('home-empty-state')),
+        matching: find.text('Create a Match'),
+      ),
+    );
+    expect(created, isTrue);
+  });
+
+  testWidgets('Home has polished loading and error states', (
+    WidgetTester tester,
+  ) async {
+    await _pumpHome(tester, isLoading: true);
+    expect(find.byKey(const Key('home-loading-state')), findsOneWidget);
+    expect(find.text('Finding nearby matches…'), findsOneWidget);
+
+    await _pumpHome(tester, error: true);
+    expect(find.byKey(const Key('home-error-state')), findsOneWidget);
+    expect(find.text('Matches are unavailable right now.'), findsOneWidget);
+    expect(find.textContaining('Firebase'), findsNothing);
+  });
+
+  testWidgets('Home does not overflow at narrow mobile width', (
+    WidgetTester tester,
+  ) async {
+    await _pumpHome(tester, size: const Size(320, 700));
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('home-find-match')), findsOneWidget);
+  });
+
   testWidgets('edit match prepopulates current data and saves safely', (
     WidgetTester tester,
   ) async {
@@ -1479,6 +1587,37 @@ Future<void> _pumpMatches(WidgetTester tester, List<Match> matches) async {
     MaterialApp(
       home: Scaffold(
         body: MatchesTab(matches: matches, isLoading: false, error: false),
+      ),
+    ),
+  );
+}
+
+Future<void> _pumpHome(
+  WidgetTester tester, {
+  List<Match> matches = const [],
+  DiscoveryLocation? preferredLocation,
+  VoidCallback? onFindMatch,
+  VoidCallback? onCreateMatch,
+  bool isLoading = false,
+  bool error = false,
+  Size size = const Size(430, 900),
+}) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: ThemeData.dark(useMaterial3: true),
+      home: Scaffold(
+        body: HomeTab(
+          onFindMatch: onFindMatch ?? () {},
+          onCreateMatch: onCreateMatch ?? () {},
+          matches: matches,
+          preferredLocation: preferredLocation,
+          isLoading: isLoading,
+          error: error,
+        ),
       ),
     ),
   );
