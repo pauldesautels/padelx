@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/main.dart';
@@ -8,6 +10,7 @@ AppNotification notification({
   bool read = false,
   AppNotificationType type = AppNotificationType.joinRequest,
   String eventId = 'cycle-1',
+  String? message,
 }) => AppNotification(
   id: id,
   type: type,
@@ -18,7 +21,7 @@ AppNotification notification({
       : type == AppNotificationType.joinDeclined
       ? 'Request declined'
       : 'New join request',
-  message: 'Historical activity',
+  message: message ?? 'Historical activity',
   read: read,
   createdAt: createdAt,
   eventId: eventId,
@@ -189,12 +192,15 @@ void main() {
             error: false,
             onMarkRead: (_) {},
             onOpen: (_) {},
-            onMarkAllRead: () => invoked = true,
+            onMarkAllRead: () async {
+              invoked = true;
+            },
           ),
         ),
       ),
     );
     await tester.tap(find.text('Mark all as read'));
+    await tester.pump();
     expect(invoked, isTrue);
 
     await tester.pumpWidget(
@@ -206,12 +212,45 @@ void main() {
             error: false,
             onMarkRead: (_) {},
             onOpen: (_) {},
-            onMarkAllRead: () {},
+            onMarkAllRead: () async {},
           ),
         ),
       ),
     );
     expect(find.text('Mark all as read'), findsNothing);
+  });
+
+  testWidgets('mark all prevents repeated actions while processing', (
+    tester,
+  ) async {
+    final completion = Completer<void>();
+    var invocations = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: [notification(id: 'one')],
+            isLoading: false,
+            error: false,
+            onMarkRead: (_) {},
+            onOpen: (_) {},
+            onMarkAllRead: () {
+              invocations++;
+              return completion.future;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Mark all as read'));
+    await tester.pump();
+    expect(invocations, 1);
+    expect(
+      tester.widget<TextButton>(find.byType(TextButton)).onPressed,
+      isNull,
+    );
+    completion.complete();
+    await tester.pump();
   });
 
   testWidgets('card shows relative time, status, and unread styling', (
@@ -237,11 +276,151 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('2 min ago · Pending'), findsOneWidget);
+    expect(find.text('2 min ago'), findsOneWidget);
+    expect(find.text('Current request status: Pending'), findsOneWidget);
     expect(
       tester.widget<Card>(find.byType(Card)).color,
-      const Color(0xFF203A2D),
+      const Color(0xFF1D3027),
     );
     expect(find.byTooltip('Mark as read'), findsOneWidget);
+    expect(find.byKey(const ValueKey('unread-indicator')), findsOneWidget);
+  });
+
+  testWidgets('read card remains legible without unread controls', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationCard(
+            notification: notification(id: 'read', read: true),
+            now: now,
+            onMarkRead: (_) {},
+            onOpen: (_) {},
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Historical activity'), findsOneWidget);
+    expect(find.byKey(const ValueKey('unread-indicator')), findsNothing);
+    expect(find.byTooltip('Mark as read'), findsNothing);
+    expect(
+      tester.widget<Card>(find.byType(Card)).color,
+      const Color(0xFF18211D),
+    );
+  });
+
+  testWidgets('all notification event types use historical titles', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: [
+              notification(id: 'request'),
+              notification(
+                id: 'approved',
+                type: AppNotificationType.joinApproved,
+              ),
+              notification(
+                id: 'declined',
+                type: AppNotificationType.joinDeclined,
+              ),
+            ],
+            isLoading: false,
+            error: false,
+            onMarkRead: (_) {},
+            onOpen: (_) {},
+          ),
+        ),
+      ),
+    );
+    expect(find.text('New join request'), findsOneWidget);
+    expect(find.text('Request approved'), findsOneWidget);
+    expect(find.text('Request declined'), findsOneWidget);
+  });
+
+  testWidgets('notification row opens the selected notification', (
+    tester,
+  ) async {
+    AppNotification? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: [notification(id: 'open-me')],
+            isLoading: false,
+            error: false,
+            onMarkRead: (_) {},
+            onOpen: (item) => opened = item,
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('notification-open-me')));
+    expect(opened?.id, 'open-me');
+  });
+
+  testWidgets('loading and retryable error states are friendly', (
+    tester,
+  ) async {
+    Widget screen({
+      required bool loading,
+      required bool error,
+      VoidCallback? retry,
+    }) => MaterialApp(
+      home: Scaffold(
+        body: NotificationsTab(
+          notifications: const [],
+          isLoading: loading,
+          error: error,
+          onMarkRead: (_) {},
+          onOpen: (_) {},
+          onRetry: retry,
+        ),
+      ),
+    );
+    await tester.pumpWidget(screen(loading: true, error: false));
+    expect(find.bySemanticsLabel('Loading notifications'), findsOneWidget);
+    var retried = false;
+    await tester.pumpWidget(
+      screen(loading: false, error: true, retry: () => retried = true),
+    );
+    expect(find.text('Notifications unavailable'), findsOneWidget);
+    await tester.tap(find.text('Try again'));
+    expect(retried, isTrue);
+  });
+
+  testWidgets('long content fits a 320px layout without overflow', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: [
+              notification(
+                id: 'long',
+                message:
+                    'Alexandria Montgomery requested to join your match at The Extremely Long International Padel Club Name.',
+              ),
+            ],
+            isLoading: false,
+            error: false,
+            onMarkRead: (_) {},
+            onOpen: (_) {},
+            onMarkAllRead: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('Alexandria Montgomery'), findsOneWidget);
   });
 }

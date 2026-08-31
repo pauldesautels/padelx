@@ -1272,13 +1272,14 @@ class NotificationBadge extends StatelessWidget {
   }
 }
 
-class NotificationsTab extends StatelessWidget {
+class NotificationsTab extends StatefulWidget {
   final List<AppNotification> notifications;
   final bool isLoading;
   final bool error;
   final ValueChanged<AppNotification> onMarkRead;
   final ValueChanged<AppNotification> onOpen;
-  final VoidCallback? onMarkAllRead;
+  final Future<void> Function()? onMarkAllRead;
+  final VoidCallback? onRetry;
   final Stream<Map<String, dynamic>?> Function(AppNotification)?
   joinRequestStream;
   final DateTime? now;
@@ -1291,22 +1292,147 @@ class NotificationsTab extends StatelessWidget {
     required this.onMarkRead,
     required this.onOpen,
     this.onMarkAllRead,
+    this.onRetry,
     this.joinRequestStream,
     this.now,
   });
 
   @override
+  State<NotificationsTab> createState() => _NotificationsTabState();
+}
+
+class _NotificationsTabState extends State<NotificationsTab> {
+  bool _markingAllRead = false;
+
+  Future<void> _markAllRead() async {
+    if (_markingAllRead || widget.onMarkAllRead == null) return;
+    setState(() => _markingAllRead = true);
+    try {
+      await widget.onMarkAllRead!();
+    } finally {
+      if (mounted) setState(() => _markingAllRead = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
+    final ordered = sortedNotifications(widget.notifications);
+    final hasUnread = unreadNotificationCount(ordered) > 0;
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final action = hasUnread && widget.onMarkAllRead != null
+                    ? TextButton(
+                        onPressed: _markingAllRead ? null : _markAllRead,
+                        child: _markingAllRead
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('Mark all as read'),
+                      )
+                    : null;
+                const title = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Notifications',
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Updates about your matches and requests.',
+                      style: TextStyle(color: Colors.white60),
+                    ),
+                  ],
+                );
+                if (constraints.maxWidth < 360 && action != null) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      title,
+                      const SizedBox(height: 4),
+                      Align(alignment: Alignment.centerRight, child: action),
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Expanded(child: title),
+                    if (action != null) ...[const SizedBox(width: 8), action],
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+            Expanded(child: _buildContent(ordered)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent(List<AppNotification> ordered) {
+    if (widget.isLoading) {
+      return Center(
+        child: Semantics(
+          label: 'Loading notifications',
+          child: const CircularProgressIndicator(),
+        ),
+      );
     }
-    if (error) {
-      return const Center(child: Text('Could not load notifications.'));
+    if (widget.error) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off_outlined,
+                size: 44,
+                color: Colors.white54,
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Notifications unavailable',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Check your connection and try again.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white60),
+              ),
+              if (widget.onRetry != null) ...[
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: widget.onRetry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Try again'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
     }
-    if (notifications.isEmpty) {
+    if (ordered.isEmpty) {
       return const Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1318,7 +1444,7 @@ class NotificationsTab extends StatelessWidget {
               ),
               SizedBox(height: 6),
               Text(
-                'Join request updates will appear here.',
+                'Match updates and join requests will appear here.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white60),
               ),
@@ -1327,37 +1453,18 @@ class NotificationsTab extends StatelessWidget {
         ),
       );
     }
-    final ordered = sortedNotifications(notifications);
-    final hasUnread = unreadNotificationCount(ordered) > 0;
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: ordered.length + 1,
+      padding: const EdgeInsets.only(bottom: 16),
+      itemCount: ordered.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        if (index == 0) {
-          return Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Notifications',
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-                ),
-              ),
-              if (hasUnread && onMarkAllRead != null)
-                TextButton(
-                  onPressed: onMarkAllRead,
-                  child: const Text('Mark all as read'),
-                ),
-            ],
-          );
-        }
-        final notification = ordered[index - 1];
+        final notification = ordered[index];
         return NotificationCard(
           notification: notification,
-          now: now ?? DateTime.now(),
-          onMarkRead: onMarkRead,
-          onOpen: onOpen,
-          requestStream: joinRequestStream?.call(notification),
+          now: widget.now ?? DateTime.now(),
+          onMarkRead: widget.onMarkRead,
+          onOpen: widget.onOpen,
+          requestStream: widget.joinRequestStream?.call(notification),
         );
       },
     );
@@ -1397,51 +1504,128 @@ class NotificationCard extends StatelessWidget {
   }
 
   Widget _buildCard(String? status) {
+    final unread = !notification.read;
+    final icon = switch (notification.type) {
+      AppNotificationType.joinRequest => Icons.person_add_alt_1,
+      AppNotificationType.joinApproved => Icons.check_circle_outline,
+      AppNotificationType.joinDeclined => Icons.cancel_outlined,
+    };
+    final accent = notification.type == AppNotificationType.joinDeclined
+        ? const Color(0xFFFFA59C)
+        : const Color(0xFF74E8A0);
     return Card(
       key: ValueKey('notification-${notification.id}'),
-      color: notification.read
-          ? const Color(0xFF18211D)
-          : const Color(0xFF203A2D),
-      child: ListTile(
+      color: unread ? const Color(0xFF1D3027) : const Color(0xFF18211D),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: unread ? accent.withValues(alpha: 0.24) : Colors.white10,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
         onTap: () => onOpen(notification),
-        leading: Icon(
-          notification.type == AppNotificationType.joinRequest
-              ? Icons.person_add_alt_1
-              : notification.type == AppNotificationType.joinApproved
-              ? Icons.check_circle_outline
-              : Icons.cancel_outlined,
-          color: notification.read ? Colors.white60 : Colors.greenAccent,
-        ),
-        title: Text(
-          notification.title,
-          style: TextStyle(
-            fontWeight: notification.read ? FontWeight.w500 : FontWeight.w700,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Column(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(notification.message),
-              const SizedBox(height: 5),
-              Text(
-                [
-                  relativeNotificationTime(notification.createdAt, now),
-                  ?status,
-                ].join(' · '),
-                style: const TextStyle(fontSize: 12, color: Colors.white60),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: unread ? 0.16 : 0.09),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  size: 21,
+                  color: unread ? accent : Colors.white60,
+                ),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            notification.title,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: unread
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (unread) ...[
+                          const SizedBox(width: 8),
+                          Semantics(
+                            label: 'Unread notification',
+                            child: Container(
+                              key: const ValueKey('unread-indicator'),
+                              width: 8,
+                              height: 8,
+                              margin: const EdgeInsets.only(top: 6),
+                              decoration: BoxDecoration(
+                                color: accent,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      notification.message,
+                      style: TextStyle(
+                        height: 1.35,
+                        color: unread ? Colors.white : Colors.white70,
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                    Text(
+                      relativeNotificationTime(notification.createdAt, now),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.white54,
+                      ),
+                    ),
+                    if (status != null) ...[
+                      const SizedBox(height: 7),
+                      Text(
+                        'Current request status: $status',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: accent,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              if (unread)
+                IconButton(
+                  tooltip: 'Mark as read',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onMarkRead(notification),
+                  icon: const Icon(Icons.mark_email_read_outlined, size: 20),
+                )
+              else
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Icon(Icons.chevron_right, color: Colors.white54),
+                ),
             ],
           ),
         ),
-        trailing: notification.read
-            ? const Icon(Icons.chevron_right)
-            : IconButton(
-                tooltip: 'Mark as read',
-                onPressed: () => onMarkRead(notification),
-                icon: const Icon(Icons.mark_email_read_outlined),
-              ),
       ),
     );
   }
@@ -1911,6 +2095,7 @@ class _HomeScreenState extends State<HomeScreen> {
         error: notificationsError,
         onMarkRead: _markNotificationRead,
         onMarkAllRead: () => _markAllNotificationsRead(notifications),
+        onRetry: () => setState(() {}),
         joinRequestStream: _joinRequestForNotification,
         onOpen: (notification) {
           _markNotificationRead(notification);
