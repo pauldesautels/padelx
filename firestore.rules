@@ -6,6 +6,97 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function validDisplayName(value) {
+      return value is string && value.size() >= 2 && value.size() <= 40;
+    }
+
+    function validProfileLevel(value) {
+      return value is string && (
+        value.matches('^(Level )?([1-6](\\.5)?|7)$')
+        || value in ['Beginner', 'Intermediate', 'Advanced']
+      );
+    }
+
+    function validMatchLevel(value) {
+      return value is string
+        && value.matches('^Level ([1-6](\\.5)?|7)$');
+    }
+
+    function validDiscoveryLocation(location) {
+      return location is map
+        && location.keys().hasAll(['country', 'countryCode', 'city', 'area'])
+        && location.keys().hasOnly([
+          'country', 'countryCode', 'city', 'area', 'latitude', 'longitude'
+        ])
+        && location.country is string && location.country.size() <= 80
+        && location.countryCode is string
+        && location.city is string && location.city.size() <= 80
+        && location.area is string && location.area.size() <= 100
+        && (
+          (
+            location.country == ''
+            && location.countryCode == ''
+            && location.city == ''
+            && location.area == ''
+          )
+          || (
+            location.country.size() >= 2
+            && location.countryCode.size() == 2
+            && location.city.size() >= 1
+          )
+        )
+        && (!('latitude' in location) || (
+          location.latitude is number
+          && location.latitude >= -90 && location.latitude <= 90
+        ))
+        && (!('longitude' in location) || (
+          location.longitude is number
+          && location.longitude >= -180 && location.longitude <= 180
+        ))
+        && (('latitude' in location) == ('longitude' in location));
+    }
+
+    function validPrivateUser(userId, data) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'level', 'email', 'discoveryLocation',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'level', 'email', 'discoveryLocation',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && validDisplayName(data.displayName)
+        && validProfileLevel(data.level)
+        && data.email is string && data.email.size() <= 254
+        && 'email' in request.auth.token
+        && data.email == request.auth.token.email
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && validDiscoveryLocation(data.discoveryLocation);
+    }
+
+    function validPublicProfile(userId, data) {
+      return data.keys().hasAll(['uid', 'displayName', 'level'])
+        && data.keys().hasOnly(['uid', 'displayName', 'level'])
+        && data.uid == userId
+        && validDisplayName(data.displayName)
+        && validProfileLevel(data.level);
+    }
+
+    function profilesMatchAfter(userId) {
+      let privateData = getAfter(
+        /databases/$(database)/documents/users/$(userId)
+      ).data;
+      let publicData = getAfter(
+        /databases/$(database)/documents/publicProfiles/$(userId)
+      ).data;
+      return privateData.uid == publicData.uid
+        && privateData.displayName == publicData.displayName
+        && privateData.level == publicData.level;
+    }
+
     function isOrganizer(matchId) {
       let matchData = get(
         /databases/$(database)/documents/matches/$(matchId)
@@ -23,29 +114,6 @@ service cloud.firestore {
           )
           && 'createdBy' in matchData
           && matchData.createdBy == request.auth.uid
-        )
-        || (
-          (
-            !('creatorUid' in matchData)
-            || matchData.creatorUid == ''
-          )
-          && !('createdBy' in matchData)
-          && 'creatorEmail' in matchData
-          && 'email' in request.auth.token
-          && request.auth.token.email is string
-          && matchData.creatorEmail == request.auth.token.email
-        )
-        || (
-          (
-            !('creatorUid' in matchData)
-            || matchData.creatorUid == ''
-          )
-          && !('createdBy' in matchData)
-          && !('creatorEmail' in matchData)
-          && 'createdByEmail' in matchData
-          && 'email' in request.auth.token
-          && request.auth.token.email is string
-          && matchData.createdByEmail == request.auth.token.email
         )
       );
     }
@@ -86,15 +154,8 @@ service cloud.firestore {
         : '';
     }
 
-    function playerIsNotOrganizer(playerUidValue, playerEmail) {
-      return (
-          !('creatorUid' in resource.data)
-          || resource.data.creatorUid != playerUidValue
-        )
-        && (
-          !('creatorEmail' in resource.data)
-          || resource.data.creatorEmail != playerEmail
-        );
+    function playerIsNotOrganizer(playerUidValue) {
+      return matchOrganizerUid(resource.data) != playerUidValue;
     }
 
     function removesOnlyAuthenticatedPlayer() {
@@ -211,9 +272,8 @@ service cloud.firestore {
         /databases/$(database)/documents/matches/$(matchId)/joinRequests/$(playerUid)
       ).data;
       let player = request.resource.data.players[existingPlayers().size()];
-      return player.keys().hasOnly(['uid', 'email', 'displayName', 'level'])
+      return player.keys().hasOnly(['uid', 'displayName', 'level'])
         && player.uid == joinRequest.userId
-        && player.email == joinRequest.email
         && player.displayName == joinRequest.displayName
         && player.level == joinRequest.level;
     }
@@ -242,18 +302,82 @@ service cloud.firestore {
           )
         )
         && playerUid is string
-        && playerIsNotOrganizer(
-          playerUid,
-          request.resource.data.players[existingPlayers().size()].email
-        )
+        && playerIsNotOrganizer(playerUid)
         && appendedPlayerIsUnique()
         && requestIsAtomicallyApproved(matchId, playerUid)
         && appendedPlayerMatchesRequest(matchId, playerUid);
     }
 
+    function validMatchLocation(location, club) {
+      return location is map
+        && location.keys().hasAll([
+          'clubName', 'countryCode', 'country', 'region', 'city', 'area'
+        ])
+        && location.keys().hasOnly([
+          'clubName', 'countryCode', 'country', 'region', 'city', 'area',
+          'placeId', 'latitude', 'longitude'
+        ])
+        && location.clubName == club
+        && location.clubName is string && location.clubName.size() <= 120
+        && location.countryCode is string && location.countryCode.size() == 2
+        && location.country is string
+        && location.country.size() >= 2 && location.country.size() <= 80
+        && location.region is string && location.region.size() <= 80
+        && location.city is string
+        && location.city.size() >= 1 && location.city.size() <= 80
+        && location.area is string && location.area.size() <= 100
+        && (!('placeId' in location) || (
+          location.placeId is string && location.placeId.size() <= 256
+        ))
+        && (!('latitude' in location) || (
+          location.latitude is number
+          && location.latitude >= -90 && location.latitude <= 90
+        ))
+        && (!('longitude' in location) || (
+          location.longitude is number
+          && location.longitude >= -180 && location.longitude <= 180
+        ))
+        && (('latitude' in location) == ('longitude' in location));
+    }
+
+    function validNewMatch(matchId) {
+      let data = request.resource.data;
+      let creatorProfile = get(
+        /databases/$(database)/documents/publicProfiles/$(request.auth.uid)
+      ).data;
+      return data.keys().hasAll([
+          'title', 'club', 'clubName', 'location', 'dateTime', 'scheduledAt',
+          'level', 'spotsLeft', 'players', 'creatorUid',
+          'creatorDisplayName', 'creatorLevel', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'title', 'club', 'clubName', 'location', 'dateTime', 'scheduledAt',
+          'level', 'spotsLeft', 'players', 'creatorUid',
+          'creatorDisplayName', 'creatorLevel', 'createdAt'
+        ])
+        && data.creatorUid == request.auth.uid
+        && validDisplayName(data.creatorDisplayName)
+        && validProfileLevel(data.creatorLevel)
+        && data.creatorDisplayName == creatorProfile.displayName
+        && data.creatorLevel == creatorProfile.level
+        && data.title is string && data.title.size() >= 1
+        && data.title.size() <= 100
+        && data.dateTime is string && data.dateTime.size() >= 1
+        && data.dateTime.size() <= 100
+        && data.club is string && data.club.size() >= 1
+        && data.club.size() <= 120
+        && data.clubName == data.club
+        && validMatchLocation(data.location, data.club)
+        && validMatchLevel(data.level)
+        && data.scheduledAt is timestamp && data.scheduledAt > request.time
+        && data.createdAt == request.time
+        && data.players is list && data.players.size() == 0
+        && data.spotsLeft is int
+        && data.spotsLeft >= 1 && data.spotsLeft <= 3;
+    }
+
     function organizerEditsMatchDetails(matchId) {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
-      let location = request.resource.data.location;
       return isOrganizer(matchId)
         && matchIsStillOpen(request.resource.data)
         && changed.hasOnly([
@@ -274,21 +398,11 @@ service cloud.firestore {
         && request.resource.data.club is string
         && request.resource.data.club != ''
         && request.resource.data.clubName == request.resource.data.club
-        && request.resource.data.level is string
-        && request.resource.data.level != ''
-        && location is map
-        && location.clubName == request.resource.data.club
-        && location.countryCode is string
-        && location.countryCode.size() == 2
-        && location.country is string
-        && location.country != ''
-        && location.region is string
-        && location.city is string
-        && location.city != ''
-        && location.area is string
-        && (!('placeId' in location) || location.placeId is string)
-        && (!('latitude' in location) || location.latitude is number)
-        && (!('longitude' in location) || location.longitude is number);
+        && validMatchLevel(request.resource.data.level)
+        && validMatchLocation(
+          request.resource.data.location,
+          request.resource.data.club
+        );
     }
 
     function approvalUpdatesMatch(matchId, playerUid) {
@@ -327,25 +441,9 @@ service cloud.firestore {
         : '';
     }
 
-    function matchOrganizerEmail(matchData) {
-      return 'creatorEmail' in matchData && matchData.creatorEmail != ''
-        ? matchData.creatorEmail
-        : 'createdByEmail' in matchData
-        ? matchData.createdByEmail
-        : '';
-    }
-
     function userParticipated(matchData, uid) {
-      let userData = get(
-        /databases/$(database)/documents/users/$(uid)
-      ).data;
       return matchContainsPlayer(matchData, uid)
-        || matchOrganizerUid(matchData) == uid
-        || (
-          matchOrganizerUid(matchData) == ''
-          && matchOrganizerEmail(matchData) != ''
-          && userData.email == matchOrganizerEmail(matchData)
-        );
+        || matchOrganizerUid(matchData) == uid;
     }
 
     function matchIsCompleted(matchData) {
@@ -407,6 +505,9 @@ service cloud.firestore {
     }
 
     function validRequestFields() {
+      let publicProfile = get(
+        /databases/$(database)/documents/publicProfiles/$(request.auth.uid)
+      ).data;
       return request.resource.data.keys().hasAll([
           'userId', 'displayName', 'level', 'email', 'status', 'requestedAt',
           'eventId'
@@ -416,11 +517,15 @@ service cloud.firestore {
           'eventId'
         ])
         && request.resource.data.userId is string
-        && request.resource.data.displayName is string
-        && request.resource.data.level is string
+        && validDisplayName(request.resource.data.displayName)
+        && validProfileLevel(request.resource.data.level)
+        && request.resource.data.displayName == publicProfile.displayName
+        && request.resource.data.level == publicProfile.level
         && request.resource.data.email is string
+        && request.resource.data.email == request.auth.token.email
         && request.resource.data.eventId is string
-        && request.resource.data.eventId != ''
+        && request.resource.data.eventId.size() >= 1
+        && request.resource.data.eventId.size() <= 128
         && request.resource.data.requestedAt == request.time;
     }
 
@@ -435,21 +540,7 @@ service cloud.firestore {
           && 'createdBy' in matchData
           && matchData.createdBy == recipientUid
         )
-        || (
-          (!('creatorUid' in matchData) || matchData.creatorUid == '')
-          && !('createdBy' in matchData)
-          && 'creatorEmail' in matchData
-          && get(/databases/$(database)/documents/users/$(recipientUid))
-            .data.email == matchData.creatorEmail
-        )
-        || (
-          (!('creatorUid' in matchData) || matchData.creatorUid == '')
-          && !('createdBy' in matchData)
-          && !('creatorEmail' in matchData)
-          && 'createdByEmail' in matchData
-          && get(/databases/$(database)/documents/users/$(recipientUid))
-            .data.email == matchData.createdByEmail
-        );
+        ;
     }
 
     function validJoinRequestNotification(notificationId) {
@@ -532,17 +623,41 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      // Match participants need profiles to show current display names/levels.
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && validPrivateUser(userId, request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && existsAfter(
+          /databases/$(database)/documents/publicProfiles/$(userId)
+        )
+        && profilesMatchAfter(userId);
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && validPrivateUser(userId, request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && existsAfter(
+          /databases/$(database)/documents/publicProfiles/$(userId)
+        )
+        && profilesMatchAfter(userId);
+      allow delete: if false;
+    }
+
+    match /publicProfiles/{userId} {
       allow read: if signedIn();
       allow create: if signedIn()
         && request.auth.uid == userId
-        && request.resource.data.uid == userId;
+        && validPublicProfile(userId, request.resource.data)
+        && existsAfter(/databases/$(database)/documents/users/$(userId))
+        && profilesMatchAfter(userId);
       allow update: if signedIn()
         && request.auth.uid == userId
-        && resource.data.uid == userId
-        && request.resource.data.uid == userId;
-      allow delete: if signedIn() && request.auth.uid == userId;
-
+        && validPublicProfile(userId, request.resource.data)
+        && existsAfter(/databases/$(database)/documents/users/$(userId))
+        && profilesMatchAfter(userId);
+      allow delete: if false;
     }
 
     match /notifications/{notificationId} {
@@ -581,13 +696,7 @@ service cloud.firestore {
     match /matches/{matchId} {
       allow read: if signedIn();
       allow create: if signedIn()
-        && request.resource.data.creatorUid == request.auth.uid
-        && matchIsStillOpen(request.resource.data)
-        && request.resource.data.players is list
-        && request.resource.data.players.size() == 0
-        && request.resource.data.spotsLeft is int
-        && request.resource.data.spotsLeft >= 1
-        && request.resource.data.spotsLeft <= 3;
+        && validNewMatch(matchId);
       allow delete: if isOrganizer(matchId) && matchCanStillChange(matchId);
 
       // Match updates are limited to organizer detail edits, an atomic

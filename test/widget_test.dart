@@ -331,6 +331,7 @@ void main() {
       expect(saved?['spotsLeft'], 3);
       expect(saved?['level'], 'Level 2.5');
       expect((saved?['location'] as Map)['countryCode'], 'MX');
+      expect(saved, isNot(contains('creatorEmail')));
     },
   );
 
@@ -1893,12 +1894,8 @@ void main() {
         (players.first['legacyMetadata'] as Map)['clubs'],
         isA<List<dynamic>>(),
       );
-      expect((players.last as Map).keys, {
-        'uid',
-        'email',
-        'displayName',
-        'level',
-      });
+      expect((players.last as Map).keys, {'uid', 'displayName', 'level'});
+      expect(players.last, isNot(contains('email')));
       expect(update['spotsLeft'], 1);
     },
   );

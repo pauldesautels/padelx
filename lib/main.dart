@@ -76,6 +76,7 @@ class UserProfile {
   final String level;
   final String email;
   final bool hasCreatedAt;
+  final Timestamp? createdAt;
   final DiscoveryLocation discoveryLocation;
 
   const UserProfile({
@@ -84,6 +85,7 @@ class UserProfile {
     required this.level,
     required this.email,
     this.hasCreatedAt = false,
+    this.createdAt,
     this.discoveryLocation = const DiscoveryLocation(
       country: '',
       countryCode: '',
@@ -101,12 +103,38 @@ class UserProfile {
       level: data['level']?.toString().trim() ?? '',
       email: data['email']?.toString().trim() ?? '',
       hasCreatedAt: data['createdAt'] != null,
+      createdAt: data['createdAt'] is Timestamp
+          ? data['createdAt'] as Timestamp
+          : null,
       discoveryLocation: DiscoveryLocation.fromMap(data['discoveryLocation']),
     );
   }
 
   bool get isComplete =>
       uid.isNotEmpty && displayName.isNotEmpty && level.isNotEmpty;
+}
+
+class PublicUserProfile {
+  final String uid;
+  final String displayName;
+  final String level;
+
+  const PublicUserProfile({
+    required this.uid,
+    required this.displayName,
+    required this.level,
+  });
+
+  factory PublicUserProfile.fromDocument(
+    DocumentSnapshot<Map<String, dynamic>> document,
+  ) {
+    final data = document.data() ?? const <String, dynamic>{};
+    return PublicUserProfile(
+      uid: data['uid']?.toString() ?? document.id,
+      displayName: data['displayName']?.toString().trim() ?? '',
+      level: data['level']?.toString().trim() ?? '',
+    );
+  }
 }
 
 class ProfileGate extends StatefulWidget {
@@ -1047,7 +1075,7 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
 
   final firestore = FirebaseFirestore.instance;
   final results = await Future.wait([
-    firestore.collection('users').doc(uid).get(),
+    firestore.collection('publicProfiles').doc(uid).get(),
     firestore.collection('matches').get(),
     firestore
         .collectionGroup('ratings')
@@ -1058,7 +1086,7 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
   final matchSnapshot = results[1] as QuerySnapshot<Map<String, dynamic>>;
   final ratingSnapshot = results[2] as QuerySnapshot<Map<String, dynamic>>;
   final profile = userDocument.exists
-      ? UserProfile.fromDocument(userDocument)
+      ? PublicUserProfile.fromDocument(userDocument)
       : null;
   final matches = matchSnapshot.docs
       .where((document) => matchIncludesPlayer(document.data(), uid))
@@ -1069,7 +1097,6 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
     uid: uid,
     displayName: profile?.displayName ?? '',
     level: profile?.level ?? '',
-    email: profile?.email ?? '',
     matches: matches,
     ratings: ratingSnapshot.docs.map(PlayerRating.fromDocument).toList(),
   );
@@ -1081,9 +1108,7 @@ bool isOrganizerIdentity(
   String email,
 ) {
   final creatorUid = matchCreatorUid(matchData);
-  if (creatorUid.isNotEmpty) return creatorUid == uid;
-  final creatorEmail = matchCreatorEmail(matchData).toLowerCase();
-  return creatorEmail.isNotEmpty && creatorEmail == email.toLowerCase();
+  return creatorUid.isNotEmpty && creatorUid == uid;
 }
 
 bool _isMatchOrganizer(Match match, String uid, String email) =>
@@ -1967,7 +1992,6 @@ Map<String, dynamic> buildReviewRequestUpdate(
   checkpoint('approved player construction starting');
   players.add({
     'uid': requestUserId,
-    'email': requestData['email']?.toString() ?? '',
     'displayName': requestData['displayName']?.toString() ?? '',
     'level': requestData['level']?.toString() ?? '',
   });
@@ -2012,19 +2036,7 @@ Future<String> resolveOrganizerNotificationUid(
 ) async {
   final uid = matchCreatorUid(matchData);
   if (uid.isNotEmpty) return uid;
-  final email = matchCreatorEmail(matchData);
-  if (email.isEmpty) {
-    throw const MatchActionException('Could not identify the match organizer.');
-  }
-  final profiles = await FirebaseFirestore.instance
-      .collection('users')
-      .where('email', isEqualTo: email)
-      .limit(2)
-      .get();
-  if (profiles.docs.length != 1) {
-    throw const MatchActionException('Could not identify the match organizer.');
-  }
-  return profiles.docs.single.id;
+  throw const MatchActionException('Could not identify the match organizer.');
 }
 
 Future<UserProfile?> _loadUserProfile(String uid) async {
@@ -3589,6 +3601,10 @@ String profileLevelLabel(String level) {
   return 'Level $value';
 }
 
+bool isValidProfileLevel(String value) => RegExp(
+  r'^(Level )?([1-6](\.5)?|7)$|^(Beginner|Intermediate|Advanced)$',
+).hasMatch(value.trim());
+
 class ProfileTab extends StatefulWidget {
   final UserProfile? profile;
   final String uid;
@@ -4007,6 +4023,12 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       _showMessage('Level must be 30 characters or fewer.');
       return;
     }
+    if (!isValidProfileLevel(level)) {
+      _showMessage(
+        'Use a level from 1 to 7 in 0.5 steps, or Beginner, Intermediate, or Advanced.',
+      );
+      return;
+    }
     final hasDiscoveryValue =
         discovery.country.isNotEmpty ||
         discovery.countryCode.isNotEmpty ||
@@ -4024,19 +4046,31 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
 
     setState(() => _isSaving = true);
     try {
-      final reference = FirebaseFirestore.instance
+      final firestore = FirebaseFirestore.instance;
+      final privateReference = firestore
           .collection('users')
           .doc(widget.user.uid);
-      await reference.set({
+      final publicReference = firestore
+          .collection('publicProfiles')
+          .doc(widget.user.uid);
+      final batch = firestore.batch();
+      final timestamp = FieldValue.serverTimestamp();
+      final createdAt = widget.profile?.createdAt ?? timestamp;
+      batch.set(privateReference, {
         'uid': widget.user.uid,
         'displayName': displayName,
         'level': level,
         'email': widget.user.email ?? widget.profile?.email ?? '',
         'discoveryLocation': discovery.toMap(),
-        if (widget.profile?.hasCreatedAt != true)
-          'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': createdAt,
+        'updatedAt': timestamp,
       }, SetOptions(merge: true));
+      batch.set(publicReference, {
+        'uid': widget.user.uid,
+        'displayName': displayName,
+        'level': level,
+      }, SetOptions(merge: true));
+      await batch.commit();
 
       if (!mounted) return;
       if (!widget.isRequired) {
@@ -4347,7 +4381,6 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         'spotsLeft': _totalPlayers - 1,
         'players': <Map<String, String>>[],
         'creatorUid': user?.uid ?? '',
-        'creatorEmail': user?.email ?? '',
         'creatorDisplayName': profile?.displayName ?? '',
         'creatorLevel': profile?.level ?? '',
         'createdAt': FieldValue.serverTimestamp(),
@@ -5336,7 +5369,7 @@ List<MatchPlayer> ratingCandidates(Match match, String currentUid) {
     if (match.creatorUid.isNotEmpty)
       MatchPlayer(
         uid: match.creatorUid,
-        email: match.creatorEmail,
+        email: '',
         displayName: match.creatorDisplayName,
         level: match.creatorLevel,
       ),
@@ -5493,8 +5526,6 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
                   final prior = existing[player.uid];
                   final name = player.displayName.isNotEmpty
                       ? player.displayName
-                      : _publicFallbackName(player.email).isNotEmpty
-                      ? _publicFallbackName(player.email)
                       : 'Player';
                   return Card(
                     child: LayoutBuilder(
@@ -6174,7 +6205,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                       uid: match.creatorUid,
                       fallbackName: match.creatorDisplayName.isNotEmpty
                           ? match.creatorDisplayName
-                          : match.creatorEmail,
+                          : 'Organizer',
                       fallbackLevel: match.creatorLevel,
                       role: 'Organizer',
                     ),
@@ -6185,7 +6216,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                             uid: player.uid,
                             fallbackName: player.displayName.isNotEmpty
                                 ? player.displayName
-                                : player.email,
+                                : 'Player',
                             fallbackLevel: player.level,
                             role: 'Confirmed',
                           ),
@@ -6667,12 +6698,12 @@ class ProfilePlayerTile extends StatelessWidget {
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
-          .collection('users')
+          .collection('publicProfiles')
           .doc(uid)
           .snapshots(),
       builder: (context, snapshot) {
         final profile = snapshot.hasData && snapshot.data!.exists
-            ? UserProfile.fromDocument(snapshot.data!)
+            ? PublicUserProfile.fromDocument(snapshot.data!)
             : null;
         final name = profile?.displayName.isNotEmpty == true
             ? profile!.displayName
