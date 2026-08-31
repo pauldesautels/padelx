@@ -545,17 +545,19 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final now = DateTime.now();
+    final soonerDate = now.add(const Duration(days: 1));
+    final laterDate = now.add(const Duration(days: 2));
     final matches = [
       Match(
         id: 'later',
         title: 'Later',
-        club: 'Club',
+        club: 'Later Club',
         level: 'Level 3',
         spotsLeft: 2,
         creatorUid: 'one',
         creatorEmail: 'one@example.com',
         players: const [],
-        scheduledAt: now.add(const Duration(days: 2)),
+        scheduledAt: laterDate,
       ),
       Match(
         id: 'past',
@@ -571,13 +573,13 @@ void main() {
       Match(
         id: 'sooner',
         title: 'Sooner',
-        club: 'Club',
+        club: 'Sooner Club',
         level: 'Level 3',
         spotsLeft: 2,
         creatorUid: 'one',
         creatorEmail: 'one@example.com',
         players: const [],
-        scheduledAt: now.add(const Duration(days: 1)),
+        scheduledAt: soonerDate,
       ),
     ];
     final openMatches = sortedMatches(
@@ -598,8 +600,8 @@ void main() {
 
     expect(find.text('Past match'), findsNothing);
     expect(
-      tester.getTopLeft(find.text('Sooner')).dy,
-      lessThan(tester.getTopLeft(find.text('Later')).dy),
+      tester.getTopLeft(find.text('Sooner Club')).dy,
+      lessThan(tester.getTopLeft(find.text('Later Club')).dy),
     );
   });
 
@@ -727,13 +729,75 @@ void main() {
       'missing',
     );
     await tester.pump();
-    expect(find.text('No matches found'), findsOneWidget);
-    expect(find.text('Reset filters'), findsOneWidget);
+    expect(find.text('No matches match your filters'), findsOneWidget);
+    expect(find.text('Clear filters'), findsWidgets);
 
-    await tester.tap(find.text('Reset filters'));
+    await tester.tap(find.text('Clear filters').last);
     await tester.pump();
     expect(find.text('Roma Padel'), findsOneWidget);
-    expect(find.text('No matches found'), findsNothing);
+    expect(find.text('No matches match your filters'), findsNothing);
+  });
+
+  testWidgets('open matches separates discovery location from text search', (
+    WidgetTester tester,
+  ) async {
+    await _pumpMatches(tester, [_match(id: 'one', club: 'Roma Padel')]);
+
+    expect(find.byKey(const Key('matches-location-controls')), findsOneWidget);
+    expect(find.text('Find matches near'), findsOneWidget);
+    expect(find.byKey(const Key('use-current-location')), findsOneWidget);
+    expect(find.text('Filter matches'), findsOneWidget);
+    expect(find.byKey(const Key('match-search-field')), findsOneWidget);
+  });
+
+  testWidgets('open match cards use one date headline and explicit level', (
+    WidgetTester tester,
+  ) async {
+    final scheduledAt = DateTime(2030, 9, 12, 18, 30);
+    const dateLabel = 'Thursday, September 12 · 6:30 PM';
+    await _pumpMatches(tester, [
+      Match(
+        id: 'legacy',
+        title: dateLabel,
+        club: 'Legacy Club',
+        level: '2',
+        spotsLeft: 1,
+        creatorUid: 'current-user',
+        creatorEmail: 'organizer@example.com',
+        players: const [],
+        scheduledAt: scheduledAt,
+      ),
+    ], currentUid: 'current-user');
+
+    expect(find.text(dateLabel), findsOneWidget);
+    expect(find.text('Level 2'), findsOneWidget);
+    expect(find.text('1 spot left'), findsOneWidget);
+    expect(find.text('Organizer'), findsOneWidget);
+    expect(find.text('Unknown location'), findsNothing);
+  });
+
+  testWidgets('open matches distinguishes global and filter empty states', (
+    WidgetTester tester,
+  ) async {
+    await _pumpMatches(tester, const []);
+    expect(find.text('No open matches yet'), findsOneWidget);
+
+    await _pumpMatches(tester, [_match(id: 'one', club: 'Roma Padel')]);
+    await tester.enterText(find.byKey(const Key('match-search-field')), 'none');
+    await tester.pump();
+    expect(find.text('No matches match your filters'), findsOneWidget);
+  });
+
+  testWidgets('open matches does not overflow at 320px width', (
+    WidgetTester tester,
+  ) async {
+    await _pumpMatches(tester, [
+      _match(id: 'one', club: 'A very long padel club name'),
+    ], size: const Size(320, 700));
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('matches-scroll-view')), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'This Week'), findsOneWidget);
   });
 
   testWidgets('current location applies the default 25 km radius', (
@@ -1578,15 +1642,25 @@ Match _match({
   );
 }
 
-Future<void> _pumpMatches(WidgetTester tester, List<Match> matches) async {
-  tester.view.physicalSize = const Size(1200, 1800);
+Future<void> _pumpMatches(
+  WidgetTester tester,
+  List<Match> matches, {
+  Size size = const Size(1200, 1800),
+  String currentUid = '',
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
-        body: MatchesTab(matches: matches, isLoading: false, error: false),
+        body: MatchesTab(
+          matches: matches,
+          isLoading: false,
+          error: false,
+          currentUid: currentUid,
+        ),
       ),
     ),
   );

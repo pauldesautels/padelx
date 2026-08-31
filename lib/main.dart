@@ -2456,11 +2456,21 @@ class _MatchesTabState extends State<MatchesTab> {
   @override
   Widget build(BuildContext context) {
     if (widget.isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const _MatchesStatusState(
+        key: Key('matches-loading-state'),
+        icon: Icons.sports_tennis,
+        title: 'Finding open matches…',
+        showProgress: true,
+      );
     }
 
     if (widget.error) {
-      return const Center(child: Text('Could not load matches.'));
+      return const _MatchesStatusState(
+        key: Key('matches-error-state'),
+        icon: Icons.cloud_off_outlined,
+        title: 'Matches are unavailable right now.',
+        message: 'Check your connection and try again.',
+      );
     }
 
     final levels =
@@ -2470,9 +2480,19 @@ class _MatchesTabState extends State<MatchesTab> {
             .toSet()
             .toList()
           ..sort();
+    final center = _discoveryCenter;
+    final matchesNearLocation = center == null
+        ? widget.matches
+        : filterNearbyMatches(
+            widget.matches,
+            centerLatitude: center.latitude!,
+            centerLongitude: center.longitude!,
+            radiusKm: _radiusKm,
+          );
     final filteredMatches = _filteredMatches;
     return ListView(
-      padding: const EdgeInsets.all(20),
+      key: const Key('matches-scroll-view'),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 104),
       children: [
         const Text(
           'Open matches',
@@ -2483,52 +2503,71 @@ class _MatchesTabState extends State<MatchesTab> {
           'Join games that need players.',
           style: TextStyle(fontSize: 16, color: Colors.white70),
         ),
-        const SizedBox(height: 16),
-        PlacesAutocompleteField(
-          key: ValueKey(
-            _usingCurrentLocation
-                ? 'current-location'
-                : (_discoveryCenter?.placeId ?? 'discovery-location'),
+        const SizedBox(height: 20),
+        Container(
+          key: const Key('matches-location-controls'),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF151E1A),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white12),
           ),
-          labelText: 'Find matches near',
-          hintText: 'Search for a city or area',
-          initialText: _usingCurrentLocation
-              ? 'Current location'
-              : (_discoveryCenter?.localityLabel ?? ''),
-          onSelected: (location) {
-            if (!hasUsableCoordinates(location.latitude, location.longitude)) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('That location has no coordinates.'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Find matches near',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              PlacesAutocompleteField(
+                key: ValueKey(
+                  _usingCurrentLocation
+                      ? 'current-location'
+                      : (_discoveryCenter?.placeId ?? 'discovery-location'),
                 ),
-              );
-              return;
-            }
-            setState(() {
-              _discoveryCenter = location;
-              _usingCurrentLocation = false;
-              _currentLocationError = null;
-              _radiusKm = 25;
-            });
-          },
-        ),
-        const SizedBox(height: 10),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            key: const Key('use-current-location'),
-            onPressed: _findingCurrentLocation ? null : _useCurrentLocation,
-            icon: _findingCurrentLocation
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.my_location),
-            label: Text(
-              _findingCurrentLocation
-                  ? 'Finding your location…'
-                  : 'Use my current location',
-            ),
+                labelText: 'City or area',
+                hintText: 'Search for a city or area',
+                initialText: _usingCurrentLocation
+                    ? 'Current location'
+                    : (_discoveryCenter?.localityLabel ?? ''),
+                onSelected: (location) {
+                  if (!hasUsableCoordinates(
+                    location.latitude,
+                    location.longitude,
+                  )) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('That location has no coordinates.'),
+                      ),
+                    );
+                    return;
+                  }
+                  setState(() {
+                    _discoveryCenter = location;
+                    _usingCurrentLocation = false;
+                    _currentLocationError = null;
+                    _radiusKm = 25;
+                  });
+                },
+              ),
+              const SizedBox(height: 4),
+              TextButton.icon(
+                key: const Key('use-current-location'),
+                onPressed: _findingCurrentLocation ? null : _useCurrentLocation,
+                icon: _findingCurrentLocation
+                    ? const SizedBox.square(
+                        dimension: 17,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.my_location, size: 19),
+                label: Text(
+                  _findingCurrentLocation
+                      ? 'Finding your location…'
+                      : 'Use my current location',
+                ),
+              ),
+            ],
           ),
         ),
         if (_currentLocationError != null)
@@ -2576,7 +2615,12 @@ class _MatchesTabState extends State<MatchesTab> {
                 .toList(),
           ),
         ],
-        const SizedBox(height: 12),
+        const SizedBox(height: 18),
+        const Text(
+          'Filter matches',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 10),
         TextField(
           key: const Key('match-search-field'),
           controller: _searchController,
@@ -2589,65 +2633,77 @@ class _MatchesTabState extends State<MatchesTab> {
           ),
         ),
         const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: MatchDateFilter.values.map((filter) {
-              final label = switch (filter) {
-                MatchDateFilter.all => 'All',
-                MatchDateFilter.today => 'Today',
-                MatchDateFilter.tomorrow => 'Tomorrow',
-                MatchDateFilter.thisWeek => 'This Week',
-              };
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(label),
-                  selected: _dateFilter == filter,
-                  onSelected: (_) => setState(() => _dateFilter = filter),
-                ),
-              );
-            }).toList(),
-          ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: MatchDateFilter.values.map((filter) {
+            final label = switch (filter) {
+              MatchDateFilter.all => 'All',
+              MatchDateFilter.today => 'Today',
+              MatchDateFilter.tomorrow => 'Tomorrow',
+              MatchDateFilter.thisWeek => 'This Week',
+            };
+            return ChoiceChip(
+              label: Text(label),
+              selected: _dateFilter == filter,
+              visualDensity: VisualDensity.compact,
+              onSelected: (_) => setState(() => _dateFilter = filter),
+            );
+          }).toList(),
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: KeyedSubtree(
-                key: const Key('level-filter'),
-                child: DropdownButtonFormField<String>(
-                  key: _levelFieldKey,
-                  initialValue: _levelFilter,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Player level',
-                    prefixIcon: Icon(Icons.leaderboard),
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  items: levels
-                      .map(
-                        (level) => DropdownMenuItem(
-                          value: level,
-                          child: Text(level, overflow: TextOverflow.ellipsis),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (level) => setState(() => _levelFilter = level),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 360;
+            final level = KeyedSubtree(
+              key: const Key('level-filter'),
+              child: DropdownButtonFormField<String>(
+                key: _levelFieldKey,
+                initialValue: _levelFilter,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Player level',
+                  prefixIcon: Icon(Icons.leaderboard),
+                  border: OutlineInputBorder(),
+                  isDense: true,
                 ),
+                items: levels
+                    .map(
+                      (level) => DropdownMenuItem(
+                        value: level,
+                        child: Text(level, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (level) => setState(() => _levelFilter = level),
               ),
-            ),
-            const SizedBox(width: 8),
-            FilterChip(
+            );
+            final spots = FilterChip(
               key: const Key('available-spots-filter'),
               avatar: const Icon(Icons.group, size: 18),
               label: const Text('Spots'),
               selected: _availableOnly,
               onSelected: (selected) =>
                   setState(() => _availableOnly = selected),
-            ),
-          ],
+            );
+            if (narrow) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  level,
+                  const SizedBox(height: 6),
+                  Align(alignment: Alignment.centerLeft, child: spots),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: level),
+                const SizedBox(width: 8),
+                spots,
+              ],
+            );
+          },
         ),
         if (_hasFilters)
           Align(
@@ -2663,35 +2719,53 @@ class _MatchesTabState extends State<MatchesTab> {
           const SizedBox(height: 16),
         if (filteredMatches.isEmpty)
           Padding(
+            key: const Key('matches-empty-state'),
             padding: const EdgeInsets.symmetric(vertical: 36),
             child: Column(
               children: [
                 const Icon(Icons.search_off, size: 44, color: Colors.white54),
                 const SizedBox(height: 12),
                 Text(
-                  _discoveryCenter != null
-                      ? 'No matches within ${_radiusKm.round()} km'
+                  widget.matches.isEmpty
+                      ? 'No open matches yet'
                       : (_hasFilters
-                            ? 'No matches found'
+                            ? 'No matches match your filters'
+                            : _discoveryCenter != null &&
+                                  matchesNearLocation.isEmpty
+                            ? 'No matches within ${_radiusKm.round()} km'
                             : 'No open matches yet'),
                 ),
-                if (_discoveryCenter != null) ...[
+                if (widget.matches.isEmpty) ...[
                   const SizedBox(height: 6),
                   const Text(
-                    'Try a wider radius or create a match nearby.',
+                    'Be the first to get a game started.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ] else if (_hasFilters) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _clearFilters,
+                    icon: const Icon(Icons.clear_all),
+                    label: const Text('Clear filters'),
+                  ),
+                ] else if (_discoveryCenter != null &&
+                    matchesNearLocation.isEmpty) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Try a wider radius or change location.',
                     style: TextStyle(color: Colors.white70),
                   ),
                   const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => setState(() => _radiusKm = 100),
+                    child: const Text('Expand to 100 km'),
+                  ),
+                ],
+                if (widget.matches.isEmpty && widget.onCreateMatch != null)
                   FilledButton.icon(
                     onPressed: widget.onCreateMatch,
                     icon: const Icon(Icons.add),
                     label: const Text('Create Match'),
-                  ),
-                ],
-                if (_hasFilters)
-                  TextButton(
-                    onPressed: _clearFilters,
-                    child: const Text('Reset filters'),
                   ),
               ],
             ),
@@ -2700,14 +2774,14 @@ class _MatchesTabState extends State<MatchesTab> {
           ...filteredMatches.map((match) {
             final state =
                 _isMatchOrganizer(match, widget.currentUid, widget.currentEmail)
-                ? 'ORGANIZER'
+                ? 'Organizer'
                 : match.players.any((player) => player.uid == widget.currentUid)
-                ? 'JOINED'
+                ? 'Joined'
                 : widget.pendingMatchIds.contains(match.id)
-                ? 'PENDING'
+                ? 'Pending'
                 : match.spotsLeft <= 0
-                ? 'FULL'
-                : 'OPEN';
+                ? 'Full'
+                : 'Open';
             final center = _discoveryCenter;
             final distance = center == null
                 ? null
@@ -2721,6 +2795,8 @@ class _MatchesTabState extends State<MatchesTab> {
               match: match,
               relationshipLabel: state,
               distanceKm: distance,
+              dateTimeHeadline: true,
+              explicitLevelLabel: true,
             );
           }),
       ],
@@ -2735,6 +2811,7 @@ class MatchCard extends StatelessWidget {
   final bool historical;
   final bool showSchedule;
   final bool explicitLevelLabel;
+  final bool dateTimeHeadline;
 
   const MatchCard({
     super.key,
@@ -2744,6 +2821,7 @@ class MatchCard extends StatelessWidget {
     this.historical = false,
     this.showSchedule = true,
     this.explicitLevelLabel = false,
+    this.dateTimeHeadline = false,
   });
 
   String get _levelLabel {
@@ -2754,6 +2832,9 @@ class MatchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final headline = dateTimeHeadline && match.scheduledAt != null
+        ? _friendlyDateTime(match.scheduledAt!)
+        : match.title;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
@@ -2771,20 +2852,6 @@ class MatchCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (relationshipLabel != null) ...[
-                Chip(
-                  avatar: Icon(
-                    relationshipLabel == 'Organizing'
-                        ? Icons.star_outline
-                        : Icons.check_circle_outline,
-                    size: 18,
-                  ),
-                  label: Text(relationshipLabel!),
-                  backgroundColor: const Color(0xFF1F7A4D),
-                  visualDensity: VisualDensity.compact,
-                ),
-                const SizedBox(height: 12),
-              ],
               if (historical) ...[
                 const Chip(
                   avatar: Icon(Icons.history, size: 18),
@@ -2795,18 +2862,29 @@ class MatchCard extends StatelessWidget {
                 const SizedBox(height: 12),
               ],
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const CircleAvatar(child: Icon(Icons.sports_tennis)),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      match.title,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          headline,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (relationshipLabel != null) ...[
+                          const SizedBox(height: 6),
+                          _MatchStatusLabel(label: relationshipLabel!),
+                        ],
+                      ],
                     ),
                   ),
+                  const SizedBox(width: 8),
                   const Icon(Icons.arrow_forward_ios, size: 16),
                 ],
               ),
@@ -2826,7 +2904,9 @@ class MatchCard extends StatelessWidget {
                 children: [
                   if (_levelLabel.isNotEmpty)
                     _InfoChip(text: _levelLabel, icon: Icons.leaderboard),
-                  if (showSchedule && match.scheduledAt != null)
+                  if (showSchedule &&
+                      !dateTimeHeadline &&
+                      match.scheduledAt != null)
                     _InfoChip(
                       text: _friendlyDateTime(match.scheduledAt!),
                       icon: Icons.schedule,
@@ -2842,6 +2922,96 @@ class MatchCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MatchStatusLabel extends StatelessWidget {
+  final String label;
+
+  const _MatchStatusLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = label.toLowerCase();
+    final icon = normalized.contains('organiz')
+        ? Icons.star_outline
+        : normalized.contains('pending')
+        ? Icons.schedule_outlined
+        : normalized == 'open'
+        ? Icons.lock_open_outlined
+        : normalized == 'full'
+        ? Icons.group_outlined
+        : Icons.check_circle_outline;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.white70),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MatchesStatusState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? message;
+  final bool showProgress;
+
+  const _MatchesStatusState({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.message,
+    this.showProgress = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 42, color: Colors.white54),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            if (message != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                message!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+            if (showProgress) ...[
+              const SizedBox(height: 18),
+              const SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ],
+          ],
         ),
       ),
     );
