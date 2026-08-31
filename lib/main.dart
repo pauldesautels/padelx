@@ -1900,6 +1900,8 @@ class _HomeScreenState extends State<HomeScreen> {
         pendingMatches: pendingMatches,
         currentUid: currentUid,
         currentEmail: currentEmail,
+        onFindMatch: () => _onItemTapped(1),
+        onCreateMatch: _openCreateMatchScreen,
         isLoading: snapshot.connectionState == ConnectionState.waiting,
         error: snapshot.hasError || requestsError,
       ),
@@ -3018,11 +3020,15 @@ class _MatchesStatusState extends StatelessWidget {
   }
 }
 
-class MyMatchesTab extends StatelessWidget {
+enum MyMatchesView { upcoming, past }
+
+class MyMatchesTab extends StatefulWidget {
   final List<Match> matches;
   final List<Match> pendingMatches;
   final String currentUid;
   final String currentEmail;
+  final VoidCallback? onFindMatch;
+  final VoidCallback? onCreateMatch;
   final bool isLoading;
   final bool error;
   final DateTime Function() nowProvider;
@@ -3033,35 +3039,33 @@ class MyMatchesTab extends StatelessWidget {
     this.pendingMatches = const [],
     required this.currentUid,
     this.currentEmail = '',
+    this.onFindMatch,
+    this.onCreateMatch,
     required this.isLoading,
     required this.error,
     DateTime Function()? nowProvider,
   }) : nowProvider = nowProvider ?? DateTime.now;
 
   @override
+  State<MyMatchesTab> createState() => _MyMatchesTabState();
+}
+
+class _MyMatchesTabState extends State<MyMatchesTab> {
+  MyMatchesView _selectedView = MyMatchesView.upcoming;
+
+  @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (error) {
-      return const Center(child: Text('Could not load your matches.'));
-    }
-
-    if (matches.isEmpty && pendingMatches.isEmpty) {
-      return const Center(child: Text('You have no matches yet'));
-    }
-
-    final now = nowProvider();
+    final now = widget.nowProvider();
     final upcomingMatches = sortedMatches(
-      matches.where((match) => isUpcomingMatch(match, now)),
+      widget.matches.where((match) => isUpcomingMatch(match, now)),
     );
     final pastMatches = sortedMatches(
-      matches.where((match) => isPastMatch(match, now)),
-    ).reversed;
+      widget.matches.where((match) => isPastMatch(match, now)),
+    ).reversed.toList();
 
     return ListView(
-      padding: const EdgeInsets.all(20),
+      key: const Key('my-matches-scroll-view'),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 104),
       children: [
         const Text(
           'My Matches',
@@ -3072,65 +3076,177 @@ class MyMatchesTab extends StatelessWidget {
           'Matches you organize or have joined.',
           style: TextStyle(fontSize: 16, color: Colors.white70),
         ),
-        const SizedBox(height: 20),
-        if (pendingMatches.isNotEmpty) ...[
-          const Text(
-            'Pending Requests',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+        const SizedBox(height: 18),
+        SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<MyMatchesView>(
+            key: const Key('my-matches-view-control'),
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(
+                value: MyMatchesView.upcoming,
+                label: Text('Upcoming'),
+                icon: Icon(Icons.upcoming_outlined, size: 18),
+              ),
+              ButtonSegment(
+                value: MyMatchesView.past,
+                label: Text('Past'),
+                icon: Icon(Icons.history, size: 18),
+              ),
+            ],
+            selected: {_selectedView},
+            onSelectionChanged: (selection) {
+              setState(() => _selectedView = selection.single);
+            },
           ),
-          const SizedBox(height: 12),
-          ...sortedMatches(pendingMatches).map(
-            (match) =>
-                MatchCard(match: match, relationshipLabel: 'Request Pending'),
-          ),
-          const SizedBox(height: 12),
-        ],
-        const Text(
-          'Upcoming',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
-        const SizedBox(height: 12),
-        if (upcomingMatches.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 16),
-            child: Text(
-              'No upcoming matches.',
-              style: TextStyle(color: Colors.white70),
+        const SizedBox(height: 18),
+        if (widget.isLoading)
+          const _MatchesStatusState(
+            key: Key('my-matches-loading-state'),
+            icon: Icons.event_available_outlined,
+            title: 'Loading your matches…',
+            showProgress: true,
+          )
+        else if (widget.error)
+          const _MatchesStatusState(
+            key: Key('my-matches-error-state'),
+            icon: Icons.cloud_off_outlined,
+            title: 'Your matches are unavailable right now.',
+            message: 'Check your connection and try again.',
+          )
+        else if (_selectedView == MyMatchesView.upcoming) ...[
+          if (widget.pendingMatches.isNotEmpty) ...[
+            const Text(
+              'Pending Requests',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-          ),
-        ...upcomingMatches.map(
-          (match) => MatchCard(
-            match: match,
-            relationshipLabel:
-                _isMatchOrganizer(match, currentUid, currentEmail)
-                ? 'Organizing'
-                : 'Joined',
-          ),
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Past',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        if (pastMatches.isEmpty)
-          const Text(
-            'No past matches yet.',
+            const SizedBox(height: 12),
+            ...sortedMatches(widget.pendingMatches).map(
+              (match) => MatchCard(
+                match: match,
+                relationshipLabel: 'Request Pending',
+                dateTimeHeadline: true,
+                explicitLevelLabel: true,
+              ),
+            ),
+            const SizedBox(height: 6),
+          ],
+          if (upcomingMatches.isEmpty && widget.pendingMatches.isEmpty)
+            _MyMatchesEmptyState(
+              key: const Key('no-upcoming-matches'),
+              icon: Icons.calendar_today_outlined,
+              title: 'No upcoming matches.',
+              message: 'Find an open match or organize your next game.',
+              onFindMatch: widget.onFindMatch,
+              onCreateMatch: widget.onCreateMatch,
+            )
+          else
+            ...upcomingMatches.map(
+              (match) => MatchCard(
+                match: match,
+                relationshipLabel:
+                    _isMatchOrganizer(
+                      match,
+                      widget.currentUid,
+                      widget.currentEmail,
+                    )
+                    ? 'Organizing'
+                    : 'Joined',
+                dateTimeHeadline: true,
+                explicitLevelLabel: true,
+              ),
+            ),
+        ] else if (pastMatches.isEmpty)
+          const _MyMatchesEmptyState(
             key: Key('no-past-matches'),
-            style: TextStyle(color: Colors.white70),
-          ),
-        if (pastMatches.isNotEmpty)
+            icon: Icons.history,
+            title: 'No past matches yet.',
+            message: 'Completed matches will appear here.',
+          )
+        else
           ...pastMatches.map(
             (match) => MatchCard(
               match: match,
               historical: true,
               relationshipLabel:
-                  _isMatchOrganizer(match, currentUid, currentEmail)
+                  _isMatchOrganizer(
+                    match,
+                    widget.currentUid,
+                    widget.currentEmail,
+                  )
                   ? 'Organizing'
                   : 'Joined',
+              dateTimeHeadline: true,
+              explicitLevelLabel: true,
             ),
           ),
       ],
+    );
+  }
+}
+
+class _MyMatchesEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  final VoidCallback? onFindMatch;
+  final VoidCallback? onCreateMatch;
+
+  const _MyMatchesEmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.onFindMatch,
+    this.onCreateMatch,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        children: [
+          Icon(icon, size: 42, color: Colors.white54),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70),
+          ),
+          if (onFindMatch != null || onCreateMatch != null) ...[
+            const SizedBox(height: 16),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (onFindMatch != null)
+                  FilledButton.icon(
+                    key: const Key('find-match-empty-action'),
+                    onPressed: onFindMatch,
+                    icon: const Icon(Icons.search),
+                    label: const Text('Find a Match'),
+                  ),
+                if (onCreateMatch != null)
+                  OutlinedButton.icon(
+                    key: const Key('create-match-empty-action'),
+                    onPressed: onCreateMatch,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Create Match'),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

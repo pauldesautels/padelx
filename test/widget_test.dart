@@ -479,16 +479,17 @@ void main() {
   testWidgets('my matches distinguishes organizing and joined matches', (
     WidgetTester tester,
   ) async {
+    final now = DateTime.utc(2026, 8, 28, 12);
     final organizingMatch = Match(
       id: 'organizing',
       title: 'Friday · 6:00 PM',
       club: 'Padel Club',
-      level: 'Level 3–4',
+      level: '2',
       spotsLeft: 2,
       creatorUid: 'current-user',
       creatorEmail: 'organizer@example.com',
       players: [],
-      scheduledAt: DateTime.now().add(const Duration(days: 1)),
+      scheduledAt: now.add(const Duration(days: 1)),
     );
     final joinedMatch = Match(
       id: 'joined',
@@ -499,7 +500,7 @@ void main() {
       creatorUid: 'another-user',
       creatorEmail: 'other@example.com',
       players: [MatchPlayer(uid: 'current-user', email: 'player@example.com')],
-      scheduledAt: DateTime.now().subtract(const Duration(days: 1)),
+      scheduledAt: now.subtract(const Duration(days: 1)),
     );
 
     await tester.pumpWidget(
@@ -510,18 +511,28 @@ void main() {
             currentUid: 'current-user',
             isLoading: false,
             error: false,
+            nowProvider: () => now,
           ),
         ),
       ),
     );
 
     expect(find.text('Organizing'), findsOneWidget);
-    expect(find.text('Joined'), findsOneWidget);
+    expect(find.text('Joined'), findsNothing);
     expect(find.text('Upcoming'), findsOneWidget);
     expect(find.text('Past'), findsOneWidget);
-    expect(find.text('Friday · 6:00 PM'), findsOneWidget);
-    expect(find.text('Central Padel'), findsOneWidget);
+    expect(find.text('Level 2'), findsOneWidget);
+    expect(find.text('Friday · 6:00 PM'), findsNothing);
     expect(find.text('2 spots left'), findsOneWidget);
+
+    await tester.tap(find.text('Past'));
+    await tester.pump();
+
+    expect(find.text('Organizing'), findsNothing);
+    expect(find.text('Joined'), findsOneWidget);
+    expect(find.text('Central Padel'), findsOneWidget);
+    expect(find.textContaining('spot'), findsNothing);
+    expect(find.text('Completed'), findsOneWidget);
   });
 
   testWidgets('my matches classifies and sorts around a deterministic clock', (
@@ -574,6 +585,10 @@ void main() {
     );
 
     expect(find.text('Future Club'), findsOneWidget);
+    expect(find.text('Newer Past Club'), findsNothing);
+    await tester.tap(find.text('Past'));
+    await tester.pump();
+    expect(find.text('Future Club'), findsNothing);
     expect(find.text('Newer Past Club'), findsOneWidget);
     expect(find.text('Older Past Club'), findsOneWidget);
     expect(find.text('Boundary Club'), findsNothing);
@@ -583,7 +598,7 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Older Past Club')).dy),
     );
     expect(find.text('Completed'), findsNWidgets(2));
-    expect(find.textContaining('spot'), findsOneWidget);
+    expect(find.textContaining('spot'), findsNothing);
   });
 
   testWidgets('my matches shows the no-past-matches empty state', (
@@ -609,8 +624,113 @@ void main() {
         ),
       ),
     );
+    expect(find.byKey(const Key('no-past-matches')), findsNothing);
+    await tester.tap(find.text('Past'));
+    await tester.pump();
     expect(find.byKey(const Key('no-past-matches')), findsOneWidget);
     expect(find.text('No past matches yet.'), findsOneWidget);
+  });
+
+  testWidgets('my matches keeps upcoming order and shows date only once', (
+    tester,
+  ) async {
+    final now = DateTime.utc(2026, 8, 28, 12);
+    final sooner = _match(
+      id: 'sooner',
+      club: 'Sooner Club',
+      level: '3',
+      scheduledAt: DateTime.utc(2026, 8, 29, 18),
+    );
+    final later = _match(
+      id: 'later',
+      club: 'Later Club',
+      scheduledAt: DateTime.utc(2026, 8, 30, 10),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MyMatchesTab(
+            matches: [later, sooner],
+            currentUid: 'creator',
+            isLoading: false,
+            error: false,
+            nowProvider: () => now,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester.getTopLeft(find.text('Sooner Club')).dy,
+      lessThan(tester.getTopLeft(find.text('Later Club')).dy),
+    );
+    expect(find.text('Saturday, August 29 · 6:00 PM'), findsOneWidget);
+    expect(find.text('Level 3'), findsWidgets);
+  });
+
+  testWidgets('my matches gracefully omits missing legacy location', (
+    tester,
+  ) async {
+    final now = DateTime.utc(2026, 8, 28, 12);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MyMatchesTab(
+            matches: [
+              _match(
+                id: 'legacy-location',
+                club: 'Legacy Club',
+                scheduledAt: now.add(const Duration(days: 1)),
+              ),
+            ],
+            currentUid: 'creator',
+            isLoading: false,
+            error: false,
+            nowProvider: () => now,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Legacy Club'), findsOneWidget);
+    expect(find.text('Legacy location'), findsNothing);
+  });
+
+  testWidgets('my matches empty actions and 320px layout do not overflow', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var findTapped = false;
+    var createTapped = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MyMatchesTab(
+            matches: const [],
+            currentUid: 'current-user',
+            onFindMatch: () => findTapped = true,
+            onCreateMatch: () => createTapped = true,
+            isLoading: false,
+            error: false,
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const Key('find-match-empty-action')));
+    await tester.tap(find.byKey(const Key('create-match-empty-action')));
+    expect(findTapped, isTrue);
+    expect(createTapped, isTrue);
+    await tester.tap(find.text('Past'));
+    await tester.pump();
+    expect(find.byKey(const Key('no-past-matches')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   test(
@@ -1030,7 +1150,8 @@ void main() {
         ),
       ),
     );
-    expect(find.text('You have no matches yet'), findsOneWidget);
+    expect(find.byKey(const Key('no-upcoming-matches')), findsOneWidget);
+    expect(find.text('No upcoming matches.'), findsOneWidget);
 
     await tester.pumpWidget(
       const MaterialApp(
@@ -1044,7 +1165,11 @@ void main() {
         ),
       ),
     );
-    expect(find.text('Could not load your matches.'), findsOneWidget);
+    expect(find.byKey(const Key('my-matches-error-state')), findsOneWidget);
+    expect(
+      find.text('Your matches are unavailable right now.'),
+      findsOneWidget,
+    );
   });
 
   test(
