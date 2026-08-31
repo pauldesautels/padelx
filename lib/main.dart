@@ -4673,6 +4673,13 @@ String _publicFallbackName(String value) {
   return trimmed.contains('@') ? '' : trimmed;
 }
 
+String explicitLevel(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return '';
+  if (trimmed.toLowerCase().startsWith('level ')) return trimmed;
+  return 'Level $trimmed';
+}
+
 typedef MatchRatingsLoader =
     Future<List<PlayerRating>> Function(String matchId, String raterUid);
 typedef MatchRatingSubmitter =
@@ -4872,48 +4879,77 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
                   final prior = existing[player.uid];
                   final name = player.displayName.isNotEmpty
                       ? player.displayName
-                      : player.email.isNotEmpty
-                      ? player.email
+                      : _publicFallbackName(player.email).isNotEmpty
+                      ? _publicFallbackName(player.email)
                       : 'Player';
                   return Card(
-                    child: ListTile(
-                      key: Key('rating-player-${player.uid}'),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => PlayerProfileScreen(
-                            uid: player.uid,
-                            fallbackName: name,
-                            fallbackLevel: player.level,
-                            loader: widget.profileLoader,
-                            viewerUid: widget.currentUid,
-                            viewerEmail: widget.currentEmail,
-                          ),
-                        ),
-                      ),
-                      leading: CircleAvatar(
-                        child: Text(name.substring(0, 1).toUpperCase()),
-                      ),
-                      title: Text(name),
-                      subtitle: Text(
-                        player.uid == widget.match.creatorUid
-                            ? 'Organizer'
-                            : 'Confirmed',
-                      ),
-                      trailing: prior == null
-                          ? TextButton(
-                              key: Key('rate-match-player-${player.uid}'),
-                              onPressed:
-                                  snapshot.connectionState ==
-                                          ConnectionState.waiting ||
-                                      _submitting.contains(player.uid)
-                                  ? null
-                                  : () => _rate(player),
-                              child: const Text('Rate player'),
-                            )
-                          : Text(
-                              'Submitted · ${prior.rating} ★',
-                              key: Key('rated-match-player-${player.uid}'),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final action = prior == null
+                            ? TextButton(
+                                key: Key('rate-match-player-${player.uid}'),
+                                onPressed:
+                                    snapshot.connectionState ==
+                                            ConnectionState.waiting ||
+                                        _submitting.contains(player.uid)
+                                    ? null
+                                    : () => _rate(player),
+                                child: const Text('Rate player'),
+                              )
+                            : Text(
+                                'Submitted · ${prior.rating} ★',
+                                key: Key('rated-match-player-${player.uid}'),
+                              );
+                        final narrow = constraints.maxWidth < 360;
+                        return ListTile(
+                          key: Key('rating-player-${player.uid}'),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => PlayerProfileScreen(
+                                uid: player.uid,
+                                fallbackName: name,
+                                fallbackLevel: player.level,
+                                loader: widget.profileLoader,
+                                viewerUid: widget.currentUid,
+                                viewerEmail: widget.currentEmail,
+                              ),
                             ),
+                          ),
+                          leading: CircleAvatar(
+                            child: Text(name.substring(0, 1).toUpperCase()),
+                          ),
+                          title: Text(name),
+                          subtitle: narrow
+                              ? Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _playerSubtitle(
+                                        player.uid == widget.match.creatorUid
+                                            ? 'Organizer'
+                                            : 'Confirmed',
+                                        player.level,
+                                      ),
+                                    ),
+                                    action,
+                                  ],
+                                )
+                              : Text(
+                                  _playerSubtitle(
+                                    player.uid == widget.match.creatorUid
+                                        ? 'Organizer'
+                                        : 'Confirmed',
+                                    player.level,
+                                  ),
+                                ),
+                          trailing: narrow ? null : action,
+                          isThreeLine: narrow,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
+                        );
+                      },
                     ),
                   );
                 }).toList(),
@@ -5020,8 +5056,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       _showMessage('Join request sent.');
     } on MatchActionException catch (error) {
       _showMessage(error.message);
-    } on FirebaseException catch (error) {
-      _showMessage(error.message ?? 'Could not send your join request.');
+    } on FirebaseException catch (error, stackTrace) {
+      debugPrint(
+        'Join request failed [${error.code}]: ${error.message}\n$stackTrace',
+      );
+      _showMessage('Could not send your join request. Please try again.');
     } catch (_) {
       _showMessage('Could not send your join request. Please try again.');
     } finally {
@@ -5169,8 +5208,8 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         '[${error.code}]: ${error.message}\n$stackTrace',
       );
       _showMessage(
-        'Could not ${approve ? 'approve' : 'decline'} request '
-        '(${error.code}). ${error.message ?? 'Please try again.'}',
+        'Could not ${approve ? 'approve' : 'decline'} request. '
+        'Please try again.',
       );
     } catch (error, stackTrace) {
       final unboxed = _unboxWebError(error, stackTrace);
@@ -5181,7 +5220,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       );
       _showMessage(
         'Could not ${approve ? 'approve' : 'decline'} request. '
-        'Error: ${unboxed.error}',
+        'Please try again.',
       );
     } finally {
       if (mounted) {
@@ -5200,6 +5239,26 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       _showMessage('Please log in to leave a match.');
       return;
     }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Leave match?'),
+        content: const Text('Your confirmed spot will become available.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Stay'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Leave Match'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _isLeaving) return;
 
     setState(() => _isLeaving = true);
 
@@ -5253,8 +5312,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       _showMessage('You left the match.');
     } on MatchActionException catch (error) {
       _showMessage(error.message);
-    } on FirebaseException catch (error) {
-      _showMessage(error.message ?? 'Could not leave the match.');
+    } on FirebaseException catch (error, stackTrace) {
+      debugPrint(
+        'Leave match failed [${error.code}]: ${error.message}\n$stackTrace',
+      );
+      _showMessage('Could not leave the match. Please try again.');
     } catch (_) {
       _showMessage('Could not leave the match. Please try again.');
     } finally {
@@ -5286,6 +5348,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
             child: const Text('Keep Match'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Cancel Match'),
           ),
@@ -5323,8 +5386,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       messenger.showSnackBar(const SnackBar(content: Text('Match cancelled.')));
     } on MatchActionException catch (error) {
       _showMessage(error.message);
-    } on FirebaseException catch (error) {
-      _showMessage(error.message ?? 'Could not cancel the match.');
+    } on FirebaseException catch (error, stackTrace) {
+      debugPrint(
+        'Cancel match failed [${error.code}]: ${error.message}\n$stackTrace',
+      );
+      _showMessage('Could not cancel the match. Please try again.');
     } catch (_) {
       _showMessage('Could not cancel the match. Please try again.');
     } finally {
@@ -5347,6 +5413,17 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           .doc(widget.match.id)
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Match Details')),
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError || (snapshot.hasData && !snapshot.data!.exists)) {
+          debugPrint('Match details unavailable: ${snapshot.error}');
+          return const _UnavailableMatchView();
+        }
         final match = snapshot.hasData && snapshot.data!.exists
             ? Match.fromDocument(snapshot.data!)
             : widget.match;
@@ -5440,42 +5517,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
               body: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  Text(
-                    match.title,
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(match.club, style: const TextStyle(fontSize: 20)),
-                  if (match.locationLabel.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      match.locationLabel,
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _InfoChip(text: match.level, icon: Icons.leaderboard),
-                      if (match.scheduledAt != null)
-                        _InfoChip(
-                          text: _friendlyDateTime(match.scheduledAt!),
-                          icon: Icons.schedule,
-                        ),
-                      if (!completed)
-                        _InfoChip(
-                          text: match.spotsLeftLabel,
-                          icon: Icons.group,
-                        ),
-                      if (completed)
-                        const _InfoChip(text: 'Completed', icon: Icons.history),
-                    ],
-                  ),
+                  MatchDetailsSummary(match: match, completed: completed),
                   const SizedBox(height: 28),
                   const Text(
                     'Players',
@@ -5544,6 +5586,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                       width: double.infinity,
                       height: 52,
                       child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.redAccent,
+                          side: const BorderSide(color: Colors.redAccent),
+                        ),
                         onPressed: isBusy ? null : _cancelMatch,
                         icon: _isCancelling
                             ? const SizedBox(
@@ -5565,6 +5611,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                       width: double.infinity,
                       height: 52,
                       child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.redAccent,
+                          side: const BorderSide(color: Colors.redAccent),
+                        ),
                         onPressed: isBusy ? null : _leaveMatch,
                         icon: _isLeaving
                             ? const SizedBox(
@@ -5578,18 +5628,35 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                         label: Text(_isLeaving ? 'Leaving...' : 'Leave Match'),
                       ),
                     )
+                  else if (requestIsLoading || requestReadFailed)
+                    _ParticipationStatus(
+                      icon: requestReadFailed
+                          ? Icons.error_outline
+                          : Icons.hourglass_top,
+                      label: requestReadFailed
+                          ? 'Could not load request status'
+                          : 'Loading request status…',
+                    )
+                  else if (participationState ==
+                          MatchParticipationState.pending ||
+                      match.spotsLeft <= 0)
+                    _ParticipationStatus(
+                      icon:
+                          participationState == MatchParticipationState.pending
+                          ? Icons.schedule
+                          : Icons.group_off_outlined,
+                      label:
+                          participationState == MatchParticipationState.pending
+                          ? 'Request Pending'
+                          : 'Match Full',
+                    )
                   else
                     SizedBox(
                       width: double.infinity,
                       height: 52,
                       child: FilledButton.icon(
                         onPressed:
-                            isBusy ||
-                                requestIsLoading ||
-                                requestReadFailed ||
-                                match.spotsLeft <= 0 ||
-                                participationState ==
-                                    MatchParticipationState.pending
+                            isBusy || requestIsLoading || requestReadFailed
                             ? null
                             : _requestToJoin,
                         icon: _isRequesting
@@ -5623,6 +5690,127 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       },
     );
   }
+}
+
+class MatchDetailsSummary extends StatelessWidget {
+  final Match match;
+  final bool completed;
+
+  const MatchDetailsSummary({
+    super.key,
+    required this.match,
+    required this.completed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dateTime = match.scheduledAt == null
+        ? 'Date and time unavailable'
+        : _friendlyDateTime(match.scheduledAt!);
+    return Card(
+      key: const Key('match-details-summary'),
+      color: const Color(0xFF18211D),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              dateTime,
+              key: const Key('match-details-date-time'),
+              style: const TextStyle(
+                fontSize: 27,
+                height: 1.15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(match.club, style: const TextStyle(fontSize: 18)),
+            if (match.locationLabel.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                match.locationLabel,
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (explicitLevel(match.level).isNotEmpty)
+                  _InfoChip(
+                    text: explicitLevel(match.level),
+                    icon: Icons.leaderboard,
+                  ),
+                _InfoChip(
+                  text: completed ? 'Completed' : match.spotsLeftLabel,
+                  icon: completed ? Icons.history : Icons.group,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ParticipationStatus extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _ParticipationStatus({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: Key('participation-status-$label'),
+    constraints: const BoxConstraints(minHeight: 52),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    decoration: BoxDecoration(
+      color: const Color(0xFF18211D),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.white12),
+    ),
+    child: Row(
+      children: [
+        Icon(icon, color: Colors.white60),
+        const SizedBox(width: 12),
+        Expanded(child: Text(label)),
+      ],
+    ),
+  );
+}
+
+class _UnavailableMatchView extends StatelessWidget {
+  const _UnavailableMatchView();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Match Details')),
+    body: const Center(
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.event_busy_outlined, size: 52, color: Colors.white54),
+            SizedBox(height: 14),
+            Text(
+              'Match unavailable',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'This match may have been cancelled or removed.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white60),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class JoinRequestsSection extends StatelessWidget {
@@ -5668,41 +5856,70 @@ class JoinRequestsSection extends StatelessWidget {
         else if (errorMessage != null)
           Text(errorMessage!, style: const TextStyle(color: Colors.redAccent))
         else if (requests.isEmpty)
-          const Text(
-            'No pending requests.',
-            style: TextStyle(color: Colors.white70),
+          const Row(
+            children: [
+              Icon(Icons.inbox_outlined, color: Colors.white54),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'No pending requests',
+                  style: TextStyle(color: Colors.white60),
+                ),
+              ),
+            ],
           ),
         ...requests.map((request) {
           final isProcessing = processingUserIds.contains(request.userId);
           return Card(
-            child: ListTile(
-              title: Text(
-                request.displayName.isEmpty
-                    ? request.email
-                    : request.displayName,
-              ),
-              subtitle: Text(
-                request.level.isEmpty ? 'Level not set' : request.level,
-              ),
-              trailing: Wrap(
-                spacing: 8,
-                children: [
-                  TextButton(
-                    onPressed: isProcessing ? null : () => onDecline(request),
-                    child: const Text('Decline'),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final actions = Wrap(
+                  spacing: 8,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: isProcessing ? null : () => onDecline(request),
+                      child: const Text('Decline'),
+                    ),
+                    FilledButton(
+                      onPressed: isProcessing ? null : () => onApprove(request),
+                      child: isProcessing
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Approve'),
+                    ),
+                  ],
+                );
+                return ListTile(
+                  title: Text(
+                    request.displayName.isEmpty
+                        ? 'Player'
+                        : request.displayName,
                   ),
-                  FilledButton(
-                    onPressed: isProcessing ? null : () => onApprove(request),
-                    child: isProcessing
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Approve'),
-                  ),
-                ],
-              ),
+                  subtitle: constraints.maxWidth < 380
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              explicitLevel(request.level).isEmpty
+                                  ? 'Level not set'
+                                  : explicitLevel(request.level),
+                            ),
+                            actions,
+                          ],
+                        )
+                      : Text(
+                          explicitLevel(request.level).isEmpty
+                              ? 'Level not set'
+                              : explicitLevel(request.level),
+                        ),
+                  trailing: constraints.maxWidth < 380 ? null : actions,
+                  isThreeLine: constraints.maxWidth < 380,
+                );
+              },
             ),
           );
         }),
@@ -5832,5 +6049,6 @@ class ProfilePlayerTile extends StatelessWidget {
 }
 
 String _playerSubtitle(String role, String level) {
-  return level.isEmpty ? role : '$role · $level';
+  final displayLevel = explicitLevel(level);
+  return displayLevel.isEmpty ? role : '$role · $displayLevel';
 }

@@ -1574,10 +1574,10 @@ void main() {
 
       await tester.pumpWidget(section(loading: true));
       expect(find.text('Loading join requests...'), findsOneWidget);
-      expect(find.text('No pending requests.'), findsNothing);
+      expect(find.text('No pending requests'), findsNothing);
 
       await tester.pumpWidget(section());
-      expect(find.text('No pending requests.'), findsOneWidget);
+      expect(find.text('No pending requests'), findsOneWidget);
 
       await tester.pumpWidget(
         section(errorMessage: 'Permission denied while loading join requests.'),
@@ -1586,9 +1586,74 @@ void main() {
         find.text('Permission denied while loading join requests.'),
         findsOneWidget,
       );
-      expect(find.text('No pending requests.'), findsNothing);
+      expect(find.text('No pending requests'), findsNothing);
     },
   );
+
+  testWidgets(
+    'match summary shows date once, explicit level, and no location',
+    (WidgetTester tester) async {
+      final match = Match(
+        id: 'summary',
+        title: 'Legacy title',
+        club: 'Roma Padel',
+        level: '2',
+        spotsLeft: 1,
+        creatorUid: 'organizer',
+        creatorEmail: '',
+        players: const [],
+        scheduledAt: DateTime(2026, 9, 2, 18, 30),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: MatchDetailsSummary(match: match, completed: false),
+          ),
+        ),
+      );
+
+      expect(find.byKey(const Key('match-details-date-time')), findsOneWidget);
+      expect(find.text('Wednesday, September 2 · 6:30 PM'), findsOneWidget);
+      expect(find.text('Level 2'), findsOneWidget);
+      expect(find.text('1 spot left'), findsOneWidget);
+      expect(find.text('Legacy title'), findsNothing);
+    },
+  );
+
+  testWidgets('join request controls fit a 320px mobile layout', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(useMaterial3: true),
+        home: Scaffold(
+          body: JoinRequestsSection(
+            requests: const [
+              JoinRequest(
+                userId: 'player',
+                displayName: 'A player with a long display name',
+                email: '',
+                level: '2',
+                status: 'pending',
+              ),
+            ],
+            onApprove: (_) {},
+            onDecline: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Level 2'), findsOneWidget);
+    expect(find.text('Approve'), findsOneWidget);
+    expect(find.text('Decline'), findsOneWidget);
+  });
 
   test('approving adds one confirmed player and updates capacity', () {
     final update = buildReviewRequestUpdate(
