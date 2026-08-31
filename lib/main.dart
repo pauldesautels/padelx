@@ -213,8 +213,15 @@ class _ProfileLoadErrorState extends State<ProfileLoadError> {
 
 class AuthScreen extends StatefulWidget {
   final Future<void> Function(String email)? passwordResetSender;
+  final Future<void> Function(String email, String password)? loginHandler;
+  final Future<void> Function(String email, String password)? signUpHandler;
 
-  const AuthScreen({super.key, this.passwordResetSender});
+  const AuthScreen({
+    super.key,
+    this.passwordResetSender,
+    this.loginHandler,
+    this.signUpHandler,
+  });
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -227,6 +234,8 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _isLogin = true;
   bool _isLoading = false;
   bool _obscurePassword = true;
+  String? _emailError;
+  String? _passwordError;
 
   @override
   void dispose() {
@@ -236,11 +245,18 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _submit() async {
+    if (_isLoading) return;
+
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    if (email.isEmpty || password.isEmpty) {
-      _showMessage('Please enter your email and password.');
+    setState(() {
+      _emailError = email.isEmpty
+          ? 'Enter your email.'
+          : (!_looksLikeEmail(email) ? 'Enter a valid email address.' : null);
+      _passwordError = password.isEmpty ? 'Enter your password.' : null;
+    });
+    if (_emailError != null || _passwordError != null) {
       return;
     }
 
@@ -250,15 +266,19 @@ class _AuthScreenState extends State<AuthScreen> {
 
     try {
       if (_isLogin) {
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
+        await (widget.loginHandler != null
+            ? widget.loginHandler!(email, password)
+            : FirebaseAuth.instance.signInWithEmailAndPassword(
+                email: email,
+                password: password,
+              ));
       } else {
-        await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
+        await (widget.signUpHandler != null
+            ? widget.signUpHandler!(email, password)
+            : FirebaseAuth.instance.createUserWithEmailAndPassword(
+                email: email,
+                password: password,
+              ));
       }
     } on FirebaseAuthException catch (error) {
       String message;
@@ -283,8 +303,12 @@ class _AuthScreenState extends State<AuthScreen> {
         case 'too-many-requests':
           message = 'Too many attempts. Please try again later.';
           break;
+        case 'network-request-failed':
+          message = 'Check your internet connection and try again.';
+          break;
         default:
-          message = error.message ?? 'Authentication failed.';
+          message =
+              'Could not ${_isLogin ? 'log in' : 'create your account'}. Please try again.';
       }
 
       _showMessage(message);
@@ -327,132 +351,255 @@ class _AuthScreenState extends State<AuthScreen> {
   void _switchMode() {
     setState(() {
       _isLogin = !_isLogin;
+      _emailError = null;
+      _passwordError = null;
+      _obscurePassword = true;
     });
+  }
+
+  bool _looksLikeEmail(String email) {
+    final at = email.indexOf('@');
+    return at > 0 && at < email.length - 3 && email.indexOf('.', at) > at + 1;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'PadelX',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Find matches. Fill spots. Play more padel.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, color: Colors.white70),
-                ),
-                const SizedBox(height: 32),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+      backgroundColor: const Color(0xFF050605),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: ConstrainedBox(
+              key: const Key('auth-content'),
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Semantics(
+                    label: 'PadelX',
+                    image: true,
+                    child: SizedBox(
+                      key: const Key('padelx-wordmark'),
+                      height: 154,
+                      child: ClipRect(
+                        child: OverflowBox(
+                          maxHeight: 570,
+                          maxWidth: 456,
+                          child: Image.asset(
+                            'assets/branding/padelx-wordmark.png',
+                            height: 570,
+                            width: 456,
+                            fit: BoxFit.contain,
+                            excludeFromSemantics: true,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text.rich(
+                    const TextSpan(
+                      text: 'Find padel matches ',
                       children: [
-                        Text(
-                          _isLogin ? 'Welcome back' : 'Create your account',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _isLogin
-                              ? 'Log in to continue to PadelX.'
-                              : 'Create an account to start playing.',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                        const SizedBox(height: 24),
-                        TextField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          autocorrect: false,
-                          decoration: const InputDecoration(
-                            labelText: 'Email',
-                            prefixIcon: Icon(Icons.email_outlined),
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          onSubmitted: (_) {
-                            if (!_isLoading) {
-                              _submit();
-                            }
-                          },
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            prefixIcon: const Icon(Icons.lock_outline),
-                            border: const OutlineInputBorder(),
-                            suffixIcon: IconButton(
-                              onPressed: () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
-                              },
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (_isLogin)
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              onPressed: _isLoading
-                                  ? null
-                                  : _showPasswordResetDialog,
-                              child: const Text('Forgot password?'),
-                            ),
-                          ),
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          height: 52,
-                          child: FilledButton(
-                            onPressed: _isLoading ? null : _submit,
-                            child: _isLoading
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Text(_isLogin ? 'Log In' : 'Create Account'),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextButton(
-                          onPressed: _isLoading ? null : _switchMode,
-                          child: Text(
-                            _isLogin
-                                ? 'New to PadelX? Create an account'
-                                : 'Already have an account? Log in',
-                          ),
+                        TextSpan(
+                          text: 'near you.',
+                          style: TextStyle(color: Color(0xFFB8F20D)),
                         ),
                       ],
                     ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 28),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0B0D0C),
+                      border: Border.all(color: const Color(0xFF343735)),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Theme(
+                      data: Theme.of(context).copyWith(
+                        inputDecorationTheme: InputDecorationTheme(
+                          filled: true,
+                          fillColor: const Color(0xFF0A0B0A),
+                          labelStyle: const TextStyle(color: Colors.white70),
+                          floatingLabelStyle: const TextStyle(
+                            color: Color(0xFFB8F20D),
+                          ),
+                          prefixIconColor: Colors.white70,
+                          suffixIconColor: Colors.white70,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 18,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF484C49),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFB8F20D),
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            _isLogin ? 'Log In' : 'Sign Up',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _isLogin
+                                ? 'Welcome back. Your next match is waiting.'
+                                : 'Create your account to start finding matches.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                          const SizedBox(height: 24),
+                          TextField(
+                            key: const Key('auth-email'),
+                            controller: _emailController,
+                            enabled: !_isLoading,
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.email],
+                            autocorrect: false,
+                            onChanged: (_) {
+                              if (_emailError != null) {
+                                setState(() => _emailError = null);
+                              }
+                            },
+                            decoration: InputDecoration(
+                              labelText: 'Email',
+                              hintText: 'Enter your email',
+                              prefixIcon: Icon(Icons.email_outlined),
+                              errorText: _emailError,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            key: const Key('auth-password'),
+                            controller: _passwordController,
+                            enabled: !_isLoading,
+                            obscureText: _obscurePassword,
+                            textInputAction: TextInputAction.done,
+                            autofillHints: _isLogin
+                                ? const [AutofillHints.password]
+                                : const [AutofillHints.newPassword],
+                            onChanged: (_) {
+                              if (_passwordError != null) {
+                                setState(() => _passwordError = null);
+                              }
+                            },
+                            onSubmitted: (_) {
+                              if (!_isLoading) {
+                                _submit();
+                              }
+                            },
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              hintText: _isLogin
+                                  ? 'Enter your password'
+                                  : 'Create a password',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              errorText: _passwordError,
+                              suffixIcon: IconButton(
+                                key: const Key('toggle-password-visibility'),
+                                tooltip: _obscurePassword
+                                    ? 'Show password'
+                                    : 'Hide password',
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility
+                                      : Icons.visibility_off,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (_isLogin)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: _isLoading
+                                    ? null
+                                    : _showPasswordResetDialog,
+                                child: const Text('Forgot password?'),
+                              ),
+                            ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            height: 54,
+                            child: FilledButton(
+                              key: const Key('auth-submit'),
+                              onPressed: _isLoading ? null : _submit,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFB8F20D),
+                                foregroundColor: Colors.black,
+                                disabledBackgroundColor: const Color(
+                                  0xFF6B850E,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              child: Text(
+                                _isLoading
+                                    ? (_isLogin
+                                          ? 'Logging in...'
+                                          : 'Creating account...')
+                                    : (_isLogin ? 'Log In' : 'Create Account'),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton(
+                            key: const Key('auth-switch-mode'),
+                            onPressed: _isLoading ? null : _switchMode,
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFFB8F20D),
+                            ),
+                            child: Text(
+                              _isLogin
+                                  ? 'Don’t have an account? Sign Up'
+                                  : 'Already have an account? Log in',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -497,7 +644,7 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
 
     if (email.isEmpty) {
       setState(() {
-        _errorMessage = 'Please enter your email address.';
+        _errorMessage = 'Enter your email.';
       });
       return;
     }
@@ -532,7 +679,7 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
   String _passwordResetErrorMessage(FirebaseAuthException error) {
     switch (error.code) {
       case 'invalid-email':
-        return 'Please enter a valid email address.';
+        return 'Enter a valid email address.';
       case 'user-not-found':
         return 'No account was found with that email.';
       case 'too-many-requests':
@@ -540,8 +687,7 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
       case 'network-request-failed':
         return 'Check your internet connection and try again.';
       default:
-        return error.message ??
-            'Could not send the reset email. Please try again.';
+        return 'Could not send the reset email. Please try again.';
     }
   }
 

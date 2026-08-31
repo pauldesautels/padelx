@@ -11,6 +11,166 @@ import 'package:padelx/main.dart';
 import 'package:padelx/places.dart';
 
 void main() {
+  testWidgets('auth renders official branding and login fields', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(home: AuthScreen(loginHandler: (_, _) async {})),
+    );
+
+    expect(find.byKey(const Key('padelx-wordmark')), findsOneWidget);
+    expect(find.text('Find padel matches near you.'), findsOneWidget);
+    expect(find.byKey(const Key('auth-email')), findsOneWidget);
+    expect(find.byKey(const Key('auth-password')), findsOneWidget);
+    expect(find.text('Log In'), findsWidgets);
+  });
+
+  testWidgets('password starts obscured and can be revealed', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(home: AuthScreen(loginHandler: (_, _) async {})),
+    );
+
+    TextField password = tester.widget(find.byKey(const Key('auth-password')));
+    expect(password.obscureText, isTrue);
+    await tester.tap(find.byKey(const Key('toggle-password-visibility')));
+    await tester.pump();
+    password = tester.widget(find.byKey(const Key('auth-password')));
+    expect(password.obscureText, isFalse);
+  });
+
+  testWidgets('login validates friendly field-level errors', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(home: AuthScreen(loginHandler: (_, _) async {})),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pump();
+    expect(find.text('Enter your email.'), findsOneWidget);
+    expect(find.text('Enter your password.'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('auth-email')), 'not-an-email');
+    await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pump();
+    expect(find.text('Enter a valid email address.'), findsOneWidget);
+  });
+
+  testWidgets('login submits once and shows loading copy', (
+    WidgetTester tester,
+  ) async {
+    final completion = Completer<void>();
+    var submissions = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AuthScreen(
+          loginHandler: (_, _) {
+            submissions++;
+            return completion.future;
+          },
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('auth-email')),
+      'player@example.com',
+    );
+    await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
+    await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pump();
+    expect(find.text('Logging in...'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    expect(submissions, 1);
+    completion.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('sign up switches modes and submits existing fields', (
+    WidgetTester tester,
+  ) async {
+    String? submittedEmail;
+    String? submittedPassword;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AuthScreen(
+          signUpHandler: (email, password) async {
+            submittedEmail = email;
+            submittedPassword = password;
+          },
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('auth-switch-mode')));
+    await tester.tap(find.byKey(const Key('auth-switch-mode')));
+    await tester.pump();
+    expect(find.text('Sign Up'), findsOneWidget);
+    expect(find.text('Create Account'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('auth-email')),
+      'new@example.com',
+    );
+    await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
+    await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pumpAndSettle();
+    expect(submittedEmail, 'new@example.com');
+    expect(submittedPassword, 'secret12');
+  });
+
+  testWidgets('auth presents Firebase errors without raw exception text', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AuthScreen(
+          loginHandler: (_, _) async {
+            throw FirebaseAuthException(
+              code: 'unexpected-code',
+              message: 'sensitive backend detail',
+            );
+          },
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const Key('auth-email')),
+      'player@example.com',
+    );
+    await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
+    await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pump();
+
+    expect(find.text('Could not log in. Please try again.'), findsOneWidget);
+    expect(find.text('sensitive backend detail'), findsNothing);
+  });
+
+  testWidgets('auth fits 320px and constrains content on large screens', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(home: AuthScreen(loginHandler: (_, _) async {})),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('auth-submit')), findsOneWidget);
+
+    tester.view.physicalSize = const Size(1200, 900);
+    await tester.pump();
+    expect(tester.getSize(find.byKey(const Key('auth-content'))).width, 440);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('password reset sends email and shows confirmation', (
     WidgetTester tester,
   ) async {
@@ -59,7 +219,7 @@ void main() {
     await tester.tap(find.text('Send reset email'));
     await tester.pump();
 
-    expect(find.text('Please enter your email address.'), findsOneWidget);
+    expect(find.text('Enter your email.'), findsOneWidget);
   });
 
   testWidgets('password reset shows a clean Firebase error', (
@@ -87,7 +247,7 @@ void main() {
     await tester.tap(find.text('Send reset email'));
     await tester.pump();
 
-    expect(find.text('Please enter a valid email address.'), findsOneWidget);
+    expect(find.text('Enter a valid email address.'), findsOneWidget);
     expect(find.text('Reset password'), findsOneWidget);
   });
 
