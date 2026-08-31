@@ -2116,7 +2116,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         },
       ),
-      const ProfileTab(),
+      ProfileTab(profile: widget.profile, uid: currentUid, email: currentEmail),
     ];
 
     return Scaffold(
@@ -3436,83 +3436,340 @@ class _MyMatchesEmptyState extends StatelessWidget {
   }
 }
 
-class ProfileTab extends StatelessWidget {
-  const ProfileTab({super.key});
+String profileLevelLabel(String level) {
+  final value = level.trim();
+  if (value.isEmpty) return 'Level not set';
+  if (value.toLowerCase().startsWith('level ')) return value;
+  return 'Level $value';
+}
+
+class ProfileTab extends StatefulWidget {
+  final UserProfile? profile;
+  final String uid;
+  final String email;
+  final PublicPlayerProfileLoader loader;
+  final VoidCallback? onEdit;
+
+  const ProfileTab({
+    super.key,
+    this.profile,
+    this.uid = '',
+    this.email = '',
+    this.loader = loadPublicPlayerProfile,
+    this.onEdit,
+  });
+
+  @override
+  State<ProfileTab> createState() => _ProfileTabState();
+}
+
+class _ProfileTabState extends State<ProfileTab> {
+  late Future<PublicPlayerProfile> _stats;
+
+  String get _uid => widget.uid.isNotEmpty
+      ? widget.uid
+      : Firebase.apps.isEmpty
+      ? ''
+      : FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    _stats = widget.loader(_uid);
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfileTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid || oldWidget.loader != widget.loader) {
+      _stats = widget.loader(_uid);
+    }
+  }
+
+  void _retry() => setState(() => _stats = widget.loader(_uid));
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Firebase.apps.isEmpty
+        ? null
+        : FirebaseAuth.instance.currentUser;
+    final profile = widget.profile;
 
-    if (user == null) return const SizedBox.shrink();
+    void edit() {
+      if (widget.onEdit != null) return widget.onEdit!();
+      if (user == null) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProfileEditorScreen(user: user, profile: profile),
+        ),
+      );
+    }
 
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .snapshots(),
+    if (profile == null || !profile.isComplete) {
+      return _ProfileMessageState(
+        icon: Icons.person_off_outlined,
+        title: 'Your profile needs a little more information',
+        message: 'Add your display name and level to finish setting it up.',
+        actionLabel: widget.onEdit != null || user != null
+            ? 'Complete Profile'
+            : null,
+        onAction: widget.onEdit != null || user != null ? edit : null,
+      );
+    }
+
+    final email = widget.email.isNotEmpty
+        ? widget.email
+        : profile.email.isNotEmpty
+        ? profile.email
+        : user?.email ?? '';
+    return FutureBuilder<PublicPlayerProfile>(
+      future: _stats,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return _ProfileOverview(
+            profile: profile,
+            email: email,
+            onEdit: edit,
+            loadingStats: true,
+          );
         }
-        if (snapshot.hasError || snapshot.data?.exists != true) {
-          return const Center(child: Text('Could not load your profile.'));
+        if (snapshot.hasError || snapshot.data == null) {
+          return _ProfileMessageState(
+            icon: Icons.cloud_off_outlined,
+            title: 'Could not load your profile stats',
+            message:
+                'Your profile details are safe. Check your connection and try again.',
+            actionLabel: 'Try Again',
+            onAction: _retry,
+          );
         }
-
-        final profile = UserProfile.fromDocument(snapshot.data!);
-        return ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            const SizedBox(height: 24),
-            const CircleAvatar(radius: 44, child: Icon(Icons.person, size: 44)),
-            const SizedBox(height: 20),
-            Text(
-              profile.displayName,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              profile.email.isEmpty ? user.email ?? '' : profile.email,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 24),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.trending_up),
-                title: const Text('Level'),
-                subtitle: Text(profile.level),
-              ),
-            ),
-            if (profile.discoveryLocation.isConfigured) ...[
-              const SizedBox(height: 12),
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.public),
-                  title: const Text('Match discovery'),
-                  subtitle: Text(
-                    '${profile.discoveryLocation.city}, ${profile.discoveryLocation.country}',
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      ProfileEditorScreen(user: user, profile: profile),
-                ),
-              ),
-              icon: const Icon(Icons.edit),
-              label: const Text('Edit Profile'),
-            ),
-          ],
+        return _ProfileOverview(
+          profile: profile,
+          email: email,
+          stats: snapshot.data,
+          onEdit: edit,
         );
       },
     );
   }
+}
+
+class _ProfileOverview extends StatelessWidget {
+  final UserProfile profile;
+  final String email;
+  final PublicPlayerProfile? stats;
+  final bool loadingStats;
+  final VoidCallback? onEdit;
+
+  const _ProfileOverview({
+    required this.profile,
+    required this.email,
+    this.stats,
+    this.loadingStats = false,
+    this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = stats?.ratingSummary;
+    final ratingText = loadingStats
+        ? '—'
+        : summary == null || summary.count == 0
+        ? 'Not rated'
+        : '${summary.average.toStringAsFixed(1)} ★';
+    final countText = loadingStats ? '—' : '${summary?.count ?? 0}';
+    final matchesText = loadingStats ? '—' : '${stats?.matches.length ?? 0}';
+    return ListView(
+      key: const Key('private-profile-overview'),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const CircleAvatar(
+                      radius: 28,
+                      child: Icon(Icons.person_outline, size: 30),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            profile.displayName,
+                            key: const Key('private-profile-name'),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 26,
+                              height: 1.1,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          if (email.isNotEmpty) ...[
+                            const SizedBox(height: 5),
+                            Text(
+                              email,
+                              key: const Key('private-profile-email'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Container(
+                  key: const Key('private-profile-level'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.greenAccent.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    profileLevelLabel(profile.level),
+                    style: const TextStyle(
+                      color: Colors.greenAccent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+            child: Row(
+              children: [
+                _ProfileStat(label: 'Rating', value: ratingText),
+                const _ProfileStatDivider(),
+                _ProfileStat(label: 'Ratings', value: countText),
+                const _ProfileStatDivider(),
+                _ProfileStat(label: 'Matches', value: matchesText),
+              ],
+            ),
+          ),
+        ),
+        if (profile.discoveryLocation.isConfigured) ...[
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(
+                Icons.location_on_outlined,
+                color: Colors.greenAccent,
+              ),
+              title: const Text('Match discovery'),
+              subtitle: Text(
+                '${profile.discoveryLocation.city}, ${profile.discoveryLocation.country}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        OutlinedButton.icon(
+          key: const Key('edit-profile-action'),
+          onPressed: onEdit,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('Edit Profile'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileStat extends StatelessWidget {
+  final String label;
+  final String value;
+  const _ProfileStat({required this.label, required this.value});
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Column(
+      children: [
+        Text(
+          value,
+          maxLines: 1,
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          maxLines: 1,
+          style: const TextStyle(fontSize: 11, color: Colors.white60),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ProfileStatDivider extends StatelessWidget {
+  const _ProfileStatDivider();
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 34, color: Colors.white12);
+}
+
+class _ProfileMessageState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  const _ProfileMessageState({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+  @override
+  Widget build(BuildContext context) => Center(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 44, color: Colors.white54),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70),
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 18),
+            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
 class ProfileEditorScreen extends StatefulWidget {
@@ -3680,13 +3937,13 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          if (widget.isRequired) ...[
-            const Text(
-              'Tell other players who they will be sharing the court with.',
-              style: TextStyle(color: Colors.white70, fontSize: 16),
-            ),
-            const SizedBox(height: 24),
-          ],
+          Text(
+            widget.isRequired
+                ? 'Tell other players who they will be sharing the court with.'
+                : 'Keep your player details accurate so matches are a better fit.',
+            style: const TextStyle(color: Colors.white70, fontSize: 16),
+          ),
+          const SizedBox(height: 24),
           TextField(
             controller: _displayNameController,
             enabled: !_isSaving,
@@ -3733,6 +3990,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           if (googlePlacesApiKey.isNotEmpty) const SizedBox(height: 12),
           TextField(
             controller: _discoveryCountryController,
+            enabled: !_isSaving,
             onChanged: (_) {
               _discoveryLatitude = null;
               _discoveryLongitude = null;
@@ -3745,6 +4003,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _discoveryCountryCodeController,
+            enabled: !_isSaving,
             onChanged: (_) {
               _discoveryLatitude = null;
               _discoveryLongitude = null;
@@ -3761,6 +4020,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _discoveryCityController,
+            enabled: !_isSaving,
             onChanged: (_) {
               _discoveryLatitude = null;
               _discoveryLongitude = null;
@@ -3773,6 +4033,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _discoveryAreaController,
+            enabled: !_isSaving,
             onChanged: (_) {
               _discoveryLatitude = null;
               _discoveryLongitude = null;
