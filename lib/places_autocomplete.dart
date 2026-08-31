@@ -92,9 +92,17 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
         setState(() => _predictions = results);
       } on PlacesException catch (error) {
         if (!mounted || request != _requestNumber) return;
+        debugPrint('Place autocomplete failed: $error');
         setState(() {
           _predictions = const [];
           _error = error.message;
+        });
+      } catch (error, stackTrace) {
+        if (!mounted || request != _requestNumber) return;
+        debugPrint('Place autocomplete failed: $error\n$stackTrace');
+        setState(() {
+          _predictions = const [];
+          _error = 'Location suggestions are temporarily unavailable.';
         });
       } finally {
         if (mounted && request == _requestNumber) {
@@ -122,7 +130,15 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
       _sessionToken = _newSessionToken();
     } on PlacesException catch (error) {
       if (mounted) {
+        debugPrint('Place details failed: $error');
         messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Place details failed: $error\n$stackTrace');
+      if (mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Could not load that location.')),
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);

@@ -3980,6 +3980,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   }
 
   Future<void> _save() async {
+    if (_isSaving) return;
     final displayName = _displayNameController.text.trim();
     final level = _levelController.text.trim();
     final discovery = DiscoveryLocation(
@@ -4045,8 +4046,11 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           const SnackBar(content: Text('Profile updated.')),
         );
       }
-    } on FirebaseException catch (error) {
-      _showMessage(error.message ?? 'Could not save your profile.');
+    } on FirebaseException catch (error, stackTrace) {
+      debugPrint(
+        'Profile save failed [${error.code}]: ${error.message}\n$stackTrace',
+      );
+      _showMessage('Could not save your profile. Please try again.');
     } catch (_) {
       _showMessage('Could not save your profile. Please try again.');
     } finally {
@@ -4815,8 +4819,11 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
       Navigator.pop(context, true);
     } on MatchActionException catch (error) {
       _showMessage(error.message);
-    } on FirebaseException catch (error) {
-      _showMessage(error.message ?? 'Could not save match changes.');
+    } on FirebaseException catch (error, stackTrace) {
+      debugPrint(
+        'Match edit failed [${error.code}]: ${error.message}\n$stackTrace',
+      );
+      _showMessage('Could not save match changes. Please try again.');
     } catch (_) {
       _showMessage('Could not save match changes. Please try again.');
     } finally {
@@ -5009,6 +5016,10 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
   String get _viewerUid => widget.viewerUid ?? _firebaseUser?.uid ?? '';
   String get _viewerEmail => widget.viewerEmail ?? _firebaseUser?.email ?? '';
 
+  void _retry() => setState(() {
+    _profile = widget.loader(widget.uid);
+  });
+
   Future<void> _ratePlayer(Match match) async {
     final user = _firebaseUser;
     if (user == null || _isSubmittingRating) return;
@@ -5103,11 +5114,12 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('Could not load this player profile.'),
-              ),
+            return _ProfileMessageState(
+              icon: Icons.cloud_off_outlined,
+              title: 'Could not load this player profile',
+              message: 'Check your connection and try again.',
+              actionLabel: 'Try Again',
+              onAction: _retry,
             );
           }
 
@@ -5143,7 +5155,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                level.isEmpty ? 'Level not set' : level,
+                profileLevelLabel(level),
                 key: const Key('public-profile-level'),
                 style: const TextStyle(fontSize: 18, color: Colors.white70),
               ),
@@ -5231,9 +5243,9 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                         match.scheduledAt == null
                             ? (match.level.isEmpty
                                   ? 'Date unavailable'
-                                  : match.level)
+                                  : explicitLevel(match.level))
                             : '${_friendlyDateTime(match.scheduledAt!)}'
-                                  '${match.level.isEmpty ? '' : ' · ${match.level}'}',
+                                  '${match.level.isEmpty ? '' : ' · ${explicitLevel(match.level)}'}',
                       ),
                       trailing: existing != null
                           ? Text(
@@ -5370,6 +5382,10 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
   );
   final Set<String> _submitting = {};
 
+  void _retry() => setState(() {
+    _ratings = widget.ratingsLoader(widget.match.id, widget.currentUid);
+  });
+
   Future<void> _rate(MatchPlayer player) async {
     var selected = 0;
     final rating = await showDialog<int>(
@@ -5462,6 +5478,12 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
           FutureBuilder<List<PlayerRating>>(
             future: _ratings,
             builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return _InlineLoadError(
+                  message: 'Could not load submitted ratings.',
+                  onRetry: _retry,
+                );
+              }
               final existing = {
                 for (final rating in snapshot.data ?? const <PlayerRating>[])
                   rating.ratedUid: rating,
@@ -5551,6 +5573,36 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
       ],
     );
   }
+}
+
+class _InlineLoadError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _InlineLoadError({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: const Key('inline-load-error'),
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: const Color(0xFF18211D),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.white12),
+    ),
+    child: Column(
+      children: [
+        Text(message, textAlign: TextAlign.center),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Try Again'),
+        ),
+      ],
+    ),
+  );
 }
 
 class MatchDetailsScreen extends StatefulWidget {

@@ -115,6 +115,59 @@ void main() {
     expect(find.text('No ratings yet'), findsOneWidget);
   });
 
+  testWidgets('public profile labels a numeric level explicitly', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlayerProfileScreen(
+          uid: 'rated',
+          loader: (_) async => const PublicPlayerProfile(
+            uid: 'rated',
+            displayName: 'Ana',
+            level: '3',
+            matches: [],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Level 3'), findsOneWidget);
+    expect(find.text('3'), findsNothing);
+  });
+
+  testWidgets('public profile load error offers a working retry', (
+    tester,
+  ) async {
+    var attempts = 0;
+    Future<PublicPlayerProfile> load(String uid) async {
+      attempts++;
+      if (attempts == 1) throw Exception('private backend details');
+      return PublicPlayerProfile(
+        uid: uid,
+        displayName: 'Ana',
+        level: '3',
+        matches: const [],
+      );
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlayerProfileScreen(uid: 'rated', loader: load),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not load this player profile'), findsOneWidget);
+    expect(find.textContaining('private backend details'), findsNothing);
+    await tester.tap(find.text('Try Again'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ana'), findsOneWidget);
+    expect(attempts, 2);
+  });
+
   testWidgets('existing rating is shown instead of a second action', (
     tester,
   ) async {
@@ -258,5 +311,40 @@ void main() {
     expect(find.byKey(const Key('rated-match-player-rated')), findsOneWidget);
     expect(find.text('Submitted · 5 ★'), findsOneWidget);
     expect(find.byKey(const Key('rate-match-player-rated')), findsNothing);
+  });
+
+  testWidgets('rating history load failure blocks actions and can retry', (
+    tester,
+  ) async {
+    var attempts = 0;
+    Future<List<PlayerRating>> load(String matchId, String raterUid) async {
+      attempts++;
+      if (attempts == 1) throw Exception('private backend details');
+      return const [];
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RatePlayersSection(
+            match: completedMatch,
+            currentUid: 'rater',
+            ratingsLoader: load,
+            ratingSubmitter: (_, _, _, _) async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not load submitted ratings.'), findsOneWidget);
+    expect(find.textContaining('private backend details'), findsNothing);
+    expect(find.byKey(const Key('rate-match-player-rated')), findsNothing);
+
+    await tester.tap(find.text('Try Again'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('rate-match-player-rated')), findsOneWidget);
+    expect(attempts, 2);
   });
 }
