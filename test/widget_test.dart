@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:padelx/current_location.dart';
 import 'package:padelx/location.dart';
 import 'package:padelx/main.dart';
+import 'package:padelx/places.dart';
 
 void main() {
   testWidgets('password reset sends email and shows confirmation', (
@@ -93,15 +96,132 @@ void main() {
   ) async {
     await tester.pumpWidget(const MaterialApp(home: CreateMatchScreen()));
 
-    expect(find.text('Set up a new game'), findsOneWidget);
+    expect(find.text('Set up your game'), findsOneWidget);
     expect(find.text('Create Match'), findsOneWidget);
 
-    await tester.drag(find.byType(ListView), const Offset(0, -1200));
-    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('create-match-submit')),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.byKey(const Key('create-match-submit')).first);
     await tester.pump();
 
-    expect(find.text('Please fill in all fields'), findsOneWidget);
+    expect(find.text('Select a padel club.'), findsWidgets);
+    expect(find.byKey(const Key('date-time-error')), findsOneWidget);
+    expect(find.byKey(const Key('level-error')), findsOneWidget);
+  });
+
+  testWidgets('selected club is summarized and manual details stay secondary', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(home: CreateMatchScreen(placesClient: _FakePlacesClient())),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('places-autocomplete-field')),
+      'Roma',
+    );
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump();
+    await tester.tap(find.text('Roma Padel Club, Mexico City'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('selected-venue-card')), findsOneWidget);
+    expect(find.text('Roma Padel Club'), findsOneWidget);
+    expect(find.text('Roma Norte, Mexico City, CDMX, Mexico'), findsOneWidget);
+    expect(find.byKey(const Key('country-code-field')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('edit-location-details')));
+    await tester.pump();
+    expect(find.byKey(const Key('country-code-field')), findsOneWidget);
+  });
+
+  testWidgets(
+    'create uses friendly date, explicit level, and total-player mapping',
+    (WidgetTester tester) async {
+      Map<String, dynamic>? saved;
+      final scheduled = DateTime.now().add(const Duration(days: 2));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CreateMatchScreen(
+            initialLocation: _testLocation,
+            initialScheduledAt: scheduled,
+            initialLevel: 'Level 2.5',
+            creator: (match) async => saved = match,
+          ),
+        ),
+      );
+
+      expect(find.text('Level 2.5'), findsOneWidget);
+      final dateField = tester.widget<TextField>(
+        find.widgetWithText(TextField, 'Date and time'),
+      );
+      expect(dateField.controller!.text, isNotEmpty);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('create-match-submit')),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('You count as one player · maximum 4'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('create-match-submit')));
+      await tester.pumpAndSettle();
+
+      expect(saved?['spotsLeft'], 3);
+      expect(saved?['level'], 'Level 2.5');
+      expect((saved?['location'] as Map)['countryCode'], 'MX');
+    },
+  );
+
+  testWidgets('create prevents double submit and shows loading', (
+    WidgetTester tester,
+  ) async {
+    final completion = Completer<void>();
+    var submissions = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CreateMatchScreen(
+          initialLocation: _testLocation,
+          initialScheduledAt: DateTime.now().add(const Duration(days: 2)),
+          initialLevel: 'Level 2',
+          creator: (_) {
+            submissions++;
+            return completion.future;
+          },
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('create-match-submit')),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('create-match-submit')));
+    await tester.pump();
+    expect(find.text('Creating...'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('create-match-submit')));
+    expect(submissions, 1);
+    completion.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('create match does not overflow at 320px width', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: CreateMatchScreen(initialLocation: _testLocation),
+      ),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('create-match-submit')), findsOneWidget);
   });
 
   test('only the organizer is eligible to edit a match', () {
@@ -1620,6 +1740,40 @@ void main() {
     expect(find.text('Player Profile'), findsOneWidget);
     expect(find.text('Legacy player'), findsOneWidget);
   });
+}
+
+const _testLocation = MatchLocation(
+  clubName: 'Roma Padel Club',
+  countryCode: 'MX',
+  country: 'Mexico',
+  region: 'CDMX',
+  city: 'Mexico City',
+  area: 'Roma Norte',
+  placeId: 'roma-padel',
+  latitude: 19.42,
+  longitude: -99.16,
+);
+
+class _FakePlacesClient extends GooglePlacesClient {
+  _FakePlacesClient() : super(apiKey: 'test-key');
+
+  @override
+  Future<List<PlacePrediction>> autocomplete(
+    String query, {
+    required String sessionToken,
+    bool citiesOnly = false,
+  }) async => const [
+    PlacePrediction(
+      placeId: 'roma-padel',
+      label: 'Roma Padel Club, Mexico City',
+    ),
+  ];
+
+  @override
+  Future<MatchLocation> placeDetails(
+    String placeId, {
+    required String sessionToken,
+  }) async => _testLocation;
 }
 
 Match _match({

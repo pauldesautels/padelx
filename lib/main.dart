@@ -3498,8 +3498,23 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   }
 }
 
+typedef MatchCreator = Future<void> Function(Map<String, dynamic> match);
+
 class CreateMatchScreen extends StatefulWidget {
-  const CreateMatchScreen({super.key});
+  final GooglePlacesClient? placesClient;
+  final MatchCreator? creator;
+  final MatchLocation? initialLocation;
+  final DateTime? initialScheduledAt;
+  final String? initialLevel;
+
+  const CreateMatchScreen({
+    super.key,
+    this.placesClient,
+    this.creator,
+    this.initialLocation,
+    this.initialScheduledAt,
+    this.initialLevel,
+  });
 
   @override
   State<CreateMatchScreen> createState() => _CreateMatchScreenState();
@@ -3513,13 +3528,40 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   final TextEditingController _cityController = TextEditingController();
   final TextEditingController _areaController = TextEditingController();
   final TextEditingController _dateTimeController = TextEditingController();
-  final TextEditingController _levelController = TextEditingController();
-  final TextEditingController _spotsController = TextEditingController();
   bool _isCreating = false;
+  bool _editingLocationDetails = googlePlacesApiKey.isEmpty;
   DateTime? _scheduledAt;
+  String? _level;
+  int _totalPlayers = 4;
+  String? _locationError;
+  String? _dateTimeError;
+  String? _levelError;
   String _placeId = '';
   double? _latitude;
   double? _longitude;
+
+  @override
+  void initState() {
+    super.initState();
+    final location = widget.initialLocation;
+    if (location != null) {
+      _clubController.text = location.clubName;
+      _countryController.text = location.country;
+      _countryCodeController.text = location.countryCode;
+      _regionController.text = location.region;
+      _cityController.text = location.city;
+      _areaController.text = location.area;
+      _placeId = location.placeId;
+      _latitude = location.latitude;
+      _longitude = location.longitude;
+      _editingLocationDetails = false;
+    }
+    _scheduledAt = widget.initialScheduledAt;
+    if (_scheduledAt != null) {
+      _dateTimeController.text = _friendlyDateTime(_scheduledAt!);
+    }
+    _level = widget.initialLevel;
+  }
 
   @override
   void dispose() {
@@ -3530,16 +3572,14 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     _cityController.dispose();
     _areaController.dispose();
     _dateTimeController.dispose();
-    _levelController.dispose();
-    _spotsController.dispose();
     super.dispose();
   }
 
   Future<void> _createMatch() async {
+    if (_isCreating) return;
     final club = _clubController.text.trim();
     final dateTime = _dateTimeController.text.trim();
-    final level = _levelController.text.trim();
-    final spots = _spotsController.text.trim();
+    final level = _level;
     final location = MatchLocation(
       clubName: club,
       countryCode: _countryCodeController.text,
@@ -3552,38 +3592,22 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       longitude: _longitude,
     );
 
-    if (club.isEmpty ||
-        dateTime.isEmpty ||
-        _scheduledAt == null ||
-        level.isEmpty ||
-        spots.isEmpty ||
-        !location.isValid) {
+    final locationError = !location.isValid ? 'Select a padel club.' : null;
+    final dateTimeError = dateTime.isEmpty || _scheduledAt == null
+        ? 'Choose a date and time.'
+        : null;
+    final levelError = level == null ? 'Choose a player level.' : null;
+    if (locationError != null || dateTimeError != null || levelError != null) {
+      setState(() {
+        _locationError = locationError;
+        _dateTimeError = dateTimeError;
+        _levelError = levelError;
+        if (locationError != null && club.isNotEmpty) {
+          _editingLocationDetails = true;
+        }
+      });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all fields')),
-      );
-      return;
-    }
-
-    final spotsLeft = _parseSpotsLeft(spots);
-    if (spotsLeft <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter at least 1 spot.')),
-      );
-      return;
-    }
-    if (spotsLeft > 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('A padel match can have at most 4 players.'),
-        ),
-      );
-      return;
-    }
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to create a match.')),
+        SnackBar(content: Text(locationError ?? dateTimeError ?? levelError!)),
       );
       return;
     }
@@ -3593,23 +3617,34 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     });
 
     try {
-      final profile = await _loadUserProfile(user.uid);
-      await FirebaseFirestore.instance.collection('matches').add({
+      final user = widget.creator == null
+          ? FirebaseAuth.instance.currentUser
+          : null;
+      if (widget.creator == null && user == null) {
+        throw const MatchActionException('Please log in to create a match.');
+      }
+      final profile = user == null ? null : await _loadUserProfile(user.uid);
+      final match = <String, dynamic>{
         'title': dateTime,
         'club': club,
         'clubName': club,
         'location': location.toMap(),
         'dateTime': dateTime,
         'scheduledAt': Timestamp.fromDate(_scheduledAt!),
-        'level': level,
-        'spotsLeft': spotsLeft,
+        'level': level!,
+        'spotsLeft': _totalPlayers - 1,
         'players': <Map<String, String>>[],
-        'creatorUid': user.uid,
-        'creatorEmail': user.email ?? '',
+        'creatorUid': user?.uid ?? '',
+        'creatorEmail': user?.email ?? '',
         'creatorDisplayName': profile?.displayName ?? '',
         'creatorLevel': profile?.level ?? '',
         'createdAt': FieldValue.serverTimestamp(),
-      });
+      };
+      if (widget.creator != null) {
+        await widget.creator!(match);
+      } else {
+        await FirebaseFirestore.instance.collection('matches').add(match);
+      }
 
       if (!mounted) return;
 
@@ -3618,12 +3653,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       messenger.showSnackBar(
         const SnackBar(content: Text('Match created successfully.')),
       );
-    } on FirebaseException catch (error) {
+    } on MatchActionException catch (error) {
       if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message ?? 'Could not create the match.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     } catch (_) {
       if (!mounted) return;
 
@@ -3673,8 +3707,31 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     setState(() {
       _scheduledAt = selected;
       _dateTimeController.text = _friendlyDateTime(selected);
+      _dateTimeError = null;
     });
   }
+
+  Widget _sectionTitle(String title) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Text(
+      title,
+      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+    ),
+  );
+
+  void _useLocation(MatchLocation location) => setState(() {
+    _clubController.text = location.clubName;
+    _countryController.text = location.country;
+    _countryCodeController.text = location.countryCode;
+    _regionController.text = location.region;
+    _cityController.text = location.city;
+    _areaController.text = location.area;
+    _placeId = location.placeId;
+    _latitude = location.latitude;
+    _longitude = location.longitude;
+    _locationError = null;
+    _editingLocationDetails = false;
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3684,130 +3741,161 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         backgroundColor: const Color(0xFF0F1412),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         children: [
           const Text(
-            'Set up a new game',
+            'Set up your game',
             style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           const Text(
-            'Add the basic match info so other players can join.',
+            'Choose a club, time, and who the game is for.',
             style: TextStyle(color: Colors.white70),
           ),
           const SizedBox(height: 24),
+          _sectionTitle('Where'),
           PlacesAutocompleteField(
+            client: widget.placesClient,
             labelText: 'Search for a padel club',
             hintText: 'Club name or address',
             enabled: !_isCreating,
-            onSelected: (location) => setState(() {
-              _clubController.text = location.clubName;
-              _countryController.text = location.country;
-              _countryCodeController.text = location.countryCode;
-              _regionController.text = location.region;
-              _cityController.text = location.city;
-              _areaController.text = location.area;
-              _placeId = location.placeId;
-              _latitude = location.latitude;
-              _longitude = location.longitude;
-            }),
+            onSelected: _useLocation,
           ),
-          if (googlePlacesApiKey.isNotEmpty) const SizedBox(height: 16),
-          TextField(
-            controller: _clubController,
-            onChanged: (_) {
-              _placeId = '';
-              _latitude = null;
-              _longitude = null;
-            },
-            decoration: const InputDecoration(
-              labelText: 'Club name',
-              prefixIcon: Icon(Icons.location_on),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  key: const Key('country-field'),
-                  controller: _countryController,
-                  onChanged: (_) {
-                    _latitude = null;
-                    _longitude = null;
-                  },
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'Country',
-                    border: OutlineInputBorder(),
-                  ),
+          if (_clubController.text.isNotEmpty && !_editingLocationDetails) ...[
+            const SizedBox(height: 12),
+            Card(
+              key: const Key('selected-venue-card'),
+              child: ListTile(
+                leading: const Icon(Icons.location_on_outlined),
+                title: Text(_clubController.text),
+                subtitle: Text(
+                  MatchLocation(
+                    clubName: _clubController.text,
+                    countryCode: _countryCodeController.text,
+                    country: _countryController.text,
+                    region: _regionController.text,
+                    city: _cityController.text,
+                    area: _areaController.text,
+                  ).localityLabel,
                 ),
               ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 110,
-                child: TextField(
-                  key: const Key('country-code-field'),
-                  controller: _countryCodeController,
-                  onChanged: (_) {
-                    _latitude = null;
-                    _longitude = null;
-                  },
-                  textCapitalization: TextCapitalization.characters,
-                  maxLength: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'ISO code',
-                    hintText: 'US',
-                    counterText: '',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
+            ),
+          ],
+          if (_locationError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _locationError!,
+                key: const Key('location-error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            key: const Key('region-field'),
-            controller: _regionController,
-            onChanged: (_) {
-              _latitude = null;
-              _longitude = null;
-            },
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(
-              labelText: 'Region / State / Province (optional)',
-              border: OutlineInputBorder(),
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: const Key('edit-location-details'),
+              onPressed: _isCreating
+                  ? null
+                  : () => setState(
+                      () => _editingLocationDetails = !_editingLocationDetails,
+                    ),
+              child: Text(
+                _editingLocationDetails
+                    ? 'Hide location details'
+                    : 'Edit location details',
+              ),
             ),
           ),
-          const SizedBox(height: 16),
-          TextField(
-            key: const Key('city-field'),
-            controller: _cityController,
-            onChanged: (_) {
-              _latitude = null;
-              _longitude = null;
-            },
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(
-              labelText: 'City',
-              border: OutlineInputBorder(),
+          if (_editingLocationDetails) ...[
+            TextField(
+              controller: _clubController,
+              onChanged: (_) {
+                _placeId = '';
+                _latitude = null;
+                _longitude = null;
+              },
+              decoration: const InputDecoration(
+                labelText: 'Club name',
+                prefixIcon: Icon(Icons.location_on),
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            key: const Key('area-field'),
-            controller: _areaController,
-            onChanged: (_) {
-              _latitude = null;
-              _longitude = null;
-            },
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(
-              labelText: 'Area / Neighborhood (optional)',
-              border: OutlineInputBorder(),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('country-field'),
+              controller: _countryController,
+              onChanged: (_) {
+                _latitude = null;
+                _longitude = null;
+              },
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Country',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('country-code-field'),
+              controller: _countryCodeController,
+              onChanged: (_) {
+                _latitude = null;
+                _longitude = null;
+              },
+              textCapitalization: TextCapitalization.characters,
+              maxLength: 2,
+              decoration: const InputDecoration(
+                labelText: 'Country code',
+                hintText: 'US',
+                counterText: '',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('region-field'),
+              controller: _regionController,
+              onChanged: (_) {
+                _latitude = null;
+                _longitude = null;
+              },
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Region / State / Province (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('city-field'),
+              controller: _cityController,
+              onChanged: (_) {
+                _latitude = null;
+                _longitude = null;
+              },
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'City',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('area-field'),
+              controller: _areaController,
+              onChanged: (_) {
+                _latitude = null;
+                _longitude = null;
+              },
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Area / Neighborhood (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          _sectionTitle('When'),
           const SizedBox(height: 16),
           TextField(
             controller: _dateTimeController,
@@ -3818,27 +3906,72 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
               hintText: 'Choose a date and time',
               prefixIcon: Icon(Icons.calendar_month),
               border: OutlineInputBorder(),
+              errorText: null,
             ),
           ),
+          if (_dateTimeError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _dateTimeError!,
+                key: const Key('date-time-error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          const SizedBox(height: 24),
+          _sectionTitle('Match details'),
           const SizedBox(height: 16),
-          TextField(
-            controller: _levelController,
+          DropdownButtonFormField<String>(
+            key: const Key('player-level-field'),
+            initialValue: _level,
             decoration: const InputDecoration(
-              labelText: 'Level',
-              hintText: 'Example: Level 3–4',
-              prefixIcon: Icon(Icons.leaderboard),
+              labelText: 'Player level',
+              hintText: 'Choose a level',
               border: OutlineInputBorder(),
             ),
+            items: [
+              for (var value = 1.0; value <= 7.0; value += .5)
+                DropdownMenuItem(
+                  value:
+                      'Level ${value == value.roundToDouble() ? value.toInt() : value}',
+                  child: Text(
+                    'Level ${value == value.roundToDouble() ? value.toInt() : value}',
+                  ),
+                ),
+            ],
+            onChanged: _isCreating
+                ? null
+                : (value) => setState(() {
+                    _level = value;
+                    _levelError = null;
+                  }),
           ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _spotsController,
-            decoration: const InputDecoration(
-              labelText: 'Spots left',
-              hintText: 'Example: 1 spot left',
-              prefixIcon: Icon(Icons.group),
-              border: OutlineInputBorder(),
+          if (_levelError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _levelError!,
+                key: const Key('level-error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<int>(
+            key: const Key('total-players-field'),
+            initialValue: _totalPlayers,
+            decoration: const InputDecoration(
+              labelText: 'Total players',
+              border: OutlineInputBorder(),
+              helperText: 'You count as one player · maximum 4',
+            ),
+            items: const [
+              DropdownMenuItem(value: 2, child: Text('2 players')),
+              DropdownMenuItem(value: 3, child: Text('3 players')),
+              DropdownMenuItem(value: 4, child: Text('4 players')),
+            ],
+            onChanged: _isCreating
+                ? null
+                : (value) => setState(() => _totalPlayers = value ?? 4),
           ),
           const SizedBox(height: 28),
           SizedBox(
