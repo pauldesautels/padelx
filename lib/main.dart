@@ -7,12 +7,12 @@ import 'location.dart';
 import 'places.dart';
 import 'places_autocomplete.dart';
 
-import 'firebase_options.dart';
+import 'firebase_environment.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Firebase.initializeApp(options: firebaseOptionsForCurrentEnvironment());
 
   runApp(const PadelXApp());
 }
