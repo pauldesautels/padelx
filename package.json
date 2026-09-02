@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:beta": "node --test test/beta_enrollment_safety.test.mjs",
     "test:migration": "node --test test/migrate_phase8a_safety.test.mjs",
     "test:rules": "firebase emulators:exec --only firestore \"node --test test/firestore_rules.test.mjs\""
   },

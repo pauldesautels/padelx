@@ -152,6 +152,51 @@ void main() {
     expect(find.text('sensitive backend detail'), findsNothing);
   });
 
+  testWidgets(
+    'closed beta signup errors are friendly and do not reveal invites',
+    (WidgetTester tester) async {
+      Future<void> pumpForCode(String code) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AuthScreen(
+              signUpHandler: (_, _) async {
+                throw FirebaseAuthException(
+                  code: code,
+                  message: 'sensitive backend detail',
+                );
+              },
+            ),
+          ),
+        );
+        await tester.ensureVisible(find.byKey(const Key('auth-switch-mode')));
+        await tester.tap(find.byKey(const Key('auth-switch-mode')));
+        await tester.pump();
+        await tester.enterText(
+          find.byKey(const Key('auth-email')),
+          'someone@example.com',
+        );
+        await tester.enterText(
+          find.byKey(const Key('auth-password')),
+          'secret12',
+        );
+        await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+        await tester.tap(find.byKey(const Key('auth-submit')));
+        await tester.pump();
+      }
+
+      await pumpForCode('admin-restricted-operation');
+      expect(find.text(closedBetaSignupMessage), findsOneWidget);
+      expect(find.text('sensitive backend detail'), findsNothing);
+
+      await pumpForCode('email-already-in-use');
+      expect(find.text(closedBetaSignupMessage), findsOneWidget);
+      expect(
+        find.text('An account already exists with that email.'),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets('auth fits 320px and constrains content on large screens', (
     WidgetTester tester,
   ) async {
@@ -249,6 +294,38 @@ void main() {
 
     expect(find.text('Enter a valid email address.'), findsOneWidget);
     expect(find.text('Reset password'), findsOneWidget);
+  });
+
+  testWidgets('password reset does not reveal whether an email is enrolled', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AuthScreen(
+          passwordResetSender: (_) async {
+            throw FirebaseAuthException(code: 'user-not-found');
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Forgot password?'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      'unknown@example.com',
+    );
+    await tester.tap(find.text('Send reset email'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Password reset email sent. Check your inbox.'),
+      findsOneWidget,
+    );
+    expect(find.text('No account was found with that email.'), findsNothing);
   });
 
   testWidgets('create match form requires all fields', (

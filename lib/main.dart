@@ -255,6 +255,10 @@ class AuthScreen extends StatefulWidget {
   State<AuthScreen> createState() => _AuthScreenState();
 }
 
+const String closedBetaSignupMessage =
+    'PadelX is currently invite-only. If you were invited, use Forgot '
+    'password? to set your password, then log in.';
+
 class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -322,8 +326,12 @@ class _AuthScreenState extends State<AuthScreen> {
         case 'invalid-credential':
           message = 'Incorrect email or password.';
           break;
+        case 'admin-restricted-operation':
+        case 'operation-not-allowed':
         case 'email-already-in-use':
-          message = 'An account already exists with that email.';
+          message = _isLogin
+              ? 'Could not log in. Please try again.'
+              : closedBetaSignupMessage;
           break;
         case 'weak-password':
           message = 'Your password must be at least 6 characters.';
@@ -500,7 +508,8 @@ class _AuthScreenState extends State<AuthScreen> {
                           Text(
                             _isLogin
                                 ? 'Welcome back. Your next match is waiting.'
-                                : 'Create your account to start finding matches.',
+                                : 'PadelX is in closed beta. Only invited '
+                                      'testers can create an account.',
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.white70),
                           ),
@@ -689,6 +698,10 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
       }
     } on FirebaseAuthException catch (error) {
       if (mounted) {
+        if (error.code == 'user-not-found') {
+          Navigator.of(context).pop(true);
+          return;
+        }
         setState(() {
           _errorMessage = _passwordResetErrorMessage(error);
           _isSending = false;
@@ -708,8 +721,6 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
     switch (error.code) {
       case 'invalid-email':
         return 'Enter a valid email address.';
-      case 'user-not-found':
-        return 'No account was found with that email.';
       case 'too-many-requests':
         return 'Too many requests. Please try again later.';
       case 'network-request-failed':
