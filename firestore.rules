@@ -6,6 +6,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function verifiedUser() {
+      return signedIn()
+        && request.auth.token.email_verified == true;
+    }
+
     function validDisplayName(value) {
       return value is string && value.size() >= 2 && value.size() <= 40;
     }
@@ -101,7 +106,7 @@ service cloud.firestore {
       let matchData = get(
         /databases/$(database)/documents/matches/$(matchId)
       ).data;
-      return signedIn() && (
+      return verifiedUser() && (
         (
           'creatorUid' in matchData
           && matchData.creatorUid != ''
@@ -623,8 +628,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if signedIn() && request.auth.uid == userId;
-      allow create: if signedIn()
+      allow read: if verifiedUser() && request.auth.uid == userId;
+      allow create: if verifiedUser()
         && request.auth.uid == userId
         && validPrivateUser(userId, request.resource.data)
         && request.resource.data.createdAt == request.time
@@ -633,7 +638,7 @@ service cloud.firestore {
           /databases/$(database)/documents/publicProfiles/$(userId)
         )
         && profilesMatchAfter(userId);
-      allow update: if signedIn()
+      allow update: if verifiedUser()
         && request.auth.uid == userId
         && validPrivateUser(userId, request.resource.data)
         && request.resource.data.createdAt == resource.data.createdAt
@@ -646,13 +651,13 @@ service cloud.firestore {
     }
 
     match /publicProfiles/{userId} {
-      allow read: if signedIn();
-      allow create: if signedIn()
+      allow read: if verifiedUser();
+      allow create: if verifiedUser()
         && request.auth.uid == userId
         && validPublicProfile(userId, request.resource.data)
         && existsAfter(/databases/$(database)/documents/users/$(userId))
         && profilesMatchAfter(userId);
-      allow update: if signedIn()
+      allow update: if verifiedUser()
         && request.auth.uid == userId
         && validPublicProfile(userId, request.resource.data)
         && existsAfter(/databases/$(database)/documents/users/$(userId))
@@ -661,13 +666,13 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if signedIn()
+      allow read: if verifiedUser()
         && resource.data.recipientUid == request.auth.uid;
-      allow create: if signedIn() && (
+      allow create: if verifiedUser() && (
         validJoinRequestNotification(notificationId)
         || validReviewNotification(notificationId)
       );
-      allow update: if signedIn()
+      allow update: if verifiedUser()
         && resource.data.recipientUid == request.auth.uid
         && request.resource.data.recipientUid == request.auth.uid
         && resource.data.isRead == false
@@ -683,26 +688,26 @@ service cloud.firestore {
     // change it. This therefore exposes only the signed-in player's own
     // requests, while organizer collection reads remain match-scoped below.
     match /{path=**}/joinRequests/{requestId} {
-      allow list: if signedIn()
+      allow list: if verifiedUser()
         && resource.data.userId == request.auth.uid;
     }
 
     // Public profiles aggregate immutable rating records with a targeted
     // collection-group query. Writes remain match-scoped below.
     match /{path=**}/ratings/{ratingId} {
-      allow list: if signedIn();
+      allow list: if verifiedUser();
     }
 
     match /matches/{matchId} {
-      allow read: if signedIn();
-      allow create: if signedIn()
+      allow read: if verifiedUser();
+      allow create: if verifiedUser()
         && validNewMatch(matchId);
       allow delete: if isOrganizer(matchId) && matchCanStillChange(matchId);
 
       // Match updates are limited to organizer detail edits, an atomic
       // organizer approval, or a player removing their exact own entry.
       // None of these paths can change ownership or join-request state.
-      allow update: if signedIn()
+      allow update: if verifiedUser()
         && (
           !('scheduledAt' in resource.data)
           || matchIsStillOpen(resource.data)
@@ -714,13 +719,13 @@ service cloud.firestore {
         );
 
       match /joinRequests/{userId} {
-        allow get: if signedIn()
+        allow get: if verifiedUser()
           && (request.auth.uid == userId || isOrganizer(matchId));
-        allow list: if signedIn()
+        allow list: if verifiedUser()
           && (isOrganizer(matchId) || request.auth.uid == resource.data.userId);
 
         // A non-organizer can create only their own pending request.
-        allow create: if signedIn()
+        allow create: if verifiedUser()
           && matchCanStillChange(matchId)
           && request.auth.uid == userId
           && !isOrganizer(matchId)
@@ -730,7 +735,7 @@ service cloud.firestore {
 
         // Requesters may retry only after decline. Only the organizer may
         // transition a pending request to approved or declined.
-        allow update: if signedIn() && matchCanStillChange(matchId) && (
+        allow update: if verifiedUser() && matchCanStillChange(matchId) && (
           (
             request.auth.uid == userId
             && !isOrganizer(matchId)
@@ -776,8 +781,8 @@ service cloud.firestore {
 
 
       match /ratingRaters/{raterUid}/ratings/{ratedUid} {
-        allow read: if signedIn();
-        allow create: if signedIn()
+        allow read: if verifiedUser();
+        allow create: if verifiedUser()
           && validRating(matchId, raterUid, ratedUid);
         allow update, delete: if false;
       }

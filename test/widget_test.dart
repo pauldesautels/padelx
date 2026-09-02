@@ -96,6 +96,7 @@ void main() {
   ) async {
     String? submittedEmail;
     String? submittedPassword;
+    var verificationEmails = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: AuthScreen(
@@ -103,6 +104,7 @@ void main() {
             submittedEmail = email;
             submittedPassword = password;
           },
+          emailVerificationSender: () async => verificationEmails++,
         ),
       ),
     );
@@ -122,6 +124,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(submittedEmail, 'new@example.com');
     expect(submittedPassword, 'secret12');
+    expect(verificationEmails, 1);
   });
 
   testWidgets('auth presents Firebase errors without raw exception text', (
@@ -153,12 +156,14 @@ void main() {
   });
 
   testWidgets(
-    'closed beta signup errors are friendly and do not reveal invites',
+    'public signup errors are friendly and do not expose backend details',
     (WidgetTester tester) async {
       Future<void> pumpForCode(String code) async {
         await tester.pumpWidget(
           MaterialApp(
+            key: ValueKey('signup-error-$code'),
             home: AuthScreen(
+              key: ValueKey(code),
               signUpHandler: (_, _) async {
                 throw FirebaseAuthException(
                   code: code,
@@ -185,17 +190,107 @@ void main() {
       }
 
       await pumpForCode('admin-restricted-operation');
-      expect(find.text(closedBetaSignupMessage), findsOneWidget);
+      expect(
+        find.text('Could not create your account. Please try again.'),
+        findsOneWidget,
+      );
       expect(find.text('sensitive backend detail'), findsNothing);
 
       await pumpForCode('email-already-in-use');
-      expect(find.text(closedBetaSignupMessage), findsOneWidget);
       expect(
-        find.text('An account already exists with that email.'),
-        findsNothing,
+        find.text('An account already uses that email. Try logging in.'),
+        findsOneWidget,
       );
+      expect(find.text('sensitive backend detail'), findsNothing);
     },
   );
+
+  testWidgets('verification screen checks status and explains unverified state', (
+    WidgetTester tester,
+  ) async {
+    var checks = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EmailVerificationScreen(
+          email: 'new@example.com',
+          onContinue: () async {
+            checks++;
+            return false;
+          },
+          onResend: () async {},
+          onSignOut: () async {},
+          resendCooldown: Duration.zero,
+        ),
+      ),
+    );
+
+    expect(find.text('new@example.com'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('verification-continue')));
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(
+      find.text(
+        'Your email is not verified yet. Open the link in your email, then try again.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('verification screen resends once and supports sign out', (
+    WidgetTester tester,
+  ) async {
+    var resends = 0;
+    var signOuts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EmailVerificationScreen(
+          email: 'new@example.com',
+          onContinue: () async => false,
+          onResend: () async => resends++,
+          onSignOut: () async => signOuts++,
+          resendCooldown: Duration.zero,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('verification-resend')));
+    await tester.pumpAndSettle();
+    expect(resends, 1);
+    expect(find.text('A new verification email was sent.'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('verification-sign-out')));
+    await tester.tap(find.byKey(const Key('verification-sign-out')));
+    await tester.pumpAndSettle();
+    expect(signOuts, 1);
+  });
+
+  testWidgets('verification errors remain sanitized', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EmailVerificationScreen(
+          email: 'new@example.com',
+          onContinue: () async {
+            throw FirebaseAuthException(
+              code: 'unexpected-code',
+              message: 'sensitive backend detail',
+            );
+          },
+          onResend: () async {},
+          onSignOut: () async {},
+          resendCooldown: Duration.zero,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('verification-continue')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Could not complete that request. Please try again.'),
+      findsOneWidget,
+    );
+    expect(find.text('sensitive backend detail'), findsNothing);
+  });
 
   testWidgets('auth fits 320px and constrains content on large screens', (
     WidgetTester tester,

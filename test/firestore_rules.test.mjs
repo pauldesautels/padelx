@@ -25,7 +25,7 @@ const past = () => Timestamp.fromMillis(now - 86_400_000);
 
 let environment;
 
-function auth(uid, email = `${uid}@example.com`, emailVerified = false) {
+function auth(uid, email = `${uid}@example.com`, emailVerified = true) {
   return environment.authenticatedContext(uid, {
     email,
     email_verified: emailVerified,
@@ -140,6 +140,68 @@ before(async () => {
 
 beforeEach(async () => environment.clearFirestore());
 after(async () => environment.cleanup());
+
+describe('verified email boundary', () => {
+  test('unauthenticated and unverified users cannot read application data', async () => {
+    await seed('users/alice', privateProfile('alice'));
+    await seed('publicProfiles/alice', publicProfile('alice'));
+    await seed('matches/m1', matchData());
+    await seed('matches/m1/joinRequests/alice', {
+      userId: 'alice', displayName: 'Player alice', level: 'Level 3',
+      email: 'alice@example.com', status: 'pending',
+      requestedAt: Timestamp.fromMillis(now), eventId: 'event-1',
+    });
+    await seed('matches/m1/ratingRaters/bob/ratings/alice', {
+      matchId: 'm1', raterUid: 'bob', ratedUid: 'alice', rating: 5,
+      createdAt: Timestamp.fromMillis(now),
+    });
+    await seed('notifications/n1', {
+      recipientUid: 'alice', isRead: false, type: 'join_approved',
+      createdAt: Timestamp.fromMillis(now),
+    });
+
+    const unauthenticated = environment.unauthenticatedContext().firestore();
+    const unverified = auth('alice', 'alice@example.com', false);
+    for (const [db, paths] of [
+      [unauthenticated, ['publicProfiles/alice', 'matches/m1']],
+      [unverified, [
+        'users/alice',
+        'publicProfiles/alice',
+        'matches/m1',
+        'matches/m1/joinRequests/alice',
+        'matches/m1/ratingRaters/bob/ratings/alice',
+        'notifications/n1',
+      ]],
+    ]) {
+      for (const path of paths) {
+        await assertFails(getDoc(doc(db, path)));
+      }
+    }
+  });
+
+  test('unverified users cannot create or update application data', async () => {
+    await seed('publicProfiles/alice', publicProfile('alice'));
+    await seed('matches/m1', matchData());
+    await seed('notifications/n1', {
+      recipientUid: 'alice', isRead: false, type: 'join_approved',
+      createdAt: Timestamp.fromMillis(now),
+    });
+    const db = auth('alice', 'alice@example.com', false);
+
+    await assertFails(createProfilePair(db, 'alice'));
+    const data = matchData('alice');
+    data.createdAt = serverTimestamp();
+    await assertFails(setDoc(doc(collection(db, 'matches')), data));
+    await assertFails(updateDoc(doc(db, 'notifications/n1'), { isRead: true }));
+  });
+
+  test('verified users retain legitimate application access', async () => {
+    const db = auth('alice');
+    await assertSucceeds(createProfilePair(db, 'alice'));
+    await assertSucceeds(getDoc(doc(db, 'users/alice')));
+    await assertSucceeds(getDoc(doc(db, 'publicProfiles/alice')));
+  });
+});
 
 describe('private and public profiles', () => {
   test('private users are owner-only while public profiles are signed-in readable', async () => {

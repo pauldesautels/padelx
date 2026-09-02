@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -48,8 +50,17 @@ class PadelXApp extends StatelessWidget {
   }
 }
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  void _continueAfterVerification() {
+    if (mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,8 +73,27 @@ class AuthGate extends StatelessWidget {
           );
         }
 
-        if (snapshot.hasData) {
-          return ProfileGate(user: snapshot.data!);
+        // reload() updates FirebaseAuth.currentUser without guaranteeing a new
+        // authStateChanges event, so prefer that refreshed instance here.
+        final user = FirebaseAuth.instance.currentUser ?? snapshot.data;
+        if (user != null && !user.emailVerified) {
+          return EmailVerificationScreen(
+            email: user.email ?? '',
+            onContinue: () async {
+              await user.reload();
+              final refreshedUser = FirebaseAuth.instance.currentUser;
+              if (refreshedUser?.emailVerified != true) return false;
+              await refreshedUser!.getIdToken(true);
+              _continueAfterVerification();
+              return true;
+            },
+            onResend: user.sendEmailVerification,
+            onSignOut: FirebaseAuth.instance.signOut,
+          );
+        }
+
+        if (user != null) {
+          return ProfileGate(user: user);
         }
 
         return const AuthScreen();
@@ -241,25 +271,269 @@ class _ProfileLoadErrorState extends State<ProfileLoadError> {
   }
 }
 
+class EmailVerificationScreen extends StatefulWidget {
+  final String email;
+  final Future<bool> Function() onContinue;
+  final Future<void> Function() onResend;
+  final Future<void> Function() onSignOut;
+  final Duration resendCooldown;
+
+  const EmailVerificationScreen({
+    super.key,
+    required this.email,
+    required this.onContinue,
+    required this.onResend,
+    required this.onSignOut,
+    this.resendCooldown = const Duration(seconds: 30),
+  });
+
+  @override
+  State<EmailVerificationScreen> createState() =>
+      _EmailVerificationScreenState();
+}
+
+class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
+  Timer? _cooldownTimer;
+  int _cooldownSeconds = 0;
+  bool _isChecking = false;
+  bool _isResending = false;
+  bool _isSigningOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startCooldown();
+  }
+
+  @override
+  void dispose() {
+    _cooldownTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startCooldown() {
+    _cooldownTimer?.cancel();
+    _cooldownSeconds = widget.resendCooldown.inSeconds;
+    if (_cooldownSeconds <= 0) return;
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_cooldownSeconds <= 1) {
+        timer.cancel();
+        setState(() => _cooldownSeconds = 0);
+      } else {
+        setState(() => _cooldownSeconds--);
+      }
+    });
+  }
+
+  Future<void> _continue() async {
+    if (_isChecking || _isResending || _isSigningOut) return;
+    setState(() => _isChecking = true);
+    try {
+      final verified = await widget.onContinue();
+      if (!verified) {
+        _showMessage(
+          'Your email is not verified yet. Open the link in your email, then try again.',
+        );
+      }
+    } on FirebaseAuthException catch (error) {
+      _showMessage(_verificationErrorMessage(error));
+    } catch (_) {
+      _showMessage('Could not check your email yet. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isChecking = false);
+    }
+  }
+
+  Future<void> _resend() async {
+    if (_isChecking || _isResending || _isSigningOut || _cooldownSeconds > 0) {
+      return;
+    }
+    setState(() => _isResending = true);
+    try {
+      await widget.onResend();
+      if (!mounted) return;
+      setState(_startCooldown);
+      _showMessage('A new verification email was sent.');
+    } on FirebaseAuthException catch (error) {
+      _showMessage(_verificationErrorMessage(error));
+    } catch (_) {
+      _showMessage('Could not resend the email. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isResending = false);
+    }
+  }
+
+  Future<void> _signOut() async {
+    if (_isChecking || _isResending || _isSigningOut) return;
+    setState(() => _isSigningOut = true);
+    try {
+      await widget.onSignOut();
+    } on FirebaseAuthException catch (error) {
+      _showMessage(_verificationErrorMessage(error));
+    } catch (_) {
+      _showMessage('Could not sign out. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isSigningOut = false);
+    }
+  }
+
+  String _verificationErrorMessage(FirebaseAuthException error) {
+    switch (error.code) {
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait a moment and try again.';
+      case 'network-request-failed':
+        return 'Check your internet connection and try again.';
+      case 'user-disabled':
+        return 'This account is unavailable. Contact PadelX support.';
+      case 'requires-recent-login':
+        return 'Please sign out, log in again, and retry.';
+      default:
+        return 'Could not complete that request. Please try again.';
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final busy = _isChecking || _isResending || _isSigningOut;
+    return Scaffold(
+      backgroundColor: const Color(0xFF050605),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0B0D0C),
+                  border: Border.all(color: const Color(0xFF343735)),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const CircleAvatar(
+                      radius: 38,
+                      backgroundColor: Color(0xFF1D2907),
+                      child: Icon(
+                        Icons.mark_email_unread_outlined,
+                        size: 38,
+                        color: Color(0xFFB8F20D),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Verify your email',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'We sent a verification link to',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      widget.email.isEmpty
+                          ? 'your email address'
+                          : widget.email,
+                      key: const Key('verification-email'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFFB8F20D),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Open the link in that message, then return here to continue.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 28),
+                    SizedBox(
+                      height: 54,
+                      child: FilledButton(
+                        key: const Key('verification-continue'),
+                        onPressed: busy ? null : _continue,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFB8F20D),
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: Text(
+                          _isChecking
+                              ? 'Checking...'
+                              : "I've verified my email",
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton(
+                      key: const Key('verification-resend'),
+                      onPressed: busy || _cooldownSeconds > 0 ? null : _resend,
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFFB8F20D),
+                      ),
+                      child: Text(
+                        _isResending
+                            ? 'Sending...'
+                            : _cooldownSeconds > 0
+                            ? 'Resend available in ${_cooldownSeconds}s'
+                            : 'Resend verification email',
+                      ),
+                    ),
+                    TextButton(
+                      key: const Key('verification-sign-out'),
+                      onPressed: busy ? null : _signOut,
+                      child: Text(
+                        _isSigningOut ? 'Signing out...' : 'Sign Out',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class AuthScreen extends StatefulWidget {
   final Future<void> Function(String email)? passwordResetSender;
   final Future<void> Function(String email, String password)? loginHandler;
   final Future<void> Function(String email, String password)? signUpHandler;
+  final Future<void> Function()? emailVerificationSender;
 
   const AuthScreen({
     super.key,
     this.passwordResetSender,
     this.loginHandler,
     this.signUpHandler,
+    this.emailVerificationSender,
   });
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
 }
-
-const String closedBetaSignupMessage =
-    'PadelX is currently invite-only. If you were invited, use Forgot '
-    'password? to set your password, then log in.';
 
 class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _emailController = TextEditingController();
@@ -307,12 +581,18 @@ class _AuthScreenState extends State<AuthScreen> {
                 password: password,
               ));
       } else {
-        await (widget.signUpHandler != null
-            ? widget.signUpHandler!(email, password)
-            : FirebaseAuth.instance.createUserWithEmailAndPassword(
-                email: email,
-                password: password,
-              ));
+        if (widget.signUpHandler != null) {
+          await widget.signUpHandler!(email, password);
+          await widget.emailVerificationSender?.call();
+        } else {
+          final credential = await FirebaseAuth.instance
+              .createUserWithEmailAndPassword(email: email, password: password);
+          final user = credential.user;
+          if (user == null) {
+            throw FirebaseAuthException(code: 'missing-user');
+          }
+          await user.sendEmailVerification();
+        }
       }
     } on FirebaseAuthException catch (error) {
       String message;
@@ -330,10 +610,10 @@ class _AuthScreenState extends State<AuthScreen> {
           break;
         case 'admin-restricted-operation':
         case 'operation-not-allowed':
+          message = 'Could not create your account. Please try again.';
+          break;
         case 'email-already-in-use':
-          message = _isLogin
-              ? 'Could not log in. Please try again.'
-              : closedBetaSignupMessage;
+          message = 'An account already uses that email. Try logging in.';
           break;
         case 'weak-password':
           message = 'Your password must be at least 6 characters.';
@@ -510,8 +790,8 @@ class _AuthScreenState extends State<AuthScreen> {
                           Text(
                             _isLogin
                                 ? 'Welcome back. Your next match is waiting.'
-                                : 'PadelX is in closed beta. Only invited '
-                                      'testers can create an account.',
+                                : 'Create your account, then verify your email '
+                                      'to get started.',
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.white70),
                           ),
