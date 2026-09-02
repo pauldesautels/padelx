@@ -1,44 +1,101 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 
-import 'firebase_options.dart';
+const productionFirebaseProjectId = 'padelx-f168f';
+const _supportedFirebaseEnvironments = {'development', 'staging', 'production'};
 
 FirebaseOptions firebaseOptionsForCurrentEnvironment() {
-  const environment = String.fromEnvironment(
-    'FIREBASE_ENVIRONMENT',
-    defaultValue: 'development',
+  return firebaseOptionsForEnvironment(
+    environment: const String.fromEnvironment('FIREBASE_ENVIRONMENT'),
+    projectId: const String.fromEnvironment('FIREBASE_PROJECT_ID'),
+    apiKey: const String.fromEnvironment('FIREBASE_API_KEY'),
+    appId: const String.fromEnvironment('FIREBASE_APP_ID'),
+    messagingSenderId: const String.fromEnvironment(
+      'FIREBASE_MESSAGING_SENDER_ID',
+    ),
+    authDomain: const String.fromEnvironment('FIREBASE_AUTH_DOMAIN'),
+    storageBucket: const String.fromEnvironment('FIREBASE_STORAGE_BUCKET'),
+    iosBundleId: const String.fromEnvironment('FIREBASE_IOS_BUNDLE_ID'),
+    isDebugBuild: kDebugMode,
   );
-  const projectId = String.fromEnvironment('FIREBASE_PROJECT_ID');
-  if (projectId.isEmpty) {
-    if (environment != 'development') {
-      throw StateError(
-        'FIREBASE_PROJECT_ID is required outside the development environment.',
-      );
-    }
-    return DefaultFirebaseOptions.currentPlatform;
-  }
+}
 
-  const apiKey = String.fromEnvironment('FIREBASE_API_KEY');
-  const appId = String.fromEnvironment('FIREBASE_APP_ID');
-  const messagingSenderId = String.fromEnvironment(
-    'FIREBASE_MESSAGING_SENDER_ID',
-  );
-  const authDomain = String.fromEnvironment('FIREBASE_AUTH_DOMAIN');
-  const storageBucket = String.fromEnvironment('FIREBASE_STORAGE_BUCKET');
-  if (apiKey.isEmpty || appId.isEmpty || messagingSenderId.isEmpty) {
+FirebaseOptions firebaseOptionsForEnvironment({
+  required String environment,
+  required String projectId,
+  required String apiKey,
+  required String appId,
+  required String messagingSenderId,
+  String authDomain = '',
+  String storageBucket = '',
+  String iosBundleId = '',
+  bool isDebugBuild = false,
+}) {
+  final selectedEnvironment = environment.trim();
+  final selectedProjectId = projectId.trim();
+
+  if (!_supportedFirebaseEnvironments.contains(selectedEnvironment)) {
     throw StateError(
-      'FIREBASE_API_KEY, FIREBASE_APP_ID, and '
-      'FIREBASE_MESSAGING_SENDER_ID are required with FIREBASE_PROJECT_ID.',
+      'FIREBASE_ENVIRONMENT must be explicitly set to development, staging, '
+      'or production.',
     );
   }
 
-  final defaults = DefaultFirebaseOptions.currentPlatform;
+  if (selectedEnvironment != 'production' &&
+      selectedProjectId == productionFirebaseProjectId) {
+    throw StateError(
+      'Non-production Firebase environments cannot target the production '
+      'project.',
+    );
+  }
+
+  if (isDebugBuild && selectedProjectId == productionFirebaseProjectId) {
+    throw StateError('Debug builds cannot target the production project.');
+  }
+
+  if (selectedEnvironment == 'production' &&
+      selectedProjectId != productionFirebaseProjectId) {
+    throw StateError(
+      'The production Firebase environment must explicitly target the '
+      'production project.',
+    );
+  }
+
+  final requiredValues = <String, String>{
+    'FIREBASE_PROJECT_ID': selectedProjectId,
+    'FIREBASE_API_KEY': apiKey.trim(),
+    'FIREBASE_APP_ID': appId.trim(),
+    'FIREBASE_MESSAGING_SENDER_ID': messagingSenderId.trim(),
+  };
+  final missingNames = requiredValues.entries
+      .where((entry) => entry.value.isEmpty)
+      .map((entry) => entry.key)
+      .toList(growable: false);
+  if (missingNames.isNotEmpty) {
+    throw StateError(
+      'Explicit Firebase configuration is required. Missing: '
+      '${missingNames.join(', ')}.',
+    );
+  }
+
+  if (requiredValues.values.any((value) => value.startsWith('replace-with-'))) {
+    throw StateError(
+      'Firebase configuration still contains example placeholder values.',
+    );
+  }
+
   return FirebaseOptions(
-    apiKey: apiKey,
-    appId: appId,
-    messagingSenderId: messagingSenderId,
-    projectId: projectId,
-    authDomain: authDomain.isEmpty ? null : authDomain,
-    storageBucket: storageBucket.isEmpty ? null : storageBucket,
-    iosBundleId: defaults.iosBundleId,
+    apiKey: requiredValues['FIREBASE_API_KEY']!,
+    appId: requiredValues['FIREBASE_APP_ID']!,
+    messagingSenderId: requiredValues['FIREBASE_MESSAGING_SENDER_ID']!,
+    projectId: requiredValues['FIREBASE_PROJECT_ID']!,
+    authDomain: _optionalValue(authDomain),
+    storageBucket: _optionalValue(storageBucket),
+    iosBundleId: _optionalValue(iosBundleId),
   );
+}
+
+String? _optionalValue(String value) {
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }

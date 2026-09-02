@@ -2,40 +2,65 @@
 
 A Flutter application for PadelX.
 
+## Firebase environment safety
+
+PadelX has no implicit Firebase environment. Every run and build must explicitly
+select `development`, `staging`, or `production` and provide the Firebase project
+ID, API key, app ID, and messaging sender ID. A plain `flutter run` fails before
+Firebase initializes.
+
+Non-production environments are prohibited from targeting the production project
+`padelx-f168f`. Conversely, that project can only be selected by an explicit
+`FIREBASE_ENVIRONMENT=production` configuration. Configuration errors report
+field names only and never print configuration values. Debug builds cannot
+target production even when given an explicit production configuration.
+
+Local configuration files use the `config/*.local.json` naming convention and
+are ignored by Git. Never commit one of these files.
+
 ## Local web development
 
-The app reads the Google Places API key at compile time using
-`String.fromEnvironment('GOOGLE_PLACES_API_KEY')`. Keep development secrets in
-`config/development.local.json`, which is ignored by Git.
-
-1. Open `config/development.local.json` on your Mac and put your development
-   Google Places API key between the empty quotes.
-2. Launch the app from the project root:
-
-   ```sh
-   flutter run -d chrome --dart-define-from-file=config/development.local.json
-   ```
-
-`config/development.example.json` is a safe template that can be committed.
-Additional environments can use separate files and keys, such as an ignored
-`config/production.local.json`, selected with the same
-`--dart-define-from-file` option during the relevant build or run.
-
-## Firebase environments
-
-The default development build keeps using the checked-in `padelx-f168f`
-FlutterFire configuration. To run against another Firebase project, copy
-`config/staging.example.json` to the ignored `config/staging.local.json`, fill
-in that project's web or platform app values, and run:
+Copy the safe template, then replace every Firebase placeholder with values for
+a non-production Firebase web app. Add a development Google Places key if the
+Places features are needed.
 
 ```sh
+cp config/development.example.json config/development.local.json
+flutter run -d chrome --dart-define-from-file=config/development.local.json
+```
+
+Local development may use the staging Firebase app when a separate development
+project is unavailable, but the file must retain
+`FIREBASE_ENVIRONMENT=development` and must never contain `padelx-f168f`.
+
+## Staging web
+
+Copy the staging template, fill it with the web-app values from the literal
+Firebase project `padelx-staging`, and run:
+
+```sh
+cp config/staging.example.json config/staging.local.json
 flutter run -d chrome --dart-define-from-file=config/staging.local.json
 ```
 
-When `FIREBASE_ENVIRONMENT` is not `development`, the app refuses to start
-without an explicit `FIREBASE_PROJECT_ID`. When a project override is present,
-its API key, app ID, and messaging sender ID are also mandatory, preventing a
-partial staging/production configuration from silently mixing projects.
+The checked-in example placeholders deliberately fail validation if they are not
+replaced.
+
+## Eventual production build
+
+Production also requires a complete ignored configuration file and explicit
+environment selection. Prepare it from the template, review every value, and use
+it only for an intentional production build:
+
+```sh
+cp config/production.example.json config/production.local.json
+flutter build web --release --dart-define-from-file=config/production.local.json
+```
+
+This command is documentation only; production builds and deployments are not
+part of ordinary local or staging development.
+
+## Firebase operations
 
 Firebase CLI deployments and the Phase 8A migration intentionally have no
 repository default or alias. Always pass the literal target project ID with

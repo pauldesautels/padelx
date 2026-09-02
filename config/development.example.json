@@ -1,3 +1,10 @@
 {
+  "FIREBASE_ENVIRONMENT": "development",
+  "FIREBASE_PROJECT_ID": "replace-with-non-production-project-id",
+  "FIREBASE_API_KEY": "replace-with-development-app-api-key",
+  "FIREBASE_APP_ID": "replace-with-development-app-id",
+  "FIREBASE_MESSAGING_SENDER_ID": "replace-with-development-sender-id",
+  "FIREBASE_AUTH_DOMAIN": "replace-with-non-production-project-id.firebaseapp.com",
+  "FIREBASE_STORAGE_BUCKET": "replace-with-development-bucket",
   "GOOGLE_PLACES_API_KEY": "replace-with-your-development-key"
 }
