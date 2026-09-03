@@ -84,10 +84,19 @@ service cloud.firestore {
 
     function validPublicProfile(userId, data) {
       return data.keys().hasAll(['uid', 'displayName', 'level'])
-        && data.keys().hasOnly(['uid', 'displayName', 'level'])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'level', 'ratingCount', 'ratingSum',
+          'ratingAverage'
+        ])
         && data.uid == userId
         && validDisplayName(data.displayName)
-        && validProfileLevel(data.level);
+        && validProfileLevel(data.level)
+        && (!('ratingCount' in data) || (
+          data.ratingCount is int && data.ratingCount >= 0
+          && data.ratingSum is int && data.ratingSum >= 0
+          && data.ratingAverage is number && data.ratingAverage >= 0
+          && data.ratingAverage <= 5
+        ));
     }
 
     function profilesMatchAfter(userId) {
@@ -163,12 +172,29 @@ service cloud.firestore {
       return matchOrganizerUid(resource.data) != playerUidValue;
     }
 
+    // Convenience query field only. Authorization continues to use creatorUid
+    // and players. Every allowed write keeps this projection identical to the
+    // authoritative membership stored on the match.
+    function validParticipantUids(matchData) {
+      let players = playersIn(matchData);
+      return matchData.participantUids is list
+        && matchData.participantUids.size() == players.size() + 1
+        && matchData.participantUids[0] == matchOrganizerUid(matchData)
+        && (players.size() < 1
+          || matchData.participantUids[1] == playerUid(players[0]))
+        && (players.size() < 2
+          || matchData.participantUids[2] == playerUid(players[1]))
+        && (players.size() < 3
+          || matchData.participantUids[3] == playerUid(players[2]));
+    }
+
     function removesOnlyAuthenticatedPlayer() {
       return request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['players', 'spotsLeft'])
+          .hasOnly(['players', 'spotsLeft', 'participantUids'])
         && request.resource.data.players is list
         && resource.data.players is list
         && request.resource.data.spotsLeft is int
+        && validParticipantUids(request.resource.data)
         && existingSpotsLeft() >= 0
         && (
           (
@@ -287,9 +313,10 @@ service cloud.firestore {
       let playerUid = appendedPlayerUid();
       return isOrganizer(matchId)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['players', 'spotsLeft'])
+          .hasOnly(['players', 'spotsLeft', 'participantUids'])
         && request.resource.data.players is list
         && request.resource.data.spotsLeft is int
+        && validParticipantUids(request.resource.data)
         && existingSpotsLeft() > 0
         && preservesPlayersAndAppendsOne()
         && (
@@ -353,12 +380,12 @@ service cloud.firestore {
       return data.keys().hasAll([
           'title', 'club', 'clubName', 'location', 'dateTime', 'scheduledAt',
           'level', 'spotsLeft', 'players', 'creatorUid',
-          'creatorDisplayName', 'creatorLevel', 'createdAt'
+          'creatorDisplayName', 'creatorLevel', 'participantUids', 'createdAt'
         ])
         && data.keys().hasOnly([
           'title', 'club', 'clubName', 'location', 'dateTime', 'scheduledAt',
           'level', 'spotsLeft', 'players', 'creatorUid',
-          'creatorDisplayName', 'creatorLevel', 'createdAt'
+          'creatorDisplayName', 'creatorLevel', 'participantUids', 'createdAt'
         ])
         && data.creatorUid == request.auth.uid
         && validDisplayName(data.creatorDisplayName)
@@ -377,6 +404,7 @@ service cloud.firestore {
         && data.scheduledAt is timestamp && data.scheduledAt > request.time
         && data.createdAt == request.time
         && data.players is list && data.players.size() == 0
+        && validParticipantUids(data)
         && data.spotsLeft is int
         && data.spotsLeft >= 1 && data.spotsLeft <= 3;
     }
@@ -660,6 +688,8 @@ service cloud.firestore {
       allow update: if verifiedUser()
         && request.auth.uid == userId
         && validPublicProfile(userId, request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['displayName', 'level'])
         && existsAfter(/databases/$(database)/documents/users/$(userId))
         && profilesMatchAfter(userId);
       allow delete: if false;
@@ -680,6 +710,11 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['isRead']);
       allow delete: if false;
+    }
+
+    // Admin-only idempotency markers written by the rating aggregate trigger.
+    match /ratingAggregationEvents/{eventId} {
+      allow read, write: if false;
     }
 
     // A collection-group query is not confined to the /matches parent path,

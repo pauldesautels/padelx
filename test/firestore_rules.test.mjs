@@ -12,9 +12,14 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 
@@ -88,6 +93,7 @@ function matchData(creatorUid = 'organizer', overrides = {}) {
     level: 'Level 3',
     spotsLeft: 2,
     players: [],
+    participantUids: [creatorUid],
     creatorUid,
     creatorDisplayName: `Player ${creatorUid}`,
     creatorLevel: 'Level 3',
@@ -229,6 +235,16 @@ describe('private and public profiles', () => {
     await assertFails(updateDoc(doc(auth('bob'), 'publicProfiles/alice'), { displayName: 'Mallory' }));
   });
 
+  test('clients cannot forge server-maintained lifetime rating aggregates', async () => {
+    await seed('users/alice', privateProfile('alice'));
+    await seed('publicProfiles/alice', {
+      ...publicProfile('alice'), ratingCount: 2, ratingSum: 9, ratingAverage: 4.5,
+    });
+    await assertFails(updateDoc(doc(auth('alice'), 'publicProfiles/alice'), {
+      ratingCount: 100, ratingSum: 500, ratingAverage: 5,
+    }));
+  });
+
   test('arbitrary fields, spoofed email, invalid level, and coordinates are rejected', async () => {
     await assertFails(createProfilePair(auth('alice'), 'alice', { privateOnly: { admin: true } }));
     await assertFails(createProfilePair(auth('alice'), 'alice', { publicOnly: { email: 'public@example.com' } }));
@@ -316,6 +332,7 @@ describe('join requests, notifications, and ratings', () => {
     const batch = writeBatch(db);
     batch.update(doc(db, 'matches/m1'), {
       players: [{ uid: 'requester', displayName: 'Player requester', level: 'Level 3' }],
+      participantUids: ['organizer', 'requester'],
       spotsLeft: 0,
     });
     batch.update(doc(db, 'matches/m1/joinRequests/requester'), { status: 'approved' });
@@ -334,6 +351,7 @@ describe('join requests, notifications, and ratings', () => {
     const batch = writeBatch(db);
     batch.update(doc(db, 'matches/m1'), {
       players: [{ uid: 'requester', displayName: 'Player requester', level: 'Level 3' }],
+      participantUids: ['organizer', 'requester'],
       spotsLeft: 0,
     });
     batch.update(doc(db, 'matches/m1/joinRequests/requester'), { status: 'approved' });
@@ -347,6 +365,47 @@ describe('join requests, notifications, and ratings', () => {
     });
     await assertFails(updateDoc(doc(auth('bob'), 'notifications/n1'), { isRead: true }));
     await assertSucceeds(updateDoc(doc(auth('alice'), 'notifications/n1'), { isRead: true }));
+  });
+
+  test('participant query projection cannot be forged', async () => {
+    await seed('publicProfiles/organizer', publicProfile('organizer'));
+    const db = auth('organizer');
+    const data = matchData('organizer', { participantUids: ['organizer', 'victim'] });
+    data.createdAt = serverTimestamp();
+    await assertFails(setDoc(doc(db, 'matches/forged'), data));
+
+    await seed('matches/m1', matchData());
+    await assertFails(updateDoc(doc(db, 'matches/m1'), {
+      participantUids: ['organizer', 'victim'],
+    }));
+    await assertFails(updateDoc(doc(db, 'matches/m1'), {
+      geoHash3: 'zzz', geoHash4: 'zzzz',
+    }));
+  });
+
+  test('rating aggregation idempotency markers are backend-only', async () => {
+    await seed('ratingAggregationEvents/event-1', { ratedUid: 'alice' });
+    await assertFails(getDoc(doc(auth('alice'), 'ratingAggregationEvents/event-1')));
+    await assertFails(setDoc(doc(auth('alice'), 'ratingAggregationEvents/forged'), {
+      ratedUid: 'alice',
+    }));
+  });
+
+  test('verified users can run bounded discovery and participant queries', async () => {
+    await seed('matches/m1', matchData('organizer'));
+    const db = auth('organizer');
+    await assertSucceeds(getDocs(query(
+      collection(db, 'matches'),
+      where('scheduledAt', '>=', Timestamp.fromMillis(now)),
+      orderBy('scheduledAt'),
+      limit(60),
+    )));
+    await assertSucceeds(getDocs(query(
+      collection(db, 'matches'),
+      where('participantUids', 'array-contains', 'organizer'),
+      orderBy('scheduledAt', 'desc'),
+      limit(100),
+    )));
   });
 
   test('self-rating and duplicate rating are blocked', async () => {

@@ -73,6 +73,8 @@ void main() {
                 rating: 5,
               ),
             ],
+            lifetimeRatingCount: 2,
+            lifetimeRatingAverage: 4.5,
           ),
         ),
       ),

@@ -481,7 +481,10 @@ void main() {
             initialLocation: _testLocation,
             initialScheduledAt: scheduled,
             initialLevel: 'Level 2.5',
-            creator: (match) async => saved = match,
+            creator: (match) async {
+              saved = match;
+              return 'created-match';
+            },
           ),
         ),
       );
@@ -510,7 +513,7 @@ void main() {
   testWidgets('create prevents double submit and shows loading', (
     WidgetTester tester,
   ) async {
-    final completion = Completer<void>();
+    final completion = Completer<String>();
     var submissions = 0;
     await tester.pumpWidget(
       MaterialApp(
@@ -535,7 +538,7 @@ void main() {
     expect(find.text('Creating...'), findsOneWidget);
     await tester.tap(find.byKey(const Key('create-match-submit')));
     expect(submissions, 1);
-    completion.complete();
+    completion.complete('created-match');
     await tester.pumpAndSettle();
   });
 
@@ -613,6 +616,37 @@ void main() {
     expect(find.text('1 spot left'), findsOneWidget);
     expect(find.byIcon(Icons.schedule), findsNothing);
     expect(find.text('Unknown location'), findsNothing);
+  });
+
+  testWidgets('Home keeps discovered matches despite differing profile place names', (
+    WidgetTester tester,
+  ) async {
+    for (final preferred in [
+      const DiscoveryLocation(country: 'México', countryCode: 'MX', city: 'Mexico City'),
+      const DiscoveryLocation(country: 'Mexico', countryCode: 'MX', city: 'Ciudad de México'),
+      const DiscoveryLocation(country: 'Mexico', countryCode: 'MX', city: 'Mexico City', area: 'Roma Norte'),
+      const DiscoveryLocation(country: 'Spain', countryCode: 'ES', city: 'Madrid'),
+    ]) {
+      await _pumpHome(tester, preferredLocation: preferred, matches: [
+        Match(id: 'nearby', title: 'Game', club: 'Polanco Club', level: 'Level 2',
+          spotsLeft: 2, creatorUid: 'creator', creatorEmail: '', players: const [],
+          scheduledAt: DateTime.now().add(const Duration(days: 1)),
+          location: const MatchLocation(clubName: 'Polanco Club', country: 'Mexico',
+            countryCode: 'MX', region: '', city: 'Mexico City', area: 'Polanco',
+            latitude: 19.433, longitude: -99.2),
+        ),
+      ]);
+      expect(find.text('Polanco Club'), findsOneWidget);
+      expect(find.byKey(const Key('home-empty-state')), findsNothing);
+    }
+  });
+
+  testWidgets('Home retains the shared discovery order and three-match limit', (tester) async {
+    await _pumpHome(tester, matches: [
+      for (var i = 1; i <= 4; i++) _match(id: '$i', club: 'Club $i'),
+    ]);
+    final cards = tester.widgetList<MatchCard>(find.byType(MatchCard));
+    expect(cards.map((card) => card.match.id), ['1', '2', '3']);
   });
 
   testWidgets('Home keeps the compact hierarchy free of redundant copy', (

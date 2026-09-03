@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "test:beta": "node --test test/beta_enrollment_safety.test.mjs",
-    "test:migration": "node --test test/migrate_phase8a_safety.test.mjs",
+    "test:beta-enrollment": "node --test test/beta_enrollment_safety.test.mjs",
+    "test:migration": "node --test test/migrate_phase8a_safety.test.mjs test/migrate_phase8_scalability_safety.test.mjs",
+    "test:functions": "firebase emulators:exec --project demo-padelx-phase8 --only firestore,functions \"node --test test/functions_emulator.test.mjs\"",
     "test:rules": "firebase emulators:exec --only firestore \"node --test test/firestore_rules.test.mjs\""
   },
   "devDependencies": {

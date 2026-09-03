@@ -11,6 +11,8 @@ import 'places_autocomplete.dart';
 
 import 'firebase_app_check_configuration.dart';
 import 'firebase_environment.dart';
+import 'geohash.dart';
+import 'discovery_refresh.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -150,11 +152,15 @@ class PublicUserProfile {
   final String uid;
   final String displayName;
   final String level;
+  final int ratingCount;
+  final double ratingAverage;
 
   const PublicUserProfile({
     required this.uid,
     required this.displayName,
     required this.level,
+    this.ratingCount = 0,
+    this.ratingAverage = 0,
   });
 
   factory PublicUserProfile.fromDocument(
@@ -165,6 +171,10 @@ class PublicUserProfile {
       uid: data['uid']?.toString() ?? document.id,
       displayName: data['displayName']?.toString().trim() ?? '',
       level: data['level']?.toString().trim() ?? '',
+      ratingCount: data['ratingCount'] is int ? data['ratingCount'] as int : 0,
+      ratingAverage: data['ratingAverage'] is num
+          ? (data['ratingAverage'] as num).toDouble()
+          : 0,
     );
   }
 }
@@ -1244,6 +1254,8 @@ class PublicPlayerProfile {
   final String email;
   final List<Match> matches;
   final List<PlayerRating> ratings;
+  final int lifetimeRatingCount;
+  final double lifetimeRatingAverage;
 
   const PublicPlayerProfile({
     required this.uid,
@@ -1252,9 +1264,12 @@ class PublicPlayerProfile {
     this.email = '',
     required this.matches,
     this.ratings = const [],
+    this.lifetimeRatingCount = 0,
+    this.lifetimeRatingAverage = 0,
   });
 
-  RatingSummary get ratingSummary => RatingSummary.fromRatings(ratings);
+  RatingSummary get ratingSummary =>
+      RatingSummary(average: lifetimeRatingAverage, count: lifetimeRatingCount);
 }
 
 class PlayerRating {
@@ -1369,29 +1384,61 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
   final firestore = FirebaseFirestore.instance;
   final results = await Future.wait([
     firestore.collection('publicProfiles').doc(uid).get(),
-    firestore.collection('matches').get(),
     firestore
-        .collectionGroup('ratings')
-        .where('ratedUid', isEqualTo: uid)
+        .collection('matches')
+        .where('participantUids', arrayContains: uid)
+        .orderBy('scheduledAt', descending: true)
+        .limit(20)
         .get(),
   ]);
   final userDocument = results[0] as DocumentSnapshot<Map<String, dynamic>>;
   final matchSnapshot = results[1] as QuerySnapshot<Map<String, dynamic>>;
-  final ratingSnapshot = results[2] as QuerySnapshot<Map<String, dynamic>>;
   final profile = userDocument.exists
       ? PublicUserProfile.fromDocument(userDocument)
       : null;
+  // participantUids is a query index only. Re-check the authoritative match
+  // fields before displaying results so a stale index cannot grant membership.
   final matches = matchSnapshot.docs
       .where((document) => matchIncludesPlayer(document.data(), uid))
       .map(Match.fromDocument)
       .toList();
+  final viewerUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  final viewerRatings = <PlayerRating>[];
+  if (viewerUid.isNotEmpty && viewerUid != uid) {
+    final documents = await Future.wait(
+      matches.map(
+        (match) => firestore
+            .collection('matches')
+            .doc(match.id)
+            .collection('ratingRaters')
+            .doc(viewerUid)
+            .collection('ratings')
+            .doc(uid)
+            .get(),
+      ),
+    );
+    for (final document in documents.where((item) => item.exists)) {
+      final data = document.data()!;
+      viewerRatings.add(
+        PlayerRating(
+          matchId: data['matchId']?.toString() ?? '',
+          raterUid: data['raterUid']?.toString() ?? '',
+          ratedUid: data['ratedUid']?.toString() ?? '',
+          rating: data['rating'] is int ? data['rating'] as int : 0,
+          createdAt: _parseScheduledAt(data['createdAt']),
+        ),
+      );
+    }
+  }
 
   return PublicPlayerProfile(
     uid: uid,
     displayName: profile?.displayName ?? '',
     level: profile?.level ?? '',
     matches: matches,
-    ratings: ratingSnapshot.docs.map(PlayerRating.fromDocument).toList(),
+    ratings: viewerRatings,
+    lifetimeRatingCount: profile?.ratingCount ?? 0,
+    lifetimeRatingAverage: profile?.ratingAverage ?? 0,
   );
 }
 
@@ -1744,6 +1791,8 @@ class NotificationsTab extends StatefulWidget {
   final ValueChanged<AppNotification> onOpen;
   final Future<void> Function()? onMarkAllRead;
   final VoidCallback? onRetry;
+  final bool hasMore;
+  final VoidCallback? onLoadMore;
   final Stream<Map<String, dynamic>?> Function(AppNotification)?
   joinRequestStream;
   final DateTime? now;
@@ -1757,6 +1806,8 @@ class NotificationsTab extends StatefulWidget {
     required this.onOpen,
     this.onMarkAllRead,
     this.onRetry,
+    this.hasMore = false,
+    this.onLoadMore,
     this.joinRequestStream,
     this.now,
   });
@@ -1919,9 +1970,18 @@ class _NotificationsTabState extends State<NotificationsTab> {
     }
     return ListView.separated(
       padding: const EdgeInsets.only(bottom: 16),
-      itemCount: ordered.length,
+      itemCount: ordered.length + (widget.hasMore ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
+        if (index == ordered.length) {
+          return Center(
+            child: OutlinedButton(
+              key: const Key('load-older-notifications'),
+              onPressed: widget.onLoadMore,
+              child: const Text('Load older notifications'),
+            ),
+          );
+        }
         final notification = ordered[index];
         return NotificationCard(
           notification: notification,
@@ -2301,6 +2361,10 @@ Map<String, dynamic> buildReviewRequestUpdate(
   );
   return {
     'players': players,
+    'participantUids': {
+      matchCreatorUid(matchData),
+      ...players.whereType<Map>().map(_playerUid),
+    }.where((uid) => uid.isNotEmpty).toList(),
     'spotsLeft': configuredRemaining < capacityRemaining
         ? configuredRemaining
         : capacityRemaining,
@@ -2342,7 +2406,22 @@ Future<UserProfile?> _loadUserProfile(String uid) async {
 
 class HomeScreen extends StatefulWidget {
   final UserProfile? profile;
-  const HomeScreen({super.key, this.profile});
+  final Future<List<Match>> Function()? discoveryLoader;
+  final Future<Map<String, dynamic>?> Function(String matchId)?
+  matchDocumentLoader;
+  final Widget Function()? createMatchScreenBuilder;
+  final Duration indexRetryDelay;
+  final int indexRetryAttempts;
+
+  const HomeScreen({
+    super.key,
+    this.profile,
+    this.discoveryLoader,
+    this.matchDocumentLoader,
+    this.createMatchScreenBuilder,
+    this.indexRetryDelay = const Duration(milliseconds: 400),
+    this.indexRetryAttempts = 10,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -2350,6 +2429,140 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+  int _notificationLimit = 50;
+  int _myMatchLimit = 100;
+  late Future<List<Match>> _discoveryMatches = _loadDiscoveryMatches();
+  MatchLocation? _discoveryOverride;
+  double _discoveryRadiusKm = 25;
+  int _discoveryPerCellLimit = discoveryInitialCellLimit;
+
+  Future<void> _refreshDiscovery() async {
+    if (!mounted) return;
+    setState(() {
+      _discoveryMatches = _loadDiscoveryMatches();
+    });
+  }
+
+  Future<void> _waitForIndexAndRefresh(MatchMutationResult result) async {
+    await waitForMatchGeoIndex(
+      result,
+      loadDocument: widget.matchDocumentLoader ?? _loadMatchDocument,
+      delay: widget.indexRetryDelay,
+      maxAttempts: widget.indexRetryAttempts,
+      isActive: () => mounted,
+    );
+    await _refreshDiscovery();
+  }
+
+  Future<Map<String, dynamic>?> _loadMatchDocument(String matchId) async =>
+      (await FirebaseFirestore.instance.collection('matches').doc(matchId)
+          .get(const GetOptions(source: Source.server)))
+          .data();
+
+  void _changeDiscovery(MatchLocation? location, double radiusKm) {
+    _discoveryOverride = location;
+    _discoveryRadiusKm = radiusKm;
+    _discoveryPerCellLimit = discoveryInitialCellLimit;
+    _refreshDiscovery();
+  }
+
+  void _loadMoreDiscovery() {
+    _discoveryPerCellLimit += discoveryInitialCellLimit;
+    _refreshDiscovery();
+  }
+
+  Future<List<Match>> _loadDiscoveryMatches() async {
+    final injectedLoader = widget.discoveryLoader;
+    if (injectedLoader != null) return injectedLoader();
+    final override = _discoveryOverride;
+    final profileLocation = widget.profile?.discoveryLocation;
+    final latitude = override?.latitude ?? profileLocation?.latitude;
+    final longitude = override?.longitude ?? profileLocation?.longitude;
+    final firestore = FirebaseFirestore.instance;
+    final now = Timestamp.fromDate(DateTime.now());
+    if (latitude == null || longitude == null) {
+      if (profileLocation == null || !profileLocation.isConfigured) {
+        return const [];
+      }
+      Future<(List<QueryDocumentSnapshot<Map<String, dynamic>>>, bool)> fetch(
+        int limit,
+      ) async {
+        final snapshot = await firestore
+            .collection('matches')
+            .where(
+              'location.countryCode',
+              isEqualTo: profileLocation.countryCode,
+            )
+            .where('location.city', isEqualTo: profileLocation.city)
+            .where('scheduledAt', isGreaterThanOrEqualTo: now)
+            .orderBy('scheduledAt')
+            .limit(limit + 1)
+            .get();
+        return (
+          snapshot.docs.take(limit).toList(),
+          snapshot.docs.length > limit,
+        );
+      }
+
+      var result = await fetch(_discoveryPerCellLimit);
+      if (shouldExpandInitialDiscovery(
+        requestedLimit: _discoveryPerCellLimit,
+        filteredResultCount: result.$1.length,
+        anyCellHasMore: result.$2,
+      )) {
+        result = await fetch(discoveryInitialCellLimit * 2);
+      }
+      return result.$1.map(Match.fromDocument).toList();
+    }
+    final cells = geohashCellsForRadius(
+      latitude,
+      longitude,
+      _discoveryRadiusKm,
+    );
+    final hashField = cells.first.length == 4 ? 'geoHash4' : 'geoHash3';
+    Future<(List<Match>, bool)> fetch(int limit) async {
+      final snapshots = await Future.wait(
+        cells.map(
+          (cell) => firestore
+              .collection('matches')
+              .where(hashField, isEqualTo: cell)
+              .where('scheduledAt', isGreaterThanOrEqualTo: now)
+              .orderBy('scheduledAt')
+              .limit(limit + 1)
+              .get(),
+        ),
+      );
+      final byId = <String, Match>{};
+      for (final snapshot in snapshots) {
+        for (final document in snapshot.docs.take(limit)) {
+          final match = Match.fromDocument(document);
+          final distance = distanceBetweenKm(
+            fromLatitude: latitude,
+            fromLongitude: longitude,
+            toLatitude: match.location.latitude,
+            toLongitude: match.location.longitude,
+          );
+          if (distance != null && distance <= _discoveryRadiusKm) {
+            byId[match.id] = match;
+          }
+        }
+      }
+      return (
+        sortedMatches(byId.values),
+        snapshots.any((snapshot) => snapshot.docs.length > limit),
+      );
+    }
+
+    var result = await fetch(_discoveryPerCellLimit);
+    if (shouldExpandInitialDiscovery(
+      requestedLimit: _discoveryPerCellLimit,
+      filteredResultCount: result.$1.length,
+      anyCellHasMore: result.$2,
+    )) {
+      result = await fetch(discoveryInitialCellLimit * 2);
+    }
+    return result.$1;
+  }
 
   void _reportStreamError(String streamName, AsyncSnapshot<Object?> snapshot) {
     if (!snapshot.hasError) return;
@@ -2373,11 +2586,16 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _openCreateMatchScreen() {
-    Navigator.push(
+  Future<void> _openCreateMatchScreen() async {
+    final result = await Navigator.push<MatchMutationResult>(
       context,
-      MaterialPageRoute(builder: (context) => const CreateMatchScreen()),
+      MaterialPageRoute(
+        builder: (context) =>
+            widget.createMatchScreenBuilder?.call() ??
+            const CreateMatchScreen(),
+      ),
     );
+    if (result != null && mounted) await _waitForIndexAndRefresh(result);
   }
 
   Future<void> _logout() async {
@@ -2429,61 +2647,101 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('matches')
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
+    return FutureBuilder<List<Match>>(
+      future: _discoveryMatches,
       builder: (context, snapshot) {
         _reportStreamError('matches', snapshot);
-        final matches = snapshot.hasData
-            ? snapshot.data!.docs.map((doc) => Match.fromDocument(doc)).toList()
-            : <Match>[];
-        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        final matches = snapshot.data ?? <Match>[];
+        final currentUid = Firebase.apps.isEmpty
+            ? null : FirebaseAuth.instance.currentUser?.uid;
         if (currentUid == null) {
-          return _buildScaffold(snapshot, matches, const [], '');
+          return _buildScaffold(snapshot, matches, const [], const [], '');
         }
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
-              .collectionGroup('joinRequests')
-              .where('userId', isEqualTo: currentUid)
+              .collection('matches')
+              .where('participantUids', arrayContains: currentUid)
+              .orderBy('scheduledAt', descending: true)
+              .limit(_myMatchLimit)
               .snapshots(),
-          builder: (context, requestSnapshot) {
-            _reportStreamError('current-user joinRequests', requestSnapshot);
-            final pendingMatchIds = requestSnapshot.hasData
-                ? requestSnapshot.data!.docs
-                      .map(JoinRequest.fromDocument)
-                      .where((request) => request.status == 'pending')
-                      .map((request) => request.matchId)
-                      .toSet()
-                : <String>{};
-            final pendingMatches = matches
-                .where((match) => pendingMatchIds.contains(match.id))
-                .toList();
-            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          builder: (context, myMatchSnapshot) {
+            _reportStreamError('user matches', myMatchSnapshot);
+            final myMatches = myMatchSnapshot.hasData
+                ? myMatchSnapshot.data!.docs
+                      .where(
+                        (doc) => matchIncludesPlayer(doc.data(), currentUid),
+                      )
+                      .map(Match.fromDocument)
+                      .toList()
+                : <Match>[];
+            return StreamBuilder<List<Match>>(
               stream: FirebaseFirestore.instance
-                  .collection('notifications')
-                  .where('recipientUid', isEqualTo: currentUid)
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
-              builder: (context, notificationSnapshot) {
-                _reportStreamError('notifications', notificationSnapshot);
-                final notifications = notificationSnapshot.hasData
-                    ? notificationSnapshot.data!.docs
-                          .map(AppNotification.fromDocument)
-                          .toList()
-                    : <AppNotification>[];
-                return _buildScaffold(
-                  snapshot,
-                  matches,
-                  pendingMatches,
-                  currentUid,
-                  requestsError: requestSnapshot.hasError,
-                  notifications: notifications,
-                  notificationsLoading:
-                      notificationSnapshot.connectionState ==
-                      ConnectionState.waiting,
-                  notificationsError: notificationSnapshot.hasError,
+                  .collectionGroup('joinRequests')
+                  .where('userId', isEqualTo: currentUid)
+                  .where('status', isEqualTo: 'pending')
+                  .orderBy('requestedAt', descending: true)
+                  .limit(50)
+                  .snapshots()
+                  .asyncMap((requestSnapshot) async {
+                    final ids = requestSnapshot.docs
+                        .map(JoinRequest.fromDocument)
+                        .map((request) => request.matchId)
+                        .where((id) => id.isNotEmpty)
+                        .toSet();
+                    final documents = await Future.wait(
+                      ids.map(
+                        (id) => FirebaseFirestore.instance
+                            .collection('matches')
+                            .doc(id)
+                            .get(),
+                      ),
+                    );
+                    return documents
+                        .where((document) => document.exists)
+                        .map(Match.fromDocument)
+                        .toList();
+                  }),
+              builder: (context, requestSnapshot) {
+                _reportStreamError(
+                  'current-user joinRequests',
+                  requestSnapshot,
+                );
+                final pendingMatches = requestSnapshot.data ?? <Match>[];
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('notifications')
+                      .where('recipientUid', isEqualTo: currentUid)
+                      .orderBy('createdAt', descending: true)
+                      .limit(_notificationLimit)
+                      .snapshots(),
+                  builder: (context, notificationSnapshot) {
+                    _reportStreamError('notifications', notificationSnapshot);
+                    final notifications = notificationSnapshot.hasData
+                        ? notificationSnapshot.data!.docs
+                              .map(AppNotification.fromDocument)
+                              .toList()
+                        : <AppNotification>[];
+                    return _buildScaffold(
+                      snapshot,
+                      matches,
+                      myMatches,
+                      pendingMatches,
+                      currentUid,
+                      requestsError: requestSnapshot.hasError,
+                      hasMoreMyMatches:
+                          myMatchSnapshot.hasData &&
+                          myMatchSnapshot.data!.docs.length == _myMatchLimit,
+                      notifications: notifications,
+                      notificationsLoading:
+                          notificationSnapshot.connectionState ==
+                          ConnectionState.waiting,
+                      notificationsError: notificationSnapshot.hasError,
+                      hasMoreNotifications:
+                          notificationSnapshot.hasData &&
+                          notificationSnapshot.data!.docs.length ==
+                              _notificationLimit,
+                    );
+                  },
                 );
               },
             );
@@ -2494,23 +2752,26 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildScaffold(
-    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
+    AsyncSnapshot<List<Match>> snapshot,
     List<Match> matches,
+    List<Match> myMatches,
     List<Match> pendingMatches,
     String currentUid, {
     bool requestsError = false,
+    bool hasMoreMyMatches = false,
     List<AppNotification> notifications = const [],
     bool notificationsLoading = false,
     bool notificationsError = false,
+    bool hasMoreNotifications = false,
   }) {
     final now = DateTime.now();
-    final currentEmail = FirebaseAuth.instance.currentUser?.email ?? '';
+    final currentEmail = Firebase.apps.isEmpty
+        ? '' : FirebaseAuth.instance.currentUser?.email ?? '';
     final openMatches = sortedMatches(
       matches.where(
         (match) => isUpcomingMatch(match, now) && match.status != 'cancelled',
       ),
     );
-    final myMatches = matchesForUser(matches, currentUid, currentEmail);
     final screens = [
       HomeTab(
         onFindMatch: () => _onItemTapped(1),
@@ -2527,6 +2788,8 @@ class _HomeScreenState extends State<HomeScreen> {
         pendingMatchIds: pendingMatches.map((match) => match.id).toSet(),
         preferredLocation: widget.profile?.discoveryLocation,
         onCreateMatch: _openCreateMatchScreen,
+        onDiscoveryQueryChanged: _changeDiscovery,
+        onLoadMoreNearby: _loadMoreDiscovery,
         isLoading: snapshot.connectionState == ConnectionState.waiting,
         error: snapshot.hasError,
       ),
@@ -2539,6 +2802,8 @@ class _HomeScreenState extends State<HomeScreen> {
         onCreateMatch: _openCreateMatchScreen,
         isLoading: snapshot.connectionState == ConnectionState.waiting,
         error: snapshot.hasError || requestsError,
+        hasMore: hasMoreMyMatches,
+        onLoadMore: () => setState(() => _myMatchLimit += 100),
       ),
       NotificationsTab(
         notifications: notifications,
@@ -2547,15 +2812,29 @@ class _HomeScreenState extends State<HomeScreen> {
         onMarkRead: _markNotificationRead,
         onMarkAllRead: () => _markAllNotificationsRead(notifications),
         onRetry: () => setState(() {}),
+        hasMore: hasMoreNotifications,
+        onLoadMore: () => setState(() => _notificationLimit += 50),
         joinRequestStream: _joinRequestForNotification,
-        onOpen: (notification) {
+        onOpen: (notification) async {
           _markNotificationRead(notification);
-          final match = matchForNotification(notification, matches);
-          if (match != null) {
+          var match = matchForNotification(notification, matches);
+          if (match == null && notification.matchId.isNotEmpty) {
+            final document = await FirebaseFirestore.instance
+                .collection('matches')
+                .doc(notification.matchId)
+                .get();
+            if (document.exists) match = Match.fromDocument(document);
+          }
+          if (!mounted) return;
+          final resolvedMatch = match;
+          if (resolvedMatch != null) {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => MatchDetailsScreen(match: match),
+                builder: (context) => MatchDetailsScreen(
+                  match: resolvedMatch,
+                  onMatchUpdated: _waitForIndexAndRefresh,
+                ),
               ),
             );
           } else {
@@ -2580,6 +2859,12 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: const Color(0xFF0F1412),
         elevation: 0,
         actions: [
+          if (_selectedIndex <= 1)
+            IconButton(
+              tooltip: 'Refresh matches',
+              onPressed: _refreshDiscovery,
+              icon: const Icon(Icons.refresh),
+            ),
           IconButton(
             tooltip: 'Log out',
             onPressed: _logout,
@@ -2647,18 +2932,6 @@ class HomeTab extends StatelessWidget {
     this.error = false,
   });
 
-  List<Match> get _relevantMatches {
-    final location = preferredLocation;
-    if (location == null || !location.isConfigured) return matches;
-    final nearby = filterDiscoveredMatches(
-      matches,
-      country: location.country,
-      city: location.city,
-      area: location.area,
-    );
-    return nearby;
-  }
-
   String get _locationLabel {
     final location = preferredLocation;
     if (location == null || !location.isConfigured) return '';
@@ -2670,7 +2943,9 @@ class HomeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final relevantMatches = _relevantMatches.take(3).toList();
+    // The parent supplies the same geographically discovered open matches to
+    // Home and Matches. Place-name equality must not override that result.
+    final relevantMatches = matches.take(3).toList();
     return ListView(
       key: const Key('home-scroll-view'),
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
@@ -2964,6 +3239,9 @@ class MatchesTab extends StatefulWidget {
   final DiscoveryLocation? preferredLocation;
   final VoidCallback? onCreateMatch;
   final CurrentLocationProvider? currentLocationProvider;
+  final void Function(MatchLocation? location, double radiusKm)?
+  onDiscoveryQueryChanged;
+  final VoidCallback? onLoadMoreNearby;
 
   const MatchesTab({
     super.key,
@@ -2976,6 +3254,8 @@ class MatchesTab extends StatefulWidget {
     this.preferredLocation,
     this.onCreateMatch,
     this.currentLocationProvider,
+    this.onDiscoveryQueryChanged,
+    this.onLoadMoreNearby,
   });
 
   @override
@@ -3080,6 +3360,7 @@ class _MatchesTabState extends State<MatchesTab> {
         _usingCurrentLocation = true;
         _radiusKm = 25;
       });
+      widget.onDiscoveryQueryChanged?.call(_discoveryCenter, _radiusKm);
     } on CurrentLocationException catch (error) {
       if (!mounted) return;
       setState(() => _currentLocationError = error.userMessage);
@@ -3187,6 +3468,10 @@ class _MatchesTabState extends State<MatchesTab> {
                     _currentLocationError = null;
                     _radiusKm = 25;
                   });
+                  widget.onDiscoveryQueryChanged?.call(
+                    _discoveryCenter,
+                    _radiusKm,
+                  );
                 },
               ),
               const SizedBox(height: 4),
@@ -3235,6 +3520,7 @@ class _MatchesTabState extends State<MatchesTab> {
                   _discoveryCenter = null;
                   _usingCurrentLocation = false;
                   _currentLocationError = null;
+                  widget.onDiscoveryQueryChanged?.call(null, _radiusKm);
                 }),
                 child: const Text('Clear location'),
               ),
@@ -3247,7 +3533,13 @@ class _MatchesTabState extends State<MatchesTab> {
                   (radius) => ChoiceChip(
                     label: Text('${radius.round()} km'),
                     selected: _radiusKm == radius,
-                    onSelected: (_) => setState(() => _radiusKm = radius),
+                    onSelected: (_) {
+                      setState(() => _radiusKm = radius);
+                      widget.onDiscoveryQueryChanged?.call(
+                        _discoveryCenter,
+                        radius,
+                      );
+                    },
                   ),
                 )
                 .toList(),
@@ -3437,6 +3729,16 @@ class _MatchesTabState extends State<MatchesTab> {
               explicitLevelLabel: true,
             );
           }),
+        if (widget.matches.isNotEmpty && widget.onLoadMoreNearby != null) ...[
+          const SizedBox(height: 12),
+          Center(
+            child: OutlinedButton(
+              key: const Key('load-more-nearby-matches'),
+              onPressed: widget.onLoadMoreNearby,
+              child: const Text('Load more nearby matches'),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -3478,10 +3780,14 @@ class MatchCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: () {
+          final refresh = context.findAncestorStateOfType<_HomeScreenState>()
+              ?._waitForIndexAndRefresh;
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => MatchDetailsScreen(match: match),
+              builder: (context) => MatchDetailsScreen(
+                match: match, onMatchUpdated: refresh,
+              ),
             ),
           );
         },
@@ -3667,6 +3973,8 @@ class MyMatchesTab extends StatefulWidget {
   final VoidCallback? onCreateMatch;
   final bool isLoading;
   final bool error;
+  final bool hasMore;
+  final VoidCallback? onLoadMore;
   final DateTime Function() nowProvider;
 
   const MyMatchesTab({
@@ -3679,6 +3987,8 @@ class MyMatchesTab extends StatefulWidget {
     this.onCreateMatch,
     required this.isLoading,
     required this.error,
+    this.hasMore = false,
+    this.onLoadMore,
     DateTime Function()? nowProvider,
   }) : nowProvider = nowProvider ?? DateTime.now;
 
@@ -3817,6 +4127,16 @@ class _MyMatchesTabState extends State<MyMatchesTab> {
               explicitLevelLabel: true,
             ),
           ),
+        if (widget.hasMore) ...[
+          const SizedBox(height: 12),
+          Center(
+            child: OutlinedButton(
+              key: const Key('load-older-matches'),
+              onPressed: widget.onLoadMore,
+              child: const Text('Load older matches'),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -4537,7 +4857,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   }
 }
 
-typedef MatchCreator = Future<void> Function(Map<String, dynamic> match);
+typedef MatchCreator = Future<String> Function(Map<String, dynamic> match);
 
 class CreateMatchScreen extends StatefulWidget {
   final GooglePlacesClient? placesClient;
@@ -4673,21 +4993,20 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         'level': level!,
         'spotsLeft': _totalPlayers - 1,
         'players': <Map<String, String>>[],
+        'participantUids': <String>[if (user != null) user.uid],
         'creatorUid': user?.uid ?? '',
         'creatorDisplayName': profile?.displayName ?? '',
         'creatorLevel': profile?.level ?? '',
         'createdAt': FieldValue.serverTimestamp(),
       };
-      if (widget.creator != null) {
-        await widget.creator!(match);
-      } else {
-        await FirebaseFirestore.instance.collection('matches').add(match);
-      }
+      final matchId = widget.creator != null
+          ? await widget.creator!(match)
+          : (await FirebaseFirestore.instance.collection('matches').add(match)).id;
 
       if (!mounted) return;
 
       final messenger = ScaffoldMessenger.of(context);
-      Navigator.pop(context);
+      Navigator.pop(context, MatchMutationResult(matchId, location));
       messenger.showSnackBar(
         const SnackBar(content: Text('Match created successfully.')),
       );
@@ -5142,7 +5461,7 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
         await _saveToFirestore(update);
       }
       if (!mounted) return;
-      Navigator.pop(context, true);
+      Navigator.pop(context, MatchMutationResult(widget.match.id, _location));
     } on MatchActionException catch (error) {
       _showMessage(error.message);
     } on FirebaseException catch (error, stackTrace) {
@@ -5489,7 +5808,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.sports_tennis),
-                  title: const Text('Matches played'),
+                  title: const Text('Recent matches'),
                   trailing: Text(
                     '${profile.matches.length}',
                     key: const Key('public-profile-match-count'),
@@ -5537,7 +5856,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
               ),
               const SizedBox(height: 24),
               const Text(
-                'Match history',
+                'Recent match history',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
@@ -5931,8 +6250,9 @@ class _InlineLoadError extends StatelessWidget {
 
 class MatchDetailsScreen extends StatefulWidget {
   final Match match;
+  final Future<void> Function(MatchMutationResult)? onMatchUpdated;
 
-  const MatchDetailsScreen({super.key, required this.match});
+  const MatchDetailsScreen({super.key, required this.match, this.onMatchUpdated});
 
   @override
   State<MatchDetailsScreen> createState() => _MatchDetailsScreenState();
@@ -6267,6 +6587,10 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         final restoredSpots = spotsLeft + 1;
         transaction.update(matchRef, {
           'players': players,
+          'participantUids': {
+            matchCreatorUid(data),
+            ...players.whereType<Map>().map(_playerUid),
+          }.where((uid) => uid.isNotEmpty).toList(),
           'spotsLeft': restoredSpots < capacityRemaining
               ? restoredSpots
               : capacityRemaining,
@@ -6415,10 +6739,15 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         final requestsStream = completed
             ? Stream.value(const <JoinRequest>[])
             : isOrganizer
-            ? requestsCollection.snapshots().map(
-                (snapshot) =>
-                    snapshot.docs.map(JoinRequest.fromDocument).toList(),
-              )
+            ? requestsCollection
+                  .where('status', isEqualTo: 'pending')
+                  .orderBy('requestedAt')
+                  .limit(25)
+                  .snapshots()
+                  .map(
+                    (snapshot) =>
+                        snapshot.docs.map(JoinRequest.fromDocument).toList(),
+                  )
             : requestsCollection
                   .doc(currentUid ?? '__signed_out__')
                   .snapshots()
@@ -6461,13 +6790,13 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                           ? null
                           : () async {
                               final updated = await Navigator.of(context)
-                                  .push<bool>(
+                                  .push<MatchMutationResult>(
                                     MaterialPageRoute(
                                       builder: (_) =>
                                           EditMatchScreen(match: match),
                                     ),
                                   );
-                              if (updated == true && context.mounted) {
+                              if (updated != null && context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
@@ -6475,6 +6804,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                                     ),
                                   ),
                                 );
+                                await widget.onMatchUpdated?.call(updated);
                               }
                             },
                       icon: const Icon(Icons.edit_outlined),
