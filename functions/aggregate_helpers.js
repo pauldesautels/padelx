@@ -14,9 +14,3 @@ export function encodeGeohash(latitude, longitude, precision) {
   }
   return result;
 }
-
-export function ratingAggregateAfter(current, rating) {
-  const count = Number(current.ratingCount ?? 0) + 1;
-  const sum = Number(current.ratingSum ?? 0) + rating;
-  return { ratingCount: count, ratingSum: sum, ratingAverage: sum / count };
-}

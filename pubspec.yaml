@@ -40,6 +40,7 @@ dependencies:
   http: ^1.5.0
   geolocator: ^14.0.3
   firebase_app_check: ^0.4.7
+  cloud_functions: ^6.4.0
 
 dev_dependencies:
   flutter_test:

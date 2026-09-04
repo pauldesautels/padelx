@@ -6,8 +6,21 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function accountDeleting(uid) {
+      return exists(/databases/$(database)/documents/accountDeletionBarriers/$(uid));
+    }
+
+    function activeAccount(uid) {
+      return !accountDeleting(uid);
+    }
+
+    function activePublicAccount(uid) {
+      return activeAccount(uid)
+        && exists(/databases/$(database)/documents/publicProfiles/$(uid));
+    }
+
     function verifiedUser() {
-      return signedIn()
+      return signedIn() && activeAccount(request.auth.uid)
         && request.auth.token.email_verified == true;
     }
 
@@ -312,6 +325,7 @@ service cloud.firestore {
     function organizerApprovesPendingRequest(matchId) {
       let playerUid = appendedPlayerUid();
       return isOrganizer(matchId)
+        && activeAccount(playerUid)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['players', 'spotsLeft', 'participantUids'])
         && request.resource.data.players is list
@@ -516,6 +530,7 @@ service cloud.firestore {
         && data.ratedUid != ''
         && data.ratedUid == ratedUid
         && data.raterUid != data.ratedUid
+        && activePublicAccount(data.ratedUid)
         && data.rating is int
         && data.rating >= 1
         && data.rating <= 5
@@ -542,11 +557,11 @@ service cloud.firestore {
         /databases/$(database)/documents/publicProfiles/$(request.auth.uid)
       ).data;
       return request.resource.data.keys().hasAll([
-          'userId', 'displayName', 'level', 'email', 'status', 'requestedAt',
+          'userId', 'displayName', 'level', 'status', 'requestedAt',
           'eventId'
         ])
         && request.resource.data.keys().hasOnly([
-          'userId', 'displayName', 'level', 'email', 'status', 'requestedAt',
+          'userId', 'displayName', 'level', 'status', 'requestedAt',
           'eventId'
         ])
         && request.resource.data.userId is string
@@ -554,8 +569,6 @@ service cloud.firestore {
         && validProfileLevel(request.resource.data.level)
         && request.resource.data.displayName == publicProfile.displayName
         && request.resource.data.level == publicProfile.level
-        && request.resource.data.email is string
-        && request.resource.data.email == request.auth.token.email
         && request.resource.data.eventId is string
         && request.resource.data.eventId.size() >= 1
         && request.resource.data.eventId.size() <= 128
@@ -591,6 +604,7 @@ service cloud.firestore {
         && data.type == 'join_request'
         && data.actorUid == request.auth.uid
         && data.actorUid != data.recipientUid
+        && activeAccount(data.recipientUid)
         && data.actorDisplayName == requestAfter.displayName
         && data.matchClubName == matchData.club
         && data.title == 'New join request'
@@ -639,6 +653,7 @@ service cloud.firestore {
         && data.type in ['join_approved', 'join_declined']
         && data.actorUid == request.auth.uid
         && data.actorUid != data.recipientUid
+        && activeAccount(data.recipientUid)
         && data.actorDisplayName is string
         && data.matchClubName == matchData.club
         && data.title == expectedTitle
@@ -683,6 +698,7 @@ service cloud.firestore {
       allow create: if verifiedUser()
         && request.auth.uid == userId
         && validPublicProfile(userId, request.resource.data)
+        && !request.resource.data.keys().hasAny(['ratingCount', 'ratingSum', 'ratingAverage'])
         && existsAfter(/databases/$(database)/documents/users/$(userId))
         && profilesMatchAfter(userId);
       allow update: if verifiedUser()
@@ -712,7 +728,23 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Admin-only idempotency markers written by the rating aggregate trigger.
+    // Server-owned lifecycle records. Rules can inspect barriers even though
+    // clients cannot read or mutate their contents. Any barrier blocks access,
+    // including completed jobs; clients cannot clear it by changing status.
+    match /accountDeletionBarriers/{uid} {
+      allow read, write: if false;
+    }
+    match /accountDeletionJobs/{uid} {
+      allow read, write: if false;
+    }
+    match /accountDeletionOutbox/{uid} {
+      allow read, write: if false;
+    }
+    match /ratingContributions/{contributionId} {
+      allow read, write: if false;
+    }
+
+    // Legacy event markers remain server-only until the accounting transition.
     match /ratingAggregationEvents/{eventId} {
       allow read, write: if false;
     }
@@ -765,6 +797,7 @@ service cloud.firestore {
           && request.auth.uid == userId
           && !isOrganizer(matchId)
           && request.resource.data.userId == request.auth.uid
+          && activeAccount(matchOrganizerUid(get(/databases/$(database)/documents/matches/$(matchId)).data))
           && request.resource.data.status == 'pending'
           && validRequestFields();
 
@@ -775,6 +808,7 @@ service cloud.firestore {
             request.auth.uid == userId
             && !isOrganizer(matchId)
             && resource.data.status == 'declined'
+            && activeAccount(matchOrganizerUid(get(/databases/$(database)/documents/matches/$(matchId)).data))
             && request.resource.data.userId == request.auth.uid
             && request.resource.data.status == 'pending'
             && validRequestFields()

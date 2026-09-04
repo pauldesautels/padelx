@@ -23,7 +23,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 
-const projectId = 'padelx-phase-8a-rules-test';
+const projectId = 'demo-padelx-phase8';
 const now = Date.now();
 const future = () => Timestamp.fromMillis(now + 86_400_000);
 const past = () => Timestamp.fromMillis(now - 86_400_000);
@@ -236,6 +236,12 @@ describe('private and public profiles', () => {
   });
 
   test('clients cannot forge server-maintained lifetime rating aggregates', async () => {
+    await assertFails(createProfilePair(auth('fresh'), 'fresh', {
+      publicOnly: { ratingCount: 1, ratingSum: 5, ratingAverage: 5 },
+    }));
+    await assertFails(createProfilePair(auth('fresh'), 'fresh', {
+      publicOnly: { ratingSum: 5 },
+    }));
     await seed('users/alice', privateProfile('alice'));
     await seed('publicProfiles/alice', {
       ...publicProfile('alice'), ratingCount: 2, ratingSum: 9, ratingAverage: 4.5,
@@ -409,6 +415,7 @@ describe('join requests, notifications, and ratings', () => {
   });
 
   test('self-rating and duplicate rating are blocked', async () => {
+    await seed('publicProfiles/rated', publicProfile('rated'));
     await seed('matches/completed', matchData('organizer', {
       scheduledAt: past(),
       players: [
@@ -433,4 +440,118 @@ describe('join requests, notifications, and ratings', () => {
       rating: 1, createdAt: serverTimestamp(),
     }));
   });
+});
+
+describe('account deletion foundation', () => {
+  test('barriers, jobs, and contributions are server-owned for all users', async () => {
+    for (const collectionName of ['accountDeletionBarriers', 'accountDeletionJobs', 'accountDeletionOutbox', 'ratingContributions']) {
+      await seed(`${collectionName}/alice`, { status: 'deleting', schemaVersion: 1 });
+      for (const uid of ['alice', 'bob']) {
+        const db = auth(uid);
+        await assertFails(getDoc(doc(db, `${collectionName}/alice`)));
+        await assertFails(setDoc(doc(db, `${collectionName}/new`), { uid }));
+        await assertFails(updateDoc(doc(db, `${collectionName}/alice`), { status: 'active' }));
+        await assertFails(deleteDoc(doc(db, `${collectionName}/alice`)));
+      }
+    }
+  });
+
+  test('barrier denies normal writes and cannot be bypassed by another user', async () => {
+    const db = auth('alice');
+    await assertSucceeds(createProfilePair(db, 'alice'));
+    await seed('matches/owned', matchData('alice'));
+    await seed('notifications/own', { recipientUid: 'alice', isRead: false });
+    await seed('accountDeletionBarriers/alice', { status: 'complete' });
+    await assertFails(createProfilePair(db, 'alice'));
+    await assertFails(updateDoc(doc(db, 'matches/owned'), { level: 'Level 4' }));
+    await assertFails(deleteDoc(doc(db, 'matches/owned')));
+    await assertFails(updateDoc(doc(db, 'notifications/own'), { isRead: true }));
+    const newMatch = matchData('alice', { createdAt: serverTimestamp() });
+    await assertFails(setDoc(doc(db, 'matches/new'), newMatch));
+    await assertFails(createProfilePair(auth('bob'), 'alice'));
+    // Other users' existing bounded reads do not acquire subject-dependent filters.
+    await assertSucceeds(getDocs(query(collection(auth('bob'), 'matches'), limit(10))));
+  });
+
+  test('new ratings require an active existing target profile and active caller', async () => {
+    await seed('matches/completed', matchData('alice', {
+      scheduledAt: past(), players: [{ uid: 'bob' }], participantUids: ['alice', 'bob'],
+    }));
+    const ref = doc(auth('alice'), 'matches/completed/ratingRaters/alice/ratings/bob');
+    const value = { matchId: 'completed', raterUid: 'alice', ratedUid: 'bob', rating: 5, createdAt: serverTimestamp() };
+    await assertFails(setDoc(ref, value));
+    await seed('publicProfiles/bob', publicProfile('bob'));
+    await seed('accountDeletionBarriers/bob', { status: 'deleting' });
+    await assertFails(setDoc(ref, value));
+    await environment.withSecurityRulesDisabled(async (context) => deleteDoc(doc(context.firestore(), 'accountDeletionBarriers/bob')));
+    await seed('accountDeletionBarriers/alice', { status: 'deleting' });
+    await assertFails(setDoc(ref, value));
+  });
+
+  test('another organizer cannot approve a deleting player; requests cannot target a deleting organizer', async () => {
+    await seed('matches/m1', matchData('organizer', { spotsLeft: 1 }));
+    await seed('publicProfiles/requester', publicProfile('requester'));
+    const request = { userId: 'requester', displayName: 'Player requester', level: 'Level 3',
+      status: 'pending', requestedAt: serverTimestamp(), eventId: 'e1' };
+    await assertFails(setDoc(doc(auth('requester'), 'matches/m1/joinRequests/requester'), { ...request, email: 'requester@example.com' }));
+    await assertSucceeds(setDoc(doc(auth('requester'), 'matches/m1/joinRequests/requester'), request));
+    await seed('accountDeletionBarriers/requester', { status: 'deleting' });
+    const db = auth('organizer');
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'matches/m1'), { players: [{ uid: 'requester', displayName: 'Player requester', level: 'Level 3' }],
+      participantUids: ['organizer', 'requester'], spotsLeft: 0 });
+    batch.update(doc(db, 'matches/m1/joinRequests/requester'), { status: 'approved' });
+    await assertFails(batch.commit());
+    await seed('publicProfiles/other', publicProfile('other'));
+    await seed('accountDeletionBarriers/organizer', { status: 'deleting' });
+    await assertFails(setDoc(doc(auth('other'), 'matches/m1/joinRequests/other'), {
+      ...request, userId: 'other', displayName: 'Player other', email: 'other@example.com',
+    }));
+  });
+});
+
+test('full-capacity approval, notification and subsequent leave retain access', async () => {
+  const players = ['first', 'second'].map((uid) => ({ uid, displayName: `Player ${uid}`, level: 'Level 3' }));
+  await seed('matches/capacity', matchData('organizer', {
+    players, participantUids: ['organizer', 'first', 'second'], spotsLeft: 1,
+  }));
+  await seed('matches/capacity/joinRequests/requester', {
+    userId: 'requester', displayName: 'Player requester', level: 'Level 3',
+    email: 'requester@example.com', status: 'pending', requestedAt: past(), eventId: 'capacity-event',
+  });
+  const db = auth('organizer');
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'matches/capacity'), {
+    players: [...players, { uid: 'requester', displayName: 'Player requester', level: 'Level 3' }],
+    participantUids: ['organizer', 'first', 'second', 'requester'], spotsLeft: 0,
+  });
+  batch.update(doc(db, 'matches/capacity/joinRequests/requester'), { status: 'approved' });
+  batch.set(doc(db, 'notifications/join_approved_capacity_capacity-event'), {
+    type: 'join_approved', recipientUid: 'requester', actorUid: 'organizer', actorDisplayName: 'Player organizer',
+    matchId: 'capacity', matchClubName: 'Roma Padel', title: 'Request approved',
+    message: 'Your request to join the match at Roma Padel was approved.',
+    isRead: false, createdAt: serverTimestamp(), eventId: 'capacity-event',
+  });
+  await assertSucceeds(batch.commit());
+  const leaveDb = auth('requester');
+  const leave = writeBatch(leaveDb);
+  leave.update(doc(leaveDb, 'matches/capacity'), {
+    players, participantUids: ['organizer', 'first', 'second'], spotsLeft: 1,
+  });
+  leave.update(doc(leaveDb, 'matches/capacity/joinRequests/requester'), { status: 'declined' });
+  await assertSucceeds(leave.commit());
+});
+
+
+test('deletion barrier blocks creation of absent profiles using an old session', async () => {
+  const db = auth('deleted-admission');
+  await seed('accountDeletionBarriers/deleted-admission', { status: 'deleting' });
+  await assertFails(createProfilePair(db, 'deleted-admission'));
+  await assertFails(setDoc(doc(db, 'publicProfiles/deleted-admission'), publicProfile('deleted-admission')));
+  await assertFails(setDoc(doc(db, 'users/deleted-admission'), privateProfile('deleted-admission')));
+  const anonymous = environment.unauthenticatedContext().firestore();
+  for (const name of ['accountDeletionBarriers', 'accountDeletionJobs', 'accountDeletionOutbox']) {
+    await assertFails(getDoc(doc(anonymous, `${name}/deleted-admission`)));
+    await assertFails(setDoc(doc(anonymous, `${name}/deleted-admission`), { status: 'active' }));
+  }
 });

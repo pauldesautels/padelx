@@ -1,5 +1,7 @@
 {
-  "functions": { "source": "functions" },
+  "functions": {
+    "source": "functions"
+  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
@@ -13,6 +15,9 @@
     },
     "ui": {
       "enabled": false
+    },
+    "auth": {
+      "port": 9099
     }
   },
   "flutter": {

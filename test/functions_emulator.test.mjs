@@ -17,12 +17,17 @@ import {
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeApp } from 'firebase-admin/app';
 import {
-  handlePlayerRatingCreated,
+  handlePlayerRatingWritten,
 } from '../functions/index.js';
+import { ratingIdentity, reconcileRating } from '../functions/rating_contributions.js';
+import { requireActiveAccount } from '../functions/account_state.js';
+import { getAuth } from 'firebase-admin/auth';
 import { encodeGeohash } from '../functions/aggregate_helpers.js';
 
 const projectId = 'demo-padelx-phase8';
-const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080';
+const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+assert.ok(emulatorHost, 'Firestore emulator is required');
+assert.ok(process.env.FIREBASE_AUTH_EMULATOR_HOST, 'Auth emulator is required');
 const [host, portText] = emulatorHost.split(':');
 const port = Number(portText);
 let environment;
@@ -212,19 +217,11 @@ test('deployed-style geo indexing and lifetime rating aggregation', async () => 
     [2, 8, 4],
   );
 
-  const markers = await getFirestore()
-    .collection('ratingAggregationEvents')
-    .where('ratingPath', '==', firstPath)
-    .get();
-  assert.equal(markers.size, 1);
-  const firstRating = await getFirestore().doc(firstPath).get();
-  const replayEvent = {
-    id: markers.docs[0].id,
-    params: { ratedUid: 'rated' },
-    data: firstRating,
-  };
-  await handlePlayerRatingCreated(replayEvent);
-  await handlePlayerRatingCreated(replayEvent);
+  const contribution = await adminData(`ratingContributions/${ratingIdentity(firstPath).contributionId}`);
+  assert.equal(contribution.score, 5);
+  const replayEvent = { params: { matchId: 'completed', raterUid: 'rater1', ratedUid: 'rated' } };
+  await handlePlayerRatingWritten(replayEvent);
+  await handlePlayerRatingWritten(replayEvent);
   aggregate = await adminData('publicProfiles/rated');
   assert.deepEqual(
     [aggregate.ratingCount, aggregate.ratingSum, aggregate.ratingAverage],
@@ -256,4 +253,81 @@ test('deployed-style geo indexing and lifetime rating aggregation', async () => 
     [aggregate.ratingCount, aggregate.ratingSum, aggregate.ratingAverage],
     [2, 8, 4],
   );
+});
+
+test('rating reconciliation converges across updates, deletions, barriers and missing profiles', async () => {
+  const firestore = getFirestore();
+  const target = 'cleanup-rated';
+  const path = 'matches/cleanup/ratingRaters/cleanup-rater/ratings/cleanup-rated';
+  const otherPath = 'matches/cleanup/ratingRaters/cleanup-other/ratings/cleanup-rated';
+  const profilePath = `publicProfiles/${target}`;
+  const contributionPath = `ratingContributions/${ratingIdentity(path).contributionId}`;
+  await seed(profilePath, profile(target));
+  await seed('matches/cleanup', { ...matchData('cleanup-rater'),
+    scheduledAt: Timestamp.fromMillis(Date.now() - 10000),
+    players: [{ uid: target }, { uid: 'cleanup-other' }] });
+  const rating = { matchId: 'cleanup', raterUid: 'cleanup-rater', ratedUid: target, rating: 5 };
+  await seed(path, rating);
+  await Promise.all(Array.from({ length: 4 }, () => reconcileRating(firestore, path)));
+  assert.equal((await adminData(profilePath)).ratingSum, 5);
+  await seed(otherPath, { ...rating, raterUid: 'cleanup-other', rating: 3 });
+  await reconcileRating(firestore, otherPath);
+  assert.equal((await adminData(profilePath)).ratingAverage, 4);
+  await firestore.doc(path).update({ rating: 1 });
+  await reconcileRating(firestore, path);
+  assert.equal((await adminData(profilePath)).ratingSum, 4);
+  await firestore.doc(path).delete();
+  await Promise.all([reconcileRating(firestore, path), reconcileRating(firestore, path)]);
+  await handlePlayerRatingWritten({ params: { matchId: 'cleanup', raterUid: 'cleanup-rater', ratedUid: target },
+    data: { after: { data: () => rating } } });
+  assert.equal(await adminData(contributionPath), undefined);
+  assert.equal((await adminData(profilePath)).ratingCount, 1);
+  assert.equal((await adminData(profilePath)).ratingSum, 3);
+  await firestore.doc(otherPath).delete();
+  await reconcileRating(firestore, otherPath);
+  const zero = await adminData(profilePath);
+  assert.deepEqual([zero.ratingCount, zero.ratingSum, zero.ratingAverage], [0, 0, 0]);
+
+  await seed(path, rating);
+  await reconcileRating(firestore, path);
+  await seed(`accountDeletionBarriers/${target}`, { status: 'deleting', schemaVersion: 1 });
+  await reconcileRating(firestore, path);
+  assert.equal((await adminData(profilePath)).ratingCount, 0);
+  assert.equal(await adminData(contributionPath), undefined);
+  await firestore.doc(profilePath).delete();
+  await reconcileRating(firestore, path);
+  assert.equal(await adminData(profilePath), undefined);
+});
+
+test('Auth emulator and shared active-account authorization', async () => {
+  const user = await getAuth().createUser({ uid: 'auth-fixture', email: 'auth-fixture@example.com', emailVerified: true });
+  assert.equal(user.uid, 'auth-fixture');
+  const request = { auth: { uid: user.uid, token: { email_verified: true } } };
+  assert.equal(await requireActiveAccount(getFirestore(), request), user.uid);
+  await seed(`accountDeletionBarriers/${user.uid}`, { status: 'deleting' });
+  await assert.rejects(requireActiveAccount(getFirestore(), request), /deletion is in progress/);
+  await assert.rejects(requireActiveAccount(getFirestore(), { auth: { uid: 'unverified', token: {} } }), /Verified email/);
+  await getAuth().deleteUser(user.uid);
+});
+
+test('rater barrier removes only its contribution and absent targets stay absent', async () => {
+  const firestore = getFirestore();
+  const target = 'barrier-target';
+  const paths = ['barrier-a', 'barrier-b'].map((uid) => `matches/barrier-match/ratingRaters/${uid}/ratings/${target}`);
+  await seed(`publicProfiles/${target}`, profile(target));
+  await seed('matches/barrier-match', { ...matchData('barrier-a'),
+    scheduledAt: Timestamp.fromMillis(Date.now() - 10000), players: [{ uid: 'barrier-b' }, { uid: target }] });
+  for (const [index, path] of paths.entries()) {
+    await seed(path, { matchId: 'barrier-match', raterUid: `barrier-${index === 0 ? 'a' : 'b'}`, ratedUid: target, rating: index + 3 });
+  }
+  await Promise.all(paths.map((path) => reconcileRating(firestore, path)));
+  assert.equal((await adminData(`publicProfiles/${target}`)).ratingSum, 7);
+  await seed('accountDeletionBarriers/barrier-a', { status: 'deleting' });
+  await Promise.all(paths.map((path) => reconcileRating(firestore, path)));
+  assert.equal((await adminData(`publicProfiles/${target}`)).ratingSum, 4);
+  assert.equal((await adminData(`publicProfiles/${target}`)).ratingCount, 1);
+  await firestore.doc(`publicProfiles/${target}`).delete();
+  await reconcileRating(firestore, paths[1]);
+  assert.equal(await adminData(`publicProfiles/${target}`), undefined);
+  assert.equal(await adminData(`ratingContributions/${ratingIdentity(paths[1]).contributionId}`), undefined);
 });

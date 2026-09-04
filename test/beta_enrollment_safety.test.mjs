@@ -23,7 +23,7 @@ describe('Phase 8C beta enrollment safety checks', () => {
     );
     assert.throws(
       () => validateEnrollmentTarget('padelx-f168f', 'padelx-f168f'),
-      /refuses the production project/,
+      /Production backend access is disabled/,
     );
   });
 

@@ -1,4 +1,5 @@
-export const productionProjectId = 'padelx-f168f';
+import { PRODUCTION_PROJECT, validateBackendEnvironment } from '../functions/backend_environment.js';
+export const productionProjectId = PRODUCTION_PROJECT;
 
 export function canonicalEmail(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -13,9 +14,10 @@ export function validateEnrollmentTarget(projectId, expectedProjectId) {
   if (projectId !== expectedProjectId) {
     throw new Error('Project confirmation does not match the target project.');
   }
-  if (projectId === productionProjectId) {
-    throw new Error('This Phase 8C utility refuses the production project.');
-  }
+  validateBackendEnvironment({ projectId,
+    firestoreHost: process.env.FIRESTORE_EMULATOR_HOST,
+    authHost: process.env.FIREBASE_AUTH_EMULATOR_HOST,
+  });
 }
 
 export function validateEnrollmentEmail(value) {

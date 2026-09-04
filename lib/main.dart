@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'account_deletion.dart';
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -60,12 +61,63 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
+  bool _deleting = false;
+  String? _deletionMessage;
+  Future<void> _finishDeletion(String message) async {
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      setState(() {
+        _deleting = false;
+        _deletionMessage = message;
+      });
+    }
+  }
+
+  Widget _accountArea(Widget child) => Material(child: Column(
+    children: [
+      SafeArea(
+        bottom: false,
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => setState(() => _deleting = true),
+            icon: const Icon(Icons.person_remove_outlined),
+            label: const Text('Delete Account'),
+          ),
+        ),
+      ),
+      Expanded(child: child),
+    ],
+  ));
+
   void _continueAfterVerification() {
     if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_deleting) {
+      return DeleteAccountScreen(onFinished: _finishDeletion);
+    }
+    if (_deletionMessage != null) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_deletionMessage!),
+                TextButton(
+                  onPressed: () => setState(() => _deletionMessage = null),
+                  child: const Text('Continue'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
@@ -77,25 +129,27 @@ class _AuthGateState extends State<AuthGate> {
 
         // reload() updates FirebaseAuth.currentUser without guaranteeing a new
         // authStateChanges event, so prefer that refreshed instance here.
-        final user = FirebaseAuth.instance.currentUser ?? snapshot.data;
+        final user = FirebaseAuth.instance.currentUser;
         if (user != null && !user.emailVerified) {
-          return EmailVerificationScreen(
-            email: user.email ?? '',
-            onContinue: () async {
-              await user.reload();
-              final refreshedUser = FirebaseAuth.instance.currentUser;
-              if (refreshedUser?.emailVerified != true) return false;
-              await refreshedUser!.getIdToken(true);
-              _continueAfterVerification();
-              return true;
-            },
-            onResend: user.sendEmailVerification,
-            onSignOut: FirebaseAuth.instance.signOut,
+          return _accountArea(
+            EmailVerificationScreen(
+              email: user.email ?? '',
+              onContinue: () async {
+                await user.reload();
+                final refreshedUser = FirebaseAuth.instance.currentUser;
+                if (refreshedUser?.emailVerified != true) return false;
+                await refreshedUser!.getIdToken(true);
+                _continueAfterVerification();
+                return true;
+              },
+              onResend: user.sendEmailVerification,
+              onSignOut: FirebaseAuth.instance.signOut,
+            ),
           );
         }
 
         if (user != null) {
-          return ProfileGate(user: user);
+          return _accountArea(ProfileGate(user: user));
         }
 
         return const AuthScreen();
@@ -1129,10 +1183,22 @@ class Match {
       club: data['clubName']?.toString() ?? data['club']?.toString() ?? '',
       level: data['level']?.toString() ?? '',
       spotsLeft: _parseSpotsLeft(data['spotsLeft']),
-      creatorUid: matchCreatorUid(data),
-      creatorEmail: matchCreatorEmail(data),
-      creatorDisplayName: data['creatorDisplayName']?.toString() ?? '',
-      creatorLevel: data['creatorLevel']?.toString() ?? '',
+      creatorUid:
+          data['organizer'] is Map && data['organizer']['deleted'] == true
+          ? ''
+          : matchCreatorUid(data),
+      creatorEmail:
+          data['organizer'] is Map && data['organizer']['deleted'] == true
+          ? ''
+          : matchCreatorEmail(data),
+      creatorDisplayName:
+          data['organizer'] is Map && data['organizer']['deleted'] == true
+          ? 'Deleted player'
+          : data['creatorDisplayName']?.toString() ?? '',
+      creatorLevel:
+          data['organizer'] is Map && data['organizer']['deleted'] == true
+          ? ''
+          : data['creatorLevel']?.toString() ?? '',
       scheduledAt: _parseScheduledAt(data['scheduledAt']),
       players: matchPlayersFromValue(data['players']),
       location: MatchLocation.fromMap(
@@ -1238,6 +1304,13 @@ class MatchPlayer {
   });
 
   factory MatchPlayer.fromMap(Map<dynamic, dynamic> data) {
+    if (data['deleted'] == true) {
+      return const MatchPlayer(
+        uid: '',
+        email: '',
+        displayName: 'Deleted player',
+      );
+    }
     return MatchPlayer(
       uid: data['uid']?.toString() ?? data['userId']?.toString() ?? '',
       email: data['email']?.toString() ?? '',
@@ -1521,7 +1594,7 @@ class JoinRequest {
     required this.userId,
     required this.displayName,
     required this.level,
-    required this.email,
+    this.email = '',
     required this.status,
     this.requestedAt,
     this.eventId = '',
@@ -1561,7 +1634,6 @@ class JoinRequest {
     'userId': userId,
     'displayName': displayName,
     'level': level,
-    'email': email,
     'status': status,
     'requestedAt': requestedAt == null
         ? Timestamp.now()
@@ -2455,8 +2527,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<Map<String, dynamic>?> _loadMatchDocument(String matchId) async =>
-      (await FirebaseFirestore.instance.collection('matches').doc(matchId)
-          .get(const GetOptions(source: Source.server)))
+      (await FirebaseFirestore.instance
+              .collection('matches')
+              .doc(matchId)
+              .get(const GetOptions(source: Source.server)))
           .data();
 
   void _changeDiscovery(MatchLocation? location, double radiusKm) {
@@ -2653,7 +2727,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _reportStreamError('matches', snapshot);
         final matches = snapshot.data ?? <Match>[];
         final currentUid = Firebase.apps.isEmpty
-            ? null : FirebaseAuth.instance.currentUser?.uid;
+            ? null
+            : FirebaseAuth.instance.currentUser?.uid;
         if (currentUid == null) {
           return _buildScaffold(snapshot, matches, const [], const [], '');
         }
@@ -2766,7 +2841,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }) {
     final now = DateTime.now();
     final currentEmail = Firebase.apps.isEmpty
-        ? '' : FirebaseAuth.instance.currentUser?.email ?? '';
+        ? ''
+        : FirebaseAuth.instance.currentUser?.email ?? '';
     final openMatches = sortedMatches(
       matches.where(
         (match) => isUpcomingMatch(match, now) && match.status != 'cancelled',
@@ -3780,14 +3856,14 @@ class MatchCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: () {
-          final refresh = context.findAncestorStateOfType<_HomeScreenState>()
+          final refresh = context
+              .findAncestorStateOfType<_HomeScreenState>()
               ?._waitForIndexAndRefresh;
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => MatchDetailsScreen(
-                match: match, onMatchUpdated: refresh,
-              ),
+              builder: (context) =>
+                  MatchDetailsScreen(match: match, onMatchUpdated: refresh),
             ),
           );
         },
@@ -5001,7 +5077,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       };
       final matchId = widget.creator != null
           ? await widget.creator!(match)
-          : (await FirebaseFirestore.instance.collection('matches').add(match)).id;
+          : (await FirebaseFirestore.instance.collection('matches').add(match))
+                .id;
 
       if (!mounted) return;
 
@@ -6252,7 +6329,11 @@ class MatchDetailsScreen extends StatefulWidget {
   final Match match;
   final Future<void> Function(MatchMutationResult)? onMatchUpdated;
 
-  const MatchDetailsScreen({super.key, required this.match, this.onMatchUpdated});
+  const MatchDetailsScreen({
+    super.key,
+    required this.match,
+    this.onMatchUpdated,
+  });
 
   @override
   State<MatchDetailsScreen> createState() => _MatchDetailsScreenState();
@@ -6293,7 +6374,6 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       final eventId = FirebaseFirestore.instance.collection('events').doc().id;
       final request = JoinRequest(
         userId: user.uid,
-        email: user.email ?? profile?.email ?? '',
         displayName: profile?.displayName ?? '',
         level: profile?.level ?? '',
         status: 'pending',
@@ -7314,8 +7394,10 @@ class ProfilePlayerTile extends StatelessWidget {
     if (uid.isEmpty) {
       return _PlayerTile(
         name: fallbackName.isEmpty ? 'Player' : fallbackName,
-        subtitle: _playerSubtitle(role, fallbackLevel),
-        onTap: openProfile,
+        subtitle: fallbackName == 'Deleted player'
+            ? role
+            : _playerSubtitle(role, fallbackLevel),
+        onTap: fallbackName == 'Deleted player' ? null : openProfile,
       );
     }
 

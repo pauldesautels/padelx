@@ -1,3 +1,4 @@
+import { validateBackendEnvironment } from '../functions/backend_environment.js';
 import { applicationDefault, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
@@ -14,6 +15,10 @@ if (!projectId) {
   throw new Error('Pass the explicit target as --project=<firebase-project-id>.');
 }
 
+validateBackendEnvironment({ projectId,
+  firestoreHost: process.env.FIRESTORE_EMULATOR_HOST,
+  authHost: process.env.FIREBASE_AUTH_EMULATOR_HOST,
+});
 const app = initializeApp({ credential: applicationDefault(), projectId });
 const firestore = getFirestore(app);
 const auth = getAuth(app);

@@ -4,7 +4,7 @@ import {
   participantUidsForMatch,
   sameStringList,
 } from '../tool/migrate_phase8_scalability_safety.mjs';
-import { encodeGeohash, ratingAggregateAfter } from '../functions/aggregate_helpers.js';
+import { encodeGeohash } from '../functions/aggregate_helpers.js';
 
 describe('Phase 8 scalability migration safety', () => {
   test('builds organizer-first participant index for current and legacy UID fields', () => {
@@ -25,11 +25,8 @@ describe('Phase 8 scalability migration safety', () => {
     assert.equal(sameStringList(['alice', 'owner'], ['owner', 'alice']), false);
   });
 
-  test('geohashes are deterministic and rating aggregates retain lifetime totals', () => {
+  test('geohashes are deterministic', () => {
     assert.equal(encodeGeohash(19.4326, -99.1332, 3), '9g3');
     assert.equal(encodeGeohash(19.4326, -99.1332, 4), '9g3w');
-    assert.deepEqual(ratingAggregateAfter({ ratingCount: 2, ratingSum: 9 }, 3), {
-      ratingCount: 3, ratingSum: 12, ratingAverage: 4,
-    });
   });
 });
