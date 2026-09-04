@@ -34,6 +34,10 @@ migrate_working_dir/
 /coverage/
 /node_modules/
 
+# Local Firebase Functions environment values. Keep only the safe template.
+/functions/.env*
+!/functions/.env.example
+
 # Local Flutter compile-time configuration (contains developer secrets)
 /config/*.local.json
 

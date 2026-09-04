@@ -72,6 +72,12 @@ Turning admission off is not an undo. Existing requests must still be completed 
 
 Before production: explicitly revise and review production guards, finish staging acceptance/IAM/scheduler/App Check checks, establish operator alerts and runbooks, approve minimal-receipt/backups retention, review export/unknown-descendant coverage, and verify all supported sign-in providers. No production enablement is included here.
 
+## Retained staging validation evidence (2026-09-04)
+
+The `padelx-staging` exercise completed account deletion end to end with a disposable account. The first cleanup attempt reached the ratings phase and then failed because the `ratings.raterUid` collection-group index was missing. Repeated scheduled attempts exhausted the retry budget and correctly left the job blocked; no later phase was bypassed and no completion was reported. After the `ratings.raterUid`, `ratings.ratedUid`, and `ratings.matchId` collection-group indexes were deployed and reached READY, the UID-scoped recovery tool found the exact eligible blocked state and safely resumed it. The scheduler then progressed through `ratings → verify → deleteAuth → complete`.
+
+The retained final state was `barrier.status=deleted`, `job.status=completed`, `job.phase=complete`, and `outbox.status=consumed`, with no active lease and an empty cleanup manifest. A subsequent login no longer returned `USER_DISABLED` and instead returned invalid credentials, confirming permanent Firebase Auth deletion. This deliberate missing-index/fail-closed/recovery sequence is staging evidence only; it is not production validation.
+
 ## Files changed in this completion pass
 
 Existing user work, including unrelated tracked/untracked dependency files, was preserved. This pass changed or added:

@@ -55,6 +55,131 @@ void main() {
     expect(find.text('Permanently delete my account'), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
   });
+
+  testWidgets('empty password cannot submit deletion', (tester) async {
+    var submissions = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeleteAccountScreen(
+          onFinished: (_) async {},
+          submitDeletion: (_) async => submissions++,
+        ),
+      ),
+    );
+
+    final button = tester.widget<FilledButton>(find.byType(FilledButton));
+    expect(button.onPressed, isNull);
+    expect(submissions, 0);
+  });
+
+  testWidgets(
+    'one captured password survives immediate clearing and completes',
+    (tester) async {
+      String? receivedPassword;
+      String? finishedMessage;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeleteAccountScreen(
+            onFinished: (message) async => finishedMessage = message,
+            submitDeletion: (password) async {
+              receivedPassword = password;
+              expect(
+                tester
+                    .widget<TextField>(find.byType(TextField))
+                    .controller!
+                    .text,
+                isEmpty,
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.enterText(find.byType(TextField), 'one-fresh-password');
+      await tester.pump();
+      await tester.tap(find.byType(FilledButton));
+      await tester.pump();
+
+      expect(receivedPassword, 'one-fresh-password');
+      expect(finishedMessage, contains('deletion requested'));
+    },
+  );
+
+  testWidgets('failed attempt clears password and retry needs fresh input', (
+    tester,
+  ) async {
+    final submittedPasswords = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeleteAccountScreen(
+          onFinished: (_) async {},
+          submitDeletion: (password) async {
+            submittedPasswords.add(password);
+            throw const AccountDeletionFailure(
+              AccountDeletionFailureKind.callable,
+              'deadline-exceeded',
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'first-password');
+    await tester.pump();
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+
+    expect(submittedPasswords, ['first-password']);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      isEmpty,
+    );
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNull,
+    );
+    expect(find.textContaining('may have been accepted'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'fresh-password');
+    await tester.pump();
+    expect(find.textContaining('may have been accepted'), findsNothing);
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(submittedPasswords, ['first-password', 'fresh-password']);
+  });
+
+  testWidgets('screen recreation cannot reuse destructive confirmation', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeleteAccountScreen(
+          onFinished: (_) async {},
+          submitDeletion: (_) async {},
+        ),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), 'not-reusable');
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeleteAccountScreen(
+          onFinished: (_) async {},
+          submitDeletion: (_) async {},
+        ),
+      ),
+    );
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      isEmpty,
+    );
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNull,
+    );
+  });
   test('errors distinguish credentials, rejection, and lost responses', () {
     expect(
       deletionReauthenticationErrorMessage('wrong-password'),
@@ -105,9 +230,34 @@ void main() {
     expect(callableInvocations, 0);
   });
 
+  test('successful deletion flow requires reauthentication first', () async {
+    final steps = <String>[];
+    await runAccountDeletionFlow(
+      reauthenticate: () async => steps.add('reauthenticate'),
+      reloadUser: () async => steps.add('reload'),
+      refreshIdToken: () async => steps.add('refresh'),
+      acquireAppCheckToken: () async => steps.add('app-check'),
+      initializeFunctions: () async => steps.add('functions'),
+      createCallable: () async => steps.add('callable'),
+      callDeletion: () async {
+        steps.add('submit');
+        return {'status': 'accepted'};
+      },
+    );
+
+    expect(steps, [
+      'reauthenticate',
+      'reload',
+      'refresh',
+      'app-check',
+      'functions',
+      'callable',
+      'submit',
+    ]);
+  });
+
   test('Functions setup failure is pre-call and never dispatches', () async {
     var callableInvocations = 0;
-    final diagnostics = <String>[];
 
     await expectLater(
       runAccountDeletionFlow(
@@ -121,7 +271,6 @@ void main() {
           callableInvocations++;
           return {'status': 'accepted'};
         },
-        diagnostic: diagnostics.add,
       ),
       throwsA(
         isA<AccountDeletionFailure>()
@@ -139,9 +288,6 @@ void main() {
       ),
     );
     expect(callableInvocations, 0);
-    expect(diagnostics, contains('functions-instance-success'));
-    expect(diagnostics, isNot(contains('callable-created')));
-    expect(diagnostics, isNot(contains('callable-dispatch-start')));
   });
 
   test('lost callable response remains explicitly ambiguous', () async {
@@ -169,6 +315,34 @@ void main() {
               (failure) => failure.userMessage,
               'message',
               contains('may have been accepted'),
+            ),
+      ),
+    );
+  });
+
+  test('raw callable client failure is not treated as accepted', () async {
+    await expectLater(
+      runAccountDeletionFlow(
+        reauthenticate: () async {},
+        reloadUser: () async {},
+        refreshIdToken: () async {},
+        acquireAppCheckToken: () async {},
+        initializeFunctions: () async {},
+        createCallable: () async {},
+        callDeletion: () async => throw StateError('binding failed'),
+      ),
+      throwsA(
+        isA<AccountDeletionFailure>()
+            .having(
+              (failure) => failure.kind,
+              'kind',
+              AccountDeletionFailureKind.preCall,
+            )
+            .having((failure) => failure.code, 'code', 'callable-client')
+            .having(
+              (failure) => failure.userMessage,
+              'message',
+              contains('was not submitted'),
             ),
       ),
     );
