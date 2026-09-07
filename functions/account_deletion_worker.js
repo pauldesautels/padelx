@@ -2,8 +2,10 @@ import { DeletionVerificationFailure, failVerification, verifyManifestMatch } fr
 import { prepareRatingReconciliation, ratingIdentity, RatingReconciliationError } from './rating_contributions.js';
 import { assertSafeFirestore } from './backend_environment.js';
 import { cleanDeletionMatch, validDeletionTimestamp } from './account_deletion_matches.js';
-import { ACCOUNT_SCHEMA_VERSION, DELETION_BARRIERS, DELETION_JOBS, DELETION_PHASES } from './account_state.js';
+import { ACCOUNT_SCHEMA_VERSION, DELETION_BARRIERS, DELETION_JOBS, DELETION_PHASES,
+  deletionPhasesFor } from './account_state.js';
 import { DELETION_OUTBOX, performDeletionAuthLock } from './account_deletion.js';
+import { reconcilePlayedWithMatch } from './played_with_projection.js';
 
 // Backend-only primitive. Generate a fresh token per attempt (e.g. randomUUID),
 // and reuse it only when retrying an acquisition whose response was lost.
@@ -26,6 +28,15 @@ function owns(job, lease, now) {
 }
 function requireOwner(job, lease, now) {
   if (!owns(job, lease, now)) throw new Error('Worker lease lost.');
+}
+function sameSupportedSchema(job, record) {
+  return [1, 2].includes(job?.schemaVersion) && record?.schemaVersion === job.schemaVersion;
+}
+function nextDeletionPhase(job, phase) {
+  const phases = deletionPhasesFor(job.schemaVersion);
+  const index = phases.indexOf(phase);
+  if (index < 0 || index === phases.length - 1) throw new Error('Invalid deletion phase state.');
+  return phases[index + 1];
 }
 
 export async function acquireDeletionLease(db, uid, lease, { now: at, leaseMs = 60000 } = {}) {
@@ -130,9 +141,8 @@ export async function runDeletionStep(db, uid, lease, progress, work) {
 }
 
 // Keep admission's disableAuth separate from the ordered cleanup phases.
-export const DELETION_WORKER_PHASES = Object.freeze([
-  'accepted', 'matches', 'joinRequests', 'notifications', 'ratings', 'verify', 'deleteAuth',
-]);
+export const DELETION_WORKER_PHASES = deletionPhasesFor(1);
+export const DELETION_WORKER_PHASES_V2 = deletionPhasesFor(2);
 // Reserved end-of-phase marker, recorded through checkpointDeletion (or
 // runDeletionStep) only after all work for that phase has succeeded.
 export const DELETION_PHASE_COMPLETE_CHECKPOINT = Number.MAX_SAFE_INTEGER;
@@ -140,14 +150,14 @@ export const DELETION_PHASE_COMPLETE_CHECKPOINT = Number.MAX_SAFE_INTEGER;
 export async function transitionDeletionPhase(db, uid, lease, { expectedPhase, nextPhase }, at, validate) {
   const ref = jobReference(db, uid, lease);
   if (at !== undefined) time(at);
-  const index = DELETION_WORKER_PHASES.indexOf(expectedPhase);
-  if (index < 0 || index === DELETION_WORKER_PHASES.length - 1
-      || nextPhase !== DELETION_WORKER_PHASES[index + 1]) {
-    throw new Error('Invalid worker phase transition.');
-  }
   return db.runTransaction(async (tx) => {
     const job = (await tx.get(ref)).data();
     requireOwner(job, lease, at ?? new Date());
+    const phases = deletionPhasesFor(job.schemaVersion);
+    const index = phases.indexOf(expectedPhase);
+    if (index < 0 || index === phases.length - 1 || nextPhase !== phases[index + 1]) {
+      throw new Error('Invalid worker phase transition.');
+    }
     if (validate) await validate(tx, job);
     if (job.status !== 'pending' || job.completedAt || job.phase === 'complete') {
       throw new Error('Worker job cannot transition.');
@@ -198,7 +208,7 @@ async function prepareAcceptedDeletion(db, auth, uid, lease) {
     const [barrier, outbox] = snapshots.map((snapshot) => snapshot.data());
     if (!job || !barrier || !outbox || snapshots[2].exists || snapshots[3].exists) invalid();
     for (const record of [job, barrier, outbox]) {
-      if (record.uid !== uid || record.schemaVersion !== ACCOUNT_SCHEMA_VERSION
+      if (record.uid !== uid || !sameSupportedSchema(job, record)
           || !timestamp(record.deletionRequestedAt)) invalid();
     }
     const fixed = job.deletionRequestedAt;
@@ -279,7 +289,7 @@ export async function runMatchesDeletionPhase(db, uid, lease, { pageSize = 100 }
     const [barrier, outbox] = await tx.getAll(db.collection(DELETION_BARRIERS).doc(uid),
       db.collection(DELETION_OUTBOX).doc(uid));
     const records = [job, barrier.data(), outbox.data()];
-    if (records.some((r) => !r || r.uid !== uid || r.schemaVersion !== ACCOUNT_SCHEMA_VERSION
+    if (records.some((r) => !r || r.uid !== uid || !sameSupportedSchema(job, r)
         || !validDeletionTimestamp(r.deletionRequestedAt))
         || records.some((r) => !r.deletionRequestedAt.isEqual(job.deletionRequestedAt))
         || (cutoff && !cutoff.isEqual(job.deletionRequestedAt))
@@ -376,7 +386,7 @@ export async function runJoinRequestsDeletionPhase(db, uid, lease, { pageSize = 
   const validate = async (tx, job) => {
     const [barrier, outbox] = await tx.getAll(db.collection(DELETION_BARRIERS).doc(uid), db.collection(DELETION_OUTBOX).doc(uid));
     if ([job, barrier.data(), outbox.data()].some((r) => !r || r.uid !== uid
-        || r.schemaVersion !== ACCOUNT_SCHEMA_VERSION || !validDeletionTimestamp(r.deletionRequestedAt)
+        || !sameSupportedSchema(job, r) || !validDeletionTimestamp(r.deletionRequestedAt)
         || !r.deletionRequestedAt.isEqual(job.deletionRequestedAt))
         || (cutoff && !cutoff.isEqual(job.deletionRequestedAt))
         || (job.joinRequestsCutoff && !job.joinRequestsCutoff.isEqual(job.deletionRequestedAt))
@@ -400,7 +410,8 @@ export async function runJoinRequestsDeletionPhase(db, uid, lease, { pageSize = 
       const job = (await tx.get(ref)).data();
       requireOwner(job, lease, new Date());
       const state = await validate(tx, job);
-      if (job.phase === 'notifications' && job.lastPhaseTransition?.from === 'joinRequests') return { complete: true };
+      const nextPhase = nextDeletionPhase(job, 'joinRequests');
+      if (job.phase === nextPhase && job.lastPhaseTransition?.from === 'joinRequests') return { complete: true };
       if (job.phase !== 'joinRequests') throw new Error('Worker phase changed.');
       if (state.userDone && state.manifestDone) return { exhausted: true, checkpoint: job.checkpoint };
       if (!(job.checkpoint === null || (Number.isSafeInteger(job.checkpoint) && job.checkpoint >= 0
@@ -471,8 +482,9 @@ export async function runJoinRequestsDeletionPhase(db, uid, lease, { pageSize = 
       };
       if (result.checkpoint !== DELETION_PHASE_COMPLETE_CHECKPOINT) await checkpointDeletion(db, uid, lease,
         { phase: 'joinRequests', expectedCheckpoint: result.checkpoint, checkpoint: DELETION_PHASE_COMPLETE_CHECKPOINT }, undefined, exhausted);
+      const current = (await ref.get()).data();
       await transitionDeletionPhase(db, uid, lease,
-        { expectedPhase: 'joinRequests', nextPhase: 'notifications' }, undefined, exhausted);
+        { expectedPhase: 'joinRequests', nextPhase: nextDeletionPhase(current, 'joinRequests') }, undefined, exhausted);
       return { ...result, complete: true };
     }
     return result;
@@ -483,6 +495,127 @@ export async function runJoinRequestsDeletionPhase(db, uid, lease, { pageSize = 
     }
     throw error;
   }
+}
+
+// Phase 9 canonical social cleanup. Each invocation performs one bounded page.
+// Queries restart at the beginning because processed documents are removed;
+// that avoids cursor gaps during concurrent retries and safe interruption.
+export async function runSocialDeletionPhase(db, uid, lease, { pageSize = 50 } = {}) {
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) throw new Error('Invalid social page size.');
+  const ref = jobReference(db, uid, lease);
+  const job = (await ref.get()).data();
+  requireOwner(job, lease, new Date());
+  if (job.schemaVersion !== 2 || job.phase !== 'social') throw new Error('Invalid social deletion state.');
+  const streams = [
+    ['playedMatches', () => db.collection('playedWithMatchContributions').where('participantUids', 'array-contains', uid)],
+    ['friendships', () => db.collection('friendships').where('memberUids', 'array-contains', uid)],
+    ['blocksBy', () => db.collection('blocks').where('blockerUid', '==', uid)],
+    ['blocksOf', () => db.collection('blocks').where('blockedUid', '==', uid)],
+    ['friendViews', () => db.collectionGroup('friendViews').where('otherUid', '==', uid)],
+    ['playedWith', () => db.collectionGroup('playedWith').where('otherUid', '==', uid)],
+    ['inviterInvites', () => db.collectionGroup('invites').where('inviterUid', '==', uid)],
+    ['inviteeInvites', () => db.collectionGroup('invites').where('inviteeUid', '==', uid)],
+  ];
+  const state = job.socialCheckpoint ?? Object.fromEntries(streams.map(([name]) => [name, false]));
+  const current = streams.find(([name]) => state[name] !== true);
+  if (current) {
+    const [name, query] = current;
+    const page = await query().limit(pageSize).get();
+    if (name === 'playedMatches') {
+      for (const doc of page.docs) await reconcilePlayedWithMatch(db, doc.id);
+    } else {
+      await db.runTransaction(async (tx) => {
+        const owned = (await tx.get(ref)).data(); requireOwner(owned, lease, new Date());
+        for (const doc of page.docs) {
+          if (name === 'friendships') {
+            const members = doc.data().memberUids;
+            if (!Array.isArray(members) || !members.includes(uid)) throw new Error('Invalid friendship cleanup state.');
+            for (const member of members) for (const other of members) if (member !== other) {
+              tx.delete(db.doc(`users/${member}/friendViews/${other}`));
+            }
+          }
+          tx.delete(doc.ref);
+        }
+        const nextState = { ...state, ...(page.size < pageSize ? { [name]: true } : {}) };
+        tx.update(ref, { socialCheckpoint: nextState, checkpoint: (owned.checkpoint ?? -1) + 1 });
+      });
+    }
+    if (name === 'playedMatches') await db.runTransaction(async (tx) => {
+      const owned = (await tx.get(ref)).data(); requireOwner(owned, lease, new Date());
+      tx.update(ref, { socialCheckpoint: { ...state, ...(page.size < pageSize ? { [name]: true } : {}) },
+        checkpoint: (owned.checkpoint ?? -1) + 1 });
+    });
+    return { processed: page.size, stream: name };
+  }
+  await db.collection('playAgainRateLimits').doc(uid).delete();
+  await checkpointDeletion(db, uid, lease, { phase: 'social', expectedCheckpoint: job.checkpoint,
+    checkpoint: DELETION_PHASE_COMPLETE_CHECKPOINT });
+  await transitionDeletionPhase(db, uid, lease, { expectedPhase: 'social', nextPhase: 'messaging' });
+  return { complete: true };
+}
+
+export async function runMessagingDeletionPhase(db, uid, lease, { pageSize = 50 } = {}) {
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) throw new Error('Invalid messaging page size.');
+  const ref = jobReference(db, uid, lease);
+  const job = (await ref.get()).data(); requireOwner(job, lease, new Date());
+  if (job.schemaVersion !== 2 || job.phase !== 'messaging') throw new Error('Invalid messaging deletion state.');
+  const messages = await db.collectionGroup('messages').where('senderUid', '==', uid).limit(pageSize).get();
+  if (!messages.empty) {
+    const batch = db.batch();
+    for (const message of messages.docs) {
+      const { senderUid: _senderUid, text: _text, ...retained } = message.data();
+      batch.set(message.ref, { ...retained, senderDeleted: true, text: 'Deleted message' });
+    }
+    await batch.commit();
+    return { processed: messages.size, stream: 'messages' };
+  }
+  const conversations = await db.collection('conversations').where('memberUids', 'array-contains', uid).limit(pageSize).get();
+  if (!conversations.empty) {
+    const batch = db.batch();
+    for (const conversation of conversations.docs) {
+      const data = conversation.data();
+      for (const member of data.memberUids ?? []) batch.delete(db.doc(`users/${member}/conversationViews/${conversation.id}`));
+      if (data.type === 'direct') batch.delete(conversation.ref);
+      else batch.update(conversation.ref, { memberUids: (data.memberUids ?? []).filter((id) => id !== uid),
+        ...(data.lastSenderUid !== undefined
+          ? { lastSenderUid: data.lastSenderUid === uid ? null : data.lastSenderUid } : {}),
+        ...(data.lastSenderUid === uid ? { lastMessagePreview: 'Deleted message' } : {}) });
+    }
+    await batch.commit();
+    return { processed: conversations.size, stream: 'conversations' };
+  }
+  const views = await db.collection(`users/${uid}/conversationViews`).limit(pageSize).get();
+  if (!views.empty) { const batch = db.batch(); views.docs.forEach((doc) => batch.delete(doc.ref)); await batch.commit(); return { processed: views.size, stream: 'views' }; }
+  await db.collection('messagingRateLimits').doc(uid).delete();
+  await checkpointDeletion(db, uid, lease, { phase: 'messaging', expectedCheckpoint: job.checkpoint,
+    checkpoint: DELETION_PHASE_COMPLETE_CHECKPOINT });
+  await transitionDeletionPhase(db, uid, lease, { expectedPhase: 'messaging', nextPhase: 'notifications' });
+  return { complete: true };
+}
+
+export async function runStorageDeletionPhase(db, bucket, uid, lease) {
+  const ref = jobReference(db, uid, lease);
+  const job = (await ref.get()).data(); requireOwner(job, lease, new Date());
+  if (job.schemaVersion !== 2 || job.phase !== 'storage' || !bucket) throw new Error('Invalid storage deletion state.');
+  const prefix = `profileAvatars/${uid}/`;
+  try {
+    await bucket.file(`${prefix}avatar.jpg`).delete({ ignoreNotFound: true });
+    const [remaining] = await bucket.getFiles({ prefix, maxResults: 1, autoPaginate: false });
+    if (remaining.length) throw new Error('Avatar storage verification failed.');
+  } catch (error) {
+    await retryDeletionLease(db, uid, lease, { errorCategory: sanitizedWorkerErrorCategory(error) });
+    throw error;
+  }
+  await db.runTransaction(async (tx) => {
+    const owned = (await tx.get(ref)).data(); requireOwner(owned, lease, new Date());
+    if (owned.phase !== 'storage' || owned.schemaVersion !== 2) throw new Error('Storage phase changed.');
+    tx.update(ref, { storageVerifiedAt: new Date() });
+  });
+  const current = (await ref.get()).data();
+  await checkpointDeletion(db, uid, lease, { phase: 'storage', expectedCheckpoint: current.checkpoint,
+    checkpoint: DELETION_PHASE_COMPLETE_CHECKPOINT });
+  await transitionDeletionPhase(db, uid, lease, { expectedPhase: 'storage', nextPhase: 'verify' });
+  return { complete: true };
 }
 
 // One bounded notification page, or one manifest entry, per trusted invocation.
@@ -497,7 +630,7 @@ export async function runNotificationsDeletionPhase(db, uid, lease, { pageSize =
   const validate = async (tx, job) => {
     const [barrier, outbox] = await tx.getAll(db.collection(DELETION_BARRIERS).doc(uid), db.collection(DELETION_OUTBOX).doc(uid));
     if ([job, barrier.data(), outbox.data()].some((r) => !r || r.uid !== uid
-        || r.schemaVersion !== ACCOUNT_SCHEMA_VERSION || !validDeletionTimestamp(r.deletionRequestedAt)
+        || !sameSupportedSchema(job, r) || !validDeletionTimestamp(r.deletionRequestedAt)
         || !r.deletionRequestedAt.isEqual(job.deletionRequestedAt))
         || (cutoff && !cutoff.isEqual(job.deletionRequestedAt))
         || (job.notificationsCutoff && !job.notificationsCutoff.isEqual(job.deletionRequestedAt))
@@ -577,12 +710,24 @@ export async function runNotificationsDeletionPhase(db, uid, lease, { pageSize =
       // Legacy records may lack actorUid/eventId; snapshots are never identity.
       for (const doc of docs) {
         const data = doc.data();
-        if (!validId(data.recipientUid) || !documentId(data.matchId)
+        const expectedEventId = ['join_request', 'join_approved', 'join_declined'].includes(data.type)
+          ? `${data.type}_${data.matchId}_${data.eventId}`
+          : data.type === 'play_again_invite'
+            ? `play_again_invite_${data.matchId}_${data.eventId}` : null;
+        const canonicalMessageId = ['direct_message', 'match_message'].includes(data.type)
+          && validId(data.conversationId)
+          && doc.id === `message_${data.conversationId}_${data.recipientUid}`;
+        const canonicalFriendId = ['friend_request', 'friend_accepted'].includes(data.type)
+          && (doc.id.startsWith(`${data.type}_`) && doc.id.endsWith(`_${data.recipientUid}`));
+        const needsMatchId = !canonicalMessageId && !canonicalFriendId;
+        if (!validId(data.recipientUid) || (needsMatchId && !documentId(data.matchId))
+            || (data.type === 'match_message' && !documentId(data.matchId))
             || ('actorUid' in data && !validId(data.actorUid))
+            || (['direct_message', 'match_message'].includes(data.type) && !canonicalMessageId)
+            || (['friend_request', 'friend_accepted'].includes(data.type) && !canonicalFriendId)
             || ('eventId' in data && data.eventId !== '' &&
               (!documentId(data.eventId)
-                || !['join_request', 'join_approved', 'join_declined'].includes(data.type)
-                || doc.id !== `${data.type}_${data.matchId}_${data.eventId}`))) {
+                || expectedEventId === null || doc.id !== expectedEventId))) {
           return block(doc.ref.path);
         }
       }
@@ -629,7 +774,7 @@ export async function runRatingsDeletionPhase(db, uid, lease, { pageSize = 100 }
   const validate = async (tx, job) => {
     const [barrier, outbox] = await tx.getAll(db.collection(DELETION_BARRIERS).doc(uid), db.collection(DELETION_OUTBOX).doc(uid));
     if ([job, barrier.data(), outbox.data()].some((r) => !r || r.uid !== uid
-        || r.schemaVersion !== ACCOUNT_SCHEMA_VERSION || !validDeletionTimestamp(r.deletionRequestedAt)
+        || !sameSupportedSchema(job, r) || !validDeletionTimestamp(r.deletionRequestedAt)
         || !r.deletionRequestedAt.isEqual(job.deletionRequestedAt))
         || (cutoff && !cutoff.isEqual(job.deletionRequestedAt))
         || (job.ratingsCutoff && !job.ratingsCutoff.isEqual(job.deletionRequestedAt))
@@ -659,7 +804,8 @@ export async function runRatingsDeletionPhase(db, uid, lease, { pageSize = 100 }
       const job = (await tx.get(ref)).data();
       requireOwner(job, lease, new Date());
       const state = await validate(tx, job);
-      if (job.phase === 'verify' && job.lastPhaseTransition?.from === 'ratings') return { complete: true };
+      const nextPhase = nextDeletionPhase(job, 'ratings');
+      if (job.phase === nextPhase && job.lastPhaseTransition?.from === 'ratings') return { complete: true };
       if (job.phase !== 'ratings') throw new Error('Worker phase changed.');
       if (state.givenDone && state.receivedDone && state.manifestDone) return { exhausted: true, checkpoint: job.checkpoint };
       if (!(job.checkpoint === null || (Number.isSafeInteger(job.checkpoint) && job.checkpoint >= 0
@@ -731,8 +877,9 @@ export async function runRatingsDeletionPhase(db, uid, lease, { pageSize = 100 }
       };
       if (result.checkpoint !== DELETION_PHASE_COMPLETE_CHECKPOINT) await checkpointDeletion(db, uid, lease,
         { phase: 'ratings', expectedCheckpoint: result.checkpoint, checkpoint: DELETION_PHASE_COMPLETE_CHECKPOINT }, undefined, exhausted);
+      const current = (await ref.get()).data();
       await transitionDeletionPhase(db, uid, lease,
-        { expectedPhase: 'ratings', nextPhase: 'verify' }, undefined, exhausted);
+        { expectedPhase: 'ratings', nextPhase: nextDeletionPhase(current, 'ratings') }, undefined, exhausted);
       return { ...result, complete: true };
     }
     return result;
@@ -749,13 +896,14 @@ export async function runRatingsDeletionPhase(db, uid, lease, { pageSize = 100 }
 export async function runVerifyDeletionPhase(db, uid, lease) {
   const ref = jobReference(db, uid, lease);
   let cutoff;
+  let jobSchemaVersionForChecks;
   const validId = (value) => typeof value === 'string' && value.length > 0 && !value.includes('/');
   const validate = async (tx, job) => {
     const [barrier, outbox, privateProfile, publicProfile] = await tx.getAll(
       db.collection(DELETION_BARRIERS).doc(uid), db.collection(DELETION_OUTBOX).doc(uid),
       db.collection('users').doc(uid), db.collection('publicProfiles').doc(uid));
     if ([job, barrier.data(), outbox.data()].some((record) => !record || record.uid !== uid
-        || record.schemaVersion !== ACCOUNT_SCHEMA_VERSION || !validDeletionTimestamp(record.deletionRequestedAt)
+        || !sameSupportedSchema(job, record) || !validDeletionTimestamp(record.deletionRequestedAt)
         || !record.deletionRequestedAt.isEqual(job.deletionRequestedAt))
         || (cutoff && !cutoff.isEqual(job.deletionRequestedAt))
         || ['matchesCutoff', 'joinRequestsCutoff', 'notificationsCutoff', 'ratingsCutoff', 'verifyCutoff']
@@ -764,9 +912,12 @@ export async function runVerifyDeletionPhase(db, uid, lease) {
         || outbox.data()?.jobId !== uid || job.status !== 'pending' || job.completedAt !== null
         || Object.keys(job).some((key) => key.endsWith('BlockedRecord') && job[key] !== null)
         || !validDeletionTimestamp(job.authDisabledAt) || !validDeletionTimestamp(job.authRevokedAt)
+        || (job.schemaVersion === 2 && !validDeletionTimestamp(job.storageVerifiedAt))
         || job.authDisabledAt.toMillis() < job.deletionRequestedAt.toMillis()
         || job.authRevokedAt.toMillis() < job.authDisabledAt.toMillis()) failVerification('verify-infrastructure');
     cutoff ??= job.deletionRequestedAt;
+    jobSchemaVersionForChecks ??= job.schemaVersion;
+    if (jobSchemaVersionForChecks !== job.schemaVersion) failVerification('verify-infrastructure');
     if (privateProfile.exists || publicProfile.exists) failVerification('verify-profile-remains');
     const state = job.verifyCheckpoint ?? { manifestAfter: null, manifestDone: false };
     if (Object.keys(state).length !== 2 || typeof state.manifestDone !== 'boolean'
@@ -795,6 +946,28 @@ export async function runVerifyDeletionPhase(db, uid, lease) {
     for (const field of ['raterUid', 'ratedUid']) {
       await absent(tx, db.collectionGroup('ratings').where(field, '==', uid), 'verify-rating-remains');
       await absent(tx, db.collection('ratingContributions').where(field, '==', uid), 'verify-contribution-remains');
+    }
+    if (jobSchemaVersionForChecks === 2) {
+      const probes = [
+        db.collection('friendships').where('memberUids', 'array-contains', uid),
+        db.collection('blocks').where('blockerUid', '==', uid), db.collection('blocks').where('blockedUid', '==', uid),
+        db.collectionGroup('friendViews').where('otherUid', '==', uid),
+        db.collectionGroup('playedWith').where('otherUid', '==', uid),
+        db.collection('playedWithMatchContributions').where('participantUids', 'array-contains', uid),
+        db.collection('playedWithContributions').where('participantUids', 'array-contains', uid),
+        db.collection('playedWithPairs').where('participantUids', 'array-contains', uid),
+        db.collection('conversations').where('memberUids', 'array-contains', uid),
+        db.collectionGroup('messages').where('senderUid', '==', uid),
+        db.collectionGroup('invites').where('inviterUid', '==', uid),
+        db.collectionGroup('invites').where('inviteeUid', '==', uid),
+      ];
+      for (const query of probes) await absent(tx, query, 'verify-social-reference-remains');
+      for (const path of [`users/${uid}/conversationViews`, `users/${uid}/friendViews`, `users/${uid}/playedWith`]) {
+        await absent(tx, db.collection(path), 'verify-user-social-projection-remains');
+      }
+      for (const path of [`messagingRateLimits/${uid}`, `playAgainRateLimits/${uid}`]) {
+        if ((await tx.get(db.doc(path))).exists) failVerification('verify-rate-limit-remains');
+      }
     }
   };
   try {
@@ -889,6 +1062,7 @@ export async function runDeleteAuthDeletionPhase(db, auth, uid, lease) {
         || !job.verifyCutoff.isEqual(job.deletionRequestedAt)
         || barrier.data()?.status !== 'deleting' || outbox.data()?.status !== 'ready_for_cleanup'
         || [barrier.data(), outbox.data()].some(r => r.uid !== uid
+          || !sameSupportedSchema(job, r)
           || !r.deletionRequestedAt?.isEqual(job.deletionRequestedAt))) {
       throw new Error('Invalid Auth finalization state.');
     }
@@ -908,7 +1082,7 @@ export async function runDeleteAuthDeletionPhase(db, auth, uid, lease) {
     requireOwner(current, lease, new Date());
     for (const doc of page.docs) tx.delete(doc.ref);
     if (!page.empty) return { processed: page.size };
-    const receipt = { uid, schemaVersion: ACCOUNT_SCHEMA_VERSION,
+    const receipt = { uid, schemaVersion: job.schemaVersion,
       deletionRequestedAt: current.deletionRequestedAt, completedAt: new Date() };
     tx.set(ref, { ...receipt, phase: 'complete', status: 'completed' });
     tx.set(db.collection(DELETION_BARRIERS).doc(uid), { ...receipt, status: 'deleted' });

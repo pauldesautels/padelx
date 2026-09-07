@@ -2,29 +2,38 @@ import { randomUUID } from 'node:crypto';
 import { assertSafeFirestore } from './backend_environment.js';
 import { DELETION_OUTBOX, lockDeletionAuth, acceptAccountDeletion } from './account_deletion.js';
 import * as worker from './account_deletion_worker.js';
+import { getStorage } from 'firebase-admin/storage';
 
 const handlers = {
   accepted: worker.runAcceptedDeletionPhase,
   matches: worker.runMatchesDeletionPhase,
   joinRequests: worker.runJoinRequestsDeletionPhase,
+  social: worker.runSocialDeletionPhase,
+  messaging: worker.runMessagingDeletionPhase,
   notifications: worker.runNotificationsDeletionPhase,
   ratings: worker.runRatingsDeletionPhase,
+  storage: worker.runStorageDeletionPhase,
   verify: worker.runVerifyDeletionPhase,
   deleteAuth: worker.runDeleteAuthDeletionPhase,
 };
 
 // A scheduler is sufficient at this scale: bounded pages, no queue/IAM adapter.
 // nextAttemptAt rotates every selected outbox item, preventing head starvation.
-export async function recoverAccountDeletions(db, auth, { pageSize = 20 } = {}) {
+export async function recoverAccountDeletions(db, auth, bucket, options = {}) {
+  // Preserve the Phase 8 call shape: (db, auth, options).
+  if (bucket && typeof bucket.file !== 'function') { options = bucket; bucket = null; }
+  const { pageSize = 20 } = options;
   const environment = assertSafeFirestore(db);
   if (environment.mode !== 'emulator' && process.env.PADELX_ACCOUNT_DELETION_ENABLED !== 'true') return;
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 20) throw new Error('Invalid recovery page size.');
   const page = await db.collection(DELETION_OUTBOX).where('nextAttemptAt', '<=', new Date())
     .orderBy('nextAttemptAt').limit(pageSize).get();
-  return Promise.allSettled(page.docs.map(doc => dispatchAccountDeletion(db, auth, doc.id)));
+  return Promise.allSettled(page.docs.map(doc => dispatchAccountDeletion(db, auth, bucket, doc.id)));
 }
 
-export async function dispatchAccountDeletion(db, auth, uid) {
+export async function dispatchAccountDeletion(db, auth, bucket, uid) {
+  // Preserve the Phase 8 call shape: (db, auth, uid).
+  if (uid === undefined) { uid = bucket; bucket = null; }
   assertSafeFirestore(db);
   const outboxRef = db.collection(DELETION_OUTBOX).doc(uid);
   const ref = db.collection('accountDeletionJobs').doc(uid);
@@ -53,6 +62,10 @@ export async function dispatchAccountDeletion(db, auth, uid) {
       const handler = handlers[job.phase];
       if (!handler) throw new Error('Invalid deletion phase.');
       if (['accepted', 'deleteAuth'].includes(job.phase)) await handler(db, auth, uid, lease);
+      else if (job.phase === 'storage') {
+        const storageBucket = bucket ?? getStorage(db.app).bucket(`${db.projectId}.appspot.com`);
+        await handler(db, storageBucket, uid, lease);
+      }
       else await handler(db, uid, lease);
       if (Date.now() > job.leaseExpiresAt.toMillis() - 15000) break;
     }

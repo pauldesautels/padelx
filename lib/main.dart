@@ -9,6 +9,23 @@ import 'current_location.dart';
 import 'location.dart';
 import 'places.dart';
 import 'places_autocomplete.dart';
+import 'played_with.dart';
+import 'played_with_repository.dart';
+import 'played_with_screen.dart';
+import 'social_profile.dart';
+import 'friends_repository.dart';
+import 'friends_screen.dart';
+import 'friends.dart';
+import 'relationship_policy.dart';
+import 'messaging_repository.dart';
+import 'messages_screen.dart';
+import 'conversation_screen.dart';
+import 'play_again.dart';
+import 'play_again_repository.dart';
+import 'player_discovery_repository.dart';
+import 'players_screen.dart';
+import 'profile_avatar.dart';
+import 'avatar_editor.dart';
 
 import 'firebase_app_check_configuration.dart';
 import 'firebase_environment.dart';
@@ -73,22 +90,24 @@ class _AuthGateState extends State<AuthGate> {
     }
   }
 
-  Widget _accountArea(Widget child) => Material(child: Column(
-    children: [
-      SafeArea(
-        bottom: false,
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: () => setState(() => _deleting = true),
-            icon: const Icon(Icons.person_remove_outlined),
-            label: const Text('Delete Account'),
+  Widget _accountArea(Widget child) => Material(
+    child: Column(
+      children: [
+        SafeArea(
+          bottom: false,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => setState(() => _deleting = true),
+              icon: const Icon(Icons.person_remove_outlined),
+              label: const Text('Delete Account'),
+            ),
           ),
         ),
-      ),
-      Expanded(child: child),
-    ],
-  ));
+        Expanded(child: child),
+      ],
+    ),
+  );
 
   void _continueAfterVerification() {
     if (mounted) setState(() {});
@@ -166,6 +185,8 @@ class UserProfile {
   final bool hasCreatedAt;
   final Timestamp? createdAt;
   final DiscoveryLocation discoveryLocation;
+  final SocialProfileData socialProfile;
+  final int avatarVersion;
 
   const UserProfile({
     required this.uid,
@@ -179,6 +200,8 @@ class UserProfile {
       countryCode: '',
       city: '',
     ),
+    this.socialProfile = const SocialProfileData(),
+    this.avatarVersion = 0,
   });
 
   factory UserProfile.fromDocument(
@@ -195,6 +218,8 @@ class UserProfile {
           ? data['createdAt'] as Timestamp
           : null,
       discoveryLocation: DiscoveryLocation.fromMap(data['discoveryLocation']),
+      socialProfile: SocialProfileData.fromMap(data),
+      avatarVersion: avatarVersionFromMap(data),
     );
   }
 
@@ -208,6 +233,13 @@ class PublicUserProfile {
   final String level;
   final int ratingCount;
   final double ratingAverage;
+  final int completedMatchCount;
+  final int repeatPlayerCount;
+  final String countryCode;
+  final String city;
+  final String area;
+  final SocialProfileData socialProfile;
+  final int avatarVersion;
 
   const PublicUserProfile({
     required this.uid,
@@ -215,6 +247,13 @@ class PublicUserProfile {
     required this.level,
     this.ratingCount = 0,
     this.ratingAverage = 0,
+    this.completedMatchCount = 0,
+    this.repeatPlayerCount = 0,
+    this.countryCode = '',
+    this.city = '',
+    this.area = '',
+    this.socialProfile = const SocialProfileData(),
+    this.avatarVersion = 0,
   });
 
   factory PublicUserProfile.fromDocument(
@@ -229,6 +268,17 @@ class PublicUserProfile {
       ratingAverage: data['ratingAverage'] is num
           ? (data['ratingAverage'] as num).toDouble()
           : 0,
+      completedMatchCount: data['completedMatchCount'] is int
+          ? data['completedMatchCount'] as int
+          : 0,
+      repeatPlayerCount: data['repeatPlayerCount'] is int
+          ? data['repeatPlayerCount'] as int
+          : 0,
+      countryCode: data['countryCode']?.toString().trim() ?? '',
+      city: data['city']?.toString().trim() ?? '',
+      area: data['area']?.toString().trim() ?? '',
+      socialProfile: SocialProfileData.fromMap(data),
+      avatarVersion: avatarVersionFromMap(data),
     );
   }
 }
@@ -1329,6 +1379,13 @@ class PublicPlayerProfile {
   final List<PlayerRating> ratings;
   final int lifetimeRatingCount;
   final double lifetimeRatingAverage;
+  final int completedMatchCount;
+  final int repeatPlayerCount;
+  final String countryCode;
+  final String city;
+  final String area;
+  final SocialProfileData socialProfile;
+  final int avatarVersion;
 
   const PublicPlayerProfile({
     required this.uid,
@@ -1339,6 +1396,13 @@ class PublicPlayerProfile {
     this.ratings = const [],
     this.lifetimeRatingCount = 0,
     this.lifetimeRatingAverage = 0,
+    this.completedMatchCount = 0,
+    this.repeatPlayerCount = 0,
+    this.countryCode = '',
+    this.city = '',
+    this.area = '',
+    this.socialProfile = const SocialProfileData(),
+    this.avatarVersion = 0,
   });
 
   RatingSummary get ratingSummary =>
@@ -1512,6 +1576,13 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
     ratings: viewerRatings,
     lifetimeRatingCount: profile?.ratingCount ?? 0,
     lifetimeRatingAverage: profile?.ratingAverage ?? 0,
+    completedMatchCount: profile?.completedMatchCount ?? 0,
+    repeatPlayerCount: profile?.repeatPlayerCount ?? 0,
+    countryCode: profile?.countryCode ?? '',
+    city: profile?.city ?? '',
+    area: profile?.area ?? '',
+    socialProfile: profile?.socialProfile ?? const SocialProfileData(),
+    avatarVersion: profile?.avatarVersion ?? 0,
   );
 }
 
@@ -1642,21 +1713,41 @@ class JoinRequest {
   };
 }
 
-enum AppNotificationType { joinRequest, joinApproved, joinDeclined }
+enum AppNotificationType {
+  joinRequest,
+  joinApproved,
+  joinDeclined,
+  directMessage,
+  matchMessage,
+  friendRequest,
+  friendAccepted,
+  playAgainInvite,
+}
 
 extension AppNotificationTypeStorage on AppNotificationType {
   String get storageValue => switch (this) {
     AppNotificationType.joinRequest => 'join_request',
     AppNotificationType.joinApproved => 'join_approved',
     AppNotificationType.joinDeclined => 'join_declined',
+    AppNotificationType.directMessage => 'direct_message',
+    AppNotificationType.matchMessage => 'match_message',
+    AppNotificationType.friendRequest => 'friend_request',
+    AppNotificationType.friendAccepted => 'friend_accepted',
+    AppNotificationType.playAgainInvite => 'play_again_invite',
   };
 
-  static AppNotificationType fromStorage(Object? value) =>
-      switch (value?.toString()) {
-        'join_approved' || 'joinApproved' => AppNotificationType.joinApproved,
-        'join_declined' || 'joinDeclined' => AppNotificationType.joinDeclined,
-        _ => AppNotificationType.joinRequest,
-      };
+  static AppNotificationType fromStorage(Object? value) => switch (value
+      ?.toString()) {
+    'join_approved' || 'joinApproved' => AppNotificationType.joinApproved,
+    'join_declined' || 'joinDeclined' => AppNotificationType.joinDeclined,
+    'direct_message' || 'directMessage' => AppNotificationType.directMessage,
+    'match_message' || 'matchMessage' => AppNotificationType.matchMessage,
+    'friend_request' || 'friendRequest' => AppNotificationType.friendRequest,
+    'friend_accepted' || 'friendAccepted' => AppNotificationType.friendAccepted,
+    'play_again_invite' ||
+    'playAgainInvite' => AppNotificationType.playAgainInvite,
+    _ => AppNotificationType.joinRequest,
+  };
 }
 
 class AppNotification {
@@ -1672,6 +1763,7 @@ class AppNotification {
   final String eventId;
   final String actorUid;
   final String actorDisplayName;
+  final String conversationId;
 
   const AppNotification({
     required this.id,
@@ -1686,6 +1778,7 @@ class AppNotification {
     required this.eventId,
     this.actorUid = '',
     this.actorDisplayName = '',
+    this.conversationId = '',
   });
 
   factory AppNotification.fromDocument(
@@ -1709,6 +1802,7 @@ class AppNotification {
       eventId: data['eventId']?.toString() ?? '',
       actorUid: data['actorUid']?.toString() ?? '',
       actorDisplayName: data['actorDisplayName']?.toString() ?? '',
+      conversationId: data['conversationId']?.toString() ?? '',
     );
   }
 }
@@ -1868,6 +1962,7 @@ class NotificationsTab extends StatefulWidget {
   final Stream<Map<String, dynamic>?> Function(AppNotification)?
   joinRequestStream;
   final DateTime? now;
+  final ValueChanged<AppNotification>? onDismiss;
 
   const NotificationsTab({
     super.key,
@@ -1882,6 +1977,7 @@ class NotificationsTab extends StatefulWidget {
     this.onLoadMore,
     this.joinRequestStream,
     this.now,
+    this.onDismiss,
   });
 
   @override
@@ -2061,6 +2157,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
           onMarkRead: widget.onMarkRead,
           onOpen: widget.onOpen,
           requestStream: widget.joinRequestStream?.call(notification),
+          onDismiss: widget.onDismiss,
         );
       },
     );
@@ -2073,6 +2170,7 @@ class NotificationCard extends StatelessWidget {
   final ValueChanged<AppNotification> onMarkRead;
   final ValueChanged<AppNotification> onOpen;
   final Stream<Map<String, dynamic>?>? requestStream;
+  final ValueChanged<AppNotification>? onDismiss;
 
   const NotificationCard({
     super.key,
@@ -2081,6 +2179,7 @@ class NotificationCard extends StatelessWidget {
     required this.onMarkRead,
     required this.onOpen,
     this.requestStream,
+    this.onDismiss,
   });
 
   @override
@@ -2105,6 +2204,11 @@ class NotificationCard extends StatelessWidget {
       AppNotificationType.joinRequest => Icons.person_add_alt_1,
       AppNotificationType.joinApproved => Icons.check_circle_outline,
       AppNotificationType.joinDeclined => Icons.cancel_outlined,
+      AppNotificationType.directMessage => Icons.chat_bubble_outline,
+      AppNotificationType.matchMessage => Icons.forum_outlined,
+      AppNotificationType.friendRequest => Icons.person_add_alt_1,
+      AppNotificationType.friendAccepted => Icons.people_outline,
+      AppNotificationType.playAgainInvite => Icons.replay,
     };
     final accent = notification.type == AppNotificationType.joinDeclined
         ? const Color(0xFFFFA59C)
@@ -2201,6 +2305,27 @@ class NotificationCard extends StatelessWidget {
                           color: accent,
                           fontWeight: FontWeight.w600,
                         ),
+                      ),
+                    ],
+                    if (notification.type ==
+                        AppNotificationType.playAgainInvite) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          TextButton(
+                            key: const Key('view-play-again-match'),
+                            onPressed: () => onOpen(notification),
+                            child: const Text('View Match'),
+                          ),
+                          TextButton(
+                            key: const Key('dismiss-play-again-invite'),
+                            onPressed: onDismiss == null
+                                ? null
+                                : () => onDismiss!(notification),
+                            child: const Text('Dismiss'),
+                          ),
+                        ],
                       ),
                     ],
                   ],
@@ -2484,6 +2609,8 @@ class HomeScreen extends StatefulWidget {
   final Widget Function()? createMatchScreenBuilder;
   final Duration indexRetryDelay;
   final int indexRetryAttempts;
+  final PlayedWithRepository? playedWithRepository;
+  final FriendsRepository? friendsRepository;
 
   const HomeScreen({
     super.key,
@@ -2493,6 +2620,8 @@ class HomeScreen extends StatefulWidget {
     this.createMatchScreenBuilder,
     this.indexRetryDelay = const Duration(milliseconds: 400),
     this.indexRetryAttempts = 10,
+    this.playedWithRepository,
+    this.friendsRepository,
   });
 
   @override
@@ -2507,6 +2636,114 @@ class _HomeScreenState extends State<HomeScreen> {
   MatchLocation? _discoveryOverride;
   double _discoveryRadiusKm = 25;
   int _discoveryPerCellLimit = discoveryInitialCellLimit;
+
+  PlayedWithRepository get _playedWithRepository =>
+      widget.playedWithRepository ??
+      FirestorePlayedWithRepository(
+        filter: FirebaseRelationshipPolicyService().filterPlayedWith,
+      );
+
+  FriendsRepository get _friendsRepository =>
+      widget.friendsRepository ?? FirebaseFriendsRepository();
+
+  MessagingRepository get _messagingRepository => FirebaseMessagingRepository();
+
+  void _openMessages() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            MessagesScreen(currentUid: uid, repository: _messagingRepository),
+      ),
+    );
+  }
+
+  void _openPlayedWithProfile(BuildContext context, PlayedWithPlayer player) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerProfileScreen(
+          uid: player.profile.uid,
+          fallbackName: player.profile.displayName,
+          fallbackLevel: player.profile.level,
+          playedWithRepository: _playedWithRepository,
+          viewerUid: FirebaseAuth.instance.currentUser?.uid,
+          friendsRepository: _friendsRepository,
+          onPlayAgain: _openPlayAgain,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPlayAgain(PlayAgainTarget target) async {
+    var resolved = target;
+    if (target.sourceMatchId?.isNotEmpty == true && target.location == null) {
+      try {
+        final source = await FirebaseFirestore.instance
+            .collection('matches')
+            .doc(target.sourceMatchId)
+            .get();
+        if (source.exists) {
+          final match = Match.fromDocument(source);
+          resolved = PlayAgainTarget(
+            uid: target.uid,
+            displayName: target.displayName,
+            sourceMatchId: target.sourceMatchId,
+            location: match.location,
+            level: match.level,
+          );
+        }
+      } catch (_) {
+        // Safe fallback: Create Match opens without stale source prefills.
+      }
+    }
+    if (!mounted) return;
+    final result = await Navigator.push<MatchMutationResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CreateMatchScreen(playAgainTarget: resolved),
+      ),
+    );
+    if (result != null && mounted) await _waitForIndexAndRefresh(result);
+  }
+
+  void _openPlayedWithList() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayedWithScreen(
+          viewerUid: uid,
+          repository: _playedWithRepository,
+          onProfileTap: _openPlayedWithProfile,
+          onPlayAgain: _openPlayAgain,
+        ),
+      ),
+    );
+  }
+
+  void _openFriends() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FriendsScreen(
+          viewerUid: uid,
+          repository: _friendsRepository,
+          onProfileTap: (context, profile) => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => PlayerProfileScreen(
+                uid: profile.uid,
+                fallbackName: profile.displayName,
+                fallbackLevel: profile.level,
+                viewerUid: uid,
+                playedWithRepository: _playedWithRepository,
+                friendsRepository: _friendsRepository,
+                onPlayAgain: _openPlayAgain,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _refreshDiscovery() async {
     if (!mounted) return;
@@ -2704,6 +2941,18 @@ class _HomeScreenState extends State<HomeScreen> {
     await batch.commit();
   }
 
+  Future<void> _dismissPlayAgain(AppNotification notification) async {
+    try {
+      await FirebasePlayAgainRepository().dismiss(notification.matchId);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not dismiss this invitation.')),
+        );
+      }
+    }
+  }
+
   Stream<Map<String, dynamic>?> _joinRequestForNotification(
     AppNotification notification,
   ) {
@@ -2851,36 +3100,74 @@ class _HomeScreenState extends State<HomeScreen> {
     final screens = [
       HomeTab(
         onFindMatch: () => _onItemTapped(1),
+        onFindPlayers: () => _onItemTapped(2),
+        onMessages: _openMessages,
         onCreateMatch: _openCreateMatchScreen,
         matches: openMatches,
         preferredLocation: widget.profile?.discoveryLocation,
         isLoading: snapshot.connectionState == ConnectionState.waiting,
         error: snapshot.hasError,
+        playedWithPreview: currentUid.isEmpty
+            ? null
+            : PlayedWithPreview(
+                viewerUid: currentUid,
+                repository: _playedWithRepository,
+                onProfileTap: _openPlayedWithProfile,
+                onViewAll: _openPlayedWithList,
+                onPlayAgain: _openPlayAgain,
+              ),
       ),
-      MatchesTab(
-        matches: openMatches,
-        currentUid: currentUid,
-        currentEmail: currentEmail,
-        pendingMatchIds: pendingMatches.map((match) => match.id).toSet(),
-        preferredLocation: widget.profile?.discoveryLocation,
-        onCreateMatch: _openCreateMatchScreen,
-        onDiscoveryQueryChanged: _changeDiscovery,
-        onLoadMoreNearby: _loadMoreDiscovery,
-        isLoading: snapshot.connectionState == ConnectionState.waiting,
-        error: snapshot.hasError,
+      MatchesDestination(
+        discover: MatchesTab(
+          matches: openMatches,
+          currentUid: currentUid,
+          currentEmail: currentEmail,
+          pendingMatchIds: pendingMatches.map((match) => match.id).toSet(),
+          preferredLocation: widget.profile?.discoveryLocation,
+          onCreateMatch: _openCreateMatchScreen,
+          onDiscoveryQueryChanged: _changeDiscovery,
+          onLoadMoreNearby: _loadMoreDiscovery,
+          isLoading: snapshot.connectionState == ConnectionState.waiting,
+          error: snapshot.hasError,
+        ),
+        mine: MyMatchesTab(
+          matches: myMatches,
+          pendingMatches: pendingMatches,
+          currentUid: currentUid,
+          currentEmail: currentEmail,
+          onFindMatch: () => _onItemTapped(1),
+          onCreateMatch: _openCreateMatchScreen,
+          isLoading: snapshot.connectionState == ConnectionState.waiting,
+          error: snapshot.hasError || requestsError,
+          hasMore: hasMoreMyMatches,
+          onLoadMore: () => setState(() => _myMatchLimit += 100),
+        ),
       ),
-      MyMatchesTab(
-        matches: myMatches,
-        pendingMatches: pendingMatches,
-        currentUid: currentUid,
-        currentEmail: currentEmail,
-        onFindMatch: () => _onItemTapped(1),
-        onCreateMatch: _openCreateMatchScreen,
-        isLoading: snapshot.connectionState == ConnectionState.waiting,
-        error: snapshot.hasError || requestsError,
-        hasMore: hasMoreMyMatches,
-        onLoadMore: () => setState(() => _myMatchLimit += 100),
-      ),
+      currentUid.isEmpty
+          ? const Center(child: Text('Sign in to discover players.'))
+          : PlayersScreen(
+              repository: FirebasePlayerDiscoveryRepository(),
+              friendsRepository: _friendsRepository,
+              onProfileTap: (context, player) => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => PlayerProfileScreen(
+                    uid: player.uid,
+                    fallbackName: player.displayName,
+                    fallbackLevel: player.level,
+                    viewerUid: currentUid,
+                    playedWithRepository: _playedWithRepository,
+                    friendsRepository: _friendsRepository,
+                    onPlayAgain: _openPlayAgain,
+                  ),
+                ),
+              ),
+              onPlayAgain: (player) => _openPlayAgain(
+                PlayAgainTarget(
+                  uid: player.uid,
+                  displayName: player.displayName,
+                ),
+              ),
+            ),
       NotificationsTab(
         notifications: notifications,
         isLoading: notificationsLoading,
@@ -2891,8 +3178,32 @@ class _HomeScreenState extends State<HomeScreen> {
         hasMore: hasMoreNotifications,
         onLoadMore: () => setState(() => _notificationLimit += 50),
         joinRequestStream: _joinRequestForNotification,
+        onDismiss: _dismissPlayAgain,
         onOpen: (notification) async {
           _markNotificationRead(notification);
+          if (notification.type == AppNotificationType.friendRequest ||
+              notification.type == AppNotificationType.friendAccepted) {
+            _openFriends();
+            return;
+          }
+          if ((notification.type == AppNotificationType.directMessage ||
+                  notification.type == AppNotificationType.matchMessage) &&
+              notification.conversationId.isNotEmpty) {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ConversationScreen(
+                  conversationId: notification.conversationId,
+                  currentUid: currentUid,
+                  title: notification.type == AppNotificationType.matchMessage
+                      ? 'Match chat'
+                      : 'Messages',
+                  repository: _messagingRepository,
+                ),
+              ),
+            );
+            return;
+          }
           var match = matchForNotification(notification, matches);
           if (match == null && notification.matchId.isNotEmpty) {
             final document = await FirebaseFirestore.instance
@@ -2922,7 +3233,13 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         },
       ),
-      ProfileTab(profile: widget.profile, uid: currentUid, email: currentEmail),
+      ProfileTab(
+        profile: widget.profile,
+        uid: currentUid,
+        email: currentEmail,
+        onFriends: _openFriends,
+        onMessages: _openMessages,
+      ),
     ];
 
     return Scaffold(
@@ -2967,8 +3284,8 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Matches',
           ),
           const NavigationDestination(
-            icon: Icon(Icons.event_available),
-            label: 'My Matches',
+            icon: Icon(Icons.group_outlined),
+            label: 'Players',
           ),
           NavigationDestination(
             icon: NotificationBadge(
@@ -2992,20 +3309,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class HomeTab extends StatelessWidget {
   final VoidCallback onFindMatch;
+  final VoidCallback? onFindPlayers;
+  final VoidCallback? onMessages;
   final VoidCallback onCreateMatch;
   final List<Match> matches;
   final DiscoveryLocation? preferredLocation;
   final bool isLoading;
   final bool error;
+  final Widget? playedWithPreview;
 
   const HomeTab({
     super.key,
     required this.onFindMatch,
+    this.onFindPlayers,
+    this.onMessages,
     required this.onCreateMatch,
     this.matches = const [],
     this.preferredLocation,
     this.isLoading = false,
     this.error = false,
+    this.playedWithPreview,
   });
 
   String get _locationLabel {
@@ -3097,6 +3420,28 @@ class HomeTab extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                key: const Key('home-find-players'),
+                onPressed: onFindPlayers,
+                icon: const Icon(Icons.group_outlined),
+                label: const Text('Find Players'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                key: const Key('home-messages'),
+                onPressed: onMessages,
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: const Text('Messages'),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 24),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -3154,6 +3499,10 @@ class HomeTab extends StatelessWidget {
               explicitLevelLabel: true,
             );
           }),
+        if (playedWithPreview != null) ...[
+          const SizedBox(height: 24),
+          playedWithPreview!,
+        ],
       ],
     );
   }
@@ -4038,6 +4387,58 @@ class _MatchesStatusState extends StatelessWidget {
   }
 }
 
+enum MatchesDestinationView { discover, mine }
+
+class MatchesDestination extends StatefulWidget {
+  final Widget discover;
+  final Widget mine;
+  const MatchesDestination({
+    super.key,
+    required this.discover,
+    required this.mine,
+  });
+  @override
+  State<MatchesDestination> createState() => _MatchesDestinationState();
+}
+
+class _MatchesDestinationState extends State<MatchesDestination> {
+  MatchesDestinationView selected = MatchesDestinationView.discover;
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+        child: SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<MatchesDestinationView>(
+            key: const Key('matches-destination-control'),
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(
+                value: MatchesDestinationView.discover,
+                label: Text('Discover'),
+              ),
+              ButtonSegment(
+                value: MatchesDestinationView.mine,
+                label: Text('My Matches'),
+              ),
+            ],
+            selected: {selected},
+            onSelectionChanged: (value) =>
+                setState(() => selected = value.single),
+          ),
+        ),
+      ),
+      Expanded(
+        child: IndexedStack(
+          index: selected.index,
+          children: [widget.discover, widget.mine],
+        ),
+      ),
+    ],
+  );
+}
+
 enum MyMatchesView { upcoming, past }
 
 class MyMatchesTab extends StatefulWidget {
@@ -4300,6 +4701,8 @@ class ProfileTab extends StatefulWidget {
   final String email;
   final PublicPlayerProfileLoader loader;
   final VoidCallback? onEdit;
+  final VoidCallback? onFriends;
+  final VoidCallback? onMessages;
 
   const ProfileTab({
     super.key,
@@ -4308,6 +4711,8 @@ class ProfileTab extends StatefulWidget {
     this.email = '',
     this.loader = loadPublicPlayerProfile,
     this.onEdit,
+    this.onFriends,
+    this.onMessages,
   });
 
   @override
@@ -4382,6 +4787,8 @@ class _ProfileTabState extends State<ProfileTab> {
             profile: profile,
             email: email,
             onEdit: edit,
+            onFriends: widget.onFriends,
+            onMessages: widget.onMessages,
             loadingStats: true,
           );
         }
@@ -4400,6 +4807,8 @@ class _ProfileTabState extends State<ProfileTab> {
           email: email,
           stats: snapshot.data,
           onEdit: edit,
+          onFriends: widget.onFriends,
+          onMessages: widget.onMessages,
         );
       },
     );
@@ -4412,6 +4821,8 @@ class _ProfileOverview extends StatelessWidget {
   final PublicPlayerProfile? stats;
   final bool loadingStats;
   final VoidCallback? onEdit;
+  final VoidCallback? onFriends;
+  final VoidCallback? onMessages;
 
   const _ProfileOverview({
     required this.profile,
@@ -4419,6 +4830,8 @@ class _ProfileOverview extends StatelessWidget {
     this.stats,
     this.loadingStats = false,
     this.onEdit,
+    this.onFriends,
+    this.onMessages,
   });
 
   @override
@@ -4444,9 +4857,11 @@ class _ProfileOverview extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const CircleAvatar(
+                    ProfileAvatar(
+                      uid: profile.uid,
+                      displayName: profile.displayName,
+                      avatarVersion: profile.avatarVersion,
                       radius: 28,
-                      child: Icon(Icons.person_outline, size: 30),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -4520,6 +4935,42 @@ class _ProfileOverview extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Chip(
+                      label: Text(
+                        '${profile.socialProfile.preferredSide.label} side',
+                      ),
+                    ),
+                    Chip(
+                      label: Text(profile.socialProfile.playFrequency.label),
+                    ),
+                  ],
+                ),
+                if (profile.socialProfile.bio.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(profile.socialProfile.bio),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  profile.socialProfile.discoverable
+                      ? 'Visible in Players discovery'
+                      : 'Hidden from Players discovery',
+                  style: const TextStyle(color: Colors.white60, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ),
         if (profile.discoveryLocation.isConfigured) ...[
           const SizedBox(height: 12),
           Card(
@@ -4538,6 +4989,24 @@ class _ProfileOverview extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 16),
+        if (onFriends != null) ...[
+          OutlinedButton.icon(
+            key: const Key('open-friends'),
+            onPressed: onFriends,
+            icon: const Icon(Icons.people_outline),
+            label: const Text('Friends'),
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (onMessages != null) ...[
+          OutlinedButton.icon(
+            key: const Key('open-messages'),
+            onPressed: onMessages,
+            icon: const Icon(Icons.chat_bubble_outline),
+            label: const Text('Messages'),
+          ),
+          const SizedBox(height: 8),
+        ],
         OutlinedButton.icon(
           key: const Key('edit-profile-action'),
           onPressed: onEdit,
@@ -4646,6 +5115,11 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   late final TextEditingController _discoveryCountryCodeController;
   late final TextEditingController _discoveryCityController;
   late final TextEditingController _discoveryAreaController;
+  late final TextEditingController _bioController;
+  late PreferredSide _preferredSide;
+  late PlayFrequency _playFrequency;
+  late bool _discoverable;
+  late int _avatarVersion;
   double? _discoveryLatitude;
   double? _discoveryLongitude;
   bool _isSaving = false;
@@ -4669,6 +5143,15 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
     _discoveryAreaController = TextEditingController(
       text: widget.profile?.discoveryLocation.area ?? '',
     );
+    _bioController = TextEditingController(
+      text: widget.profile?.socialProfile.bio ?? '',
+    );
+    _preferredSide =
+        widget.profile?.socialProfile.preferredSide ?? PreferredSide.either;
+    _playFrequency =
+        widget.profile?.socialProfile.playFrequency ?? PlayFrequency.occasional;
+    _discoverable = widget.profile?.socialProfile.discoverable ?? false;
+    _avatarVersion = widget.profile?.avatarVersion ?? 0;
     _discoveryLatitude = widget.profile?.discoveryLocation.latitude;
     _discoveryLongitude = widget.profile?.discoveryLocation.longitude;
   }
@@ -4681,6 +5164,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
     _discoveryCountryCodeController.dispose();
     _discoveryCityController.dispose();
     _discoveryAreaController.dispose();
+    _bioController.dispose();
     super.dispose();
   }
 
@@ -4696,6 +5180,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       latitude: _discoveryLatitude,
       longitude: _discoveryLongitude,
     );
+    final bio = _bioController.text.trim();
     if (displayName.length < 2) {
       _showMessage('Please enter a display name with at least 2 characters.');
       return;
@@ -4716,6 +5201,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       _showMessage(
         'Use a level from 1 to 7 in 0.5 steps, or Beginner, Intermediate, or Advanced.',
       );
+      return;
+    }
+    if (bio.length > socialProfileBioMaxLength) {
+      _showMessage('Bio must be 160 characters or fewer.');
       return;
     }
     final hasDiscoveryValue =
@@ -4745,6 +5234,14 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       final batch = firestore.batch();
       final timestamp = FieldValue.serverTimestamp();
       final createdAt = widget.profile?.createdAt ?? timestamp;
+      final socialProfile = SocialProfileData(
+        preferredSide: _preferredSide,
+        playFrequency: _playFrequency,
+        bio: bio,
+        discoverable: _discoverable,
+      );
+      final sharedSocialData = socialProfile.toMap();
+      final publicLocation = coarsePublicLocation(discovery.toMap());
       batch.set(privateReference, {
         'uid': widget.user.uid,
         'displayName': displayName,
@@ -4753,11 +5250,14 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
         'discoveryLocation': discovery.toMap(),
         'createdAt': createdAt,
         'updatedAt': timestamp,
+        ...sharedSocialData,
       }, SetOptions(merge: true));
       batch.set(publicReference, {
         'uid': widget.user.uid,
         'displayName': displayName,
         'level': level,
+        ...publicLocation,
+        ...sharedSocialData,
       }, SetOptions(merge: true));
       await batch.commit();
 
@@ -4810,6 +5310,13 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          AvatarEditor(
+            uid: widget.user.uid,
+            displayName: _displayNameController.text,
+            avatarVersion: _avatarVersion,
+            onChanged: (value) => setState(() => _avatarVersion = value),
+          ),
+          const SizedBox(height: 24),
           Text(
             widget.isRequired
                 ? 'Tell other players who they will be sharing the court with.'
@@ -4839,6 +5346,74 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
               prefixIcon: Icon(Icons.trending_up),
               border: OutlineInputBorder(),
             ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Your padel profile',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<PreferredSide>(
+            key: const Key('preferred-side-field'),
+            initialValue: _preferredSide,
+            decoration: const InputDecoration(
+              labelText: 'Preferred side',
+              prefixIcon: Icon(Icons.swap_horiz),
+              border: OutlineInputBorder(),
+            ),
+            items: PreferredSide.values
+                .map(
+                  (value) =>
+                      DropdownMenuItem(value: value, child: Text(value.label)),
+                )
+                .toList(),
+            onChanged: _isSaving
+                ? null
+                : (value) => setState(() => _preferredSide = value!),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<PlayFrequency>(
+            key: const Key('play-frequency-field'),
+            initialValue: _playFrequency,
+            decoration: const InputDecoration(
+              labelText: 'How often do you play?',
+              prefixIcon: Icon(Icons.calendar_month_outlined),
+              border: OutlineInputBorder(),
+            ),
+            items: PlayFrequency.values
+                .map(
+                  (value) =>
+                      DropdownMenuItem(value: value, child: Text(value.label)),
+                )
+                .toList(),
+            onChanged: _isSaving
+                ? null
+                : (value) => setState(() => _playFrequency = value!),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('profile-bio-field'),
+            controller: _bioController,
+            enabled: !_isSaving,
+            maxLength: socialProfileBioMaxLength,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Short bio (optional)',
+              hintText: 'Tell players a little about your game',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          SwitchListTile(
+            key: const Key('profile-discoverable-field'),
+            value: _discoverable,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Players discovery'),
+            subtitle: const Text(
+              'Allow other players to find me in Players discovery.',
+            ),
+            onChanged: _isSaving
+                ? null
+                : (value) => setState(() => _discoverable = value),
           ),
           const SizedBox(height: 16),
           const Text(
@@ -4941,6 +5516,8 @@ class CreateMatchScreen extends StatefulWidget {
   final MatchLocation? initialLocation;
   final DateTime? initialScheduledAt;
   final String? initialLevel;
+  final PlayAgainTarget? playAgainTarget;
+  final PlayAgainRepository? playAgainRepository;
 
   const CreateMatchScreen({
     super.key,
@@ -4949,6 +5526,8 @@ class CreateMatchScreen extends StatefulWidget {
     this.initialLocation,
     this.initialScheduledAt,
     this.initialLevel,
+    this.playAgainTarget,
+    this.playAgainRepository,
   });
 
   @override
@@ -4978,7 +5557,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   @override
   void initState() {
     super.initState();
-    final location = widget.initialLocation;
+    final location =
+        widget.initialLocation ?? widget.playAgainTarget?.safeLocation;
     if (location != null) {
       _clubController.text = location.clubName;
       _countryController.text = location.country;
@@ -4991,11 +5571,14 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       _longitude = location.longitude;
       _editingLocationDetails = false;
     }
-    _scheduledAt = widget.initialScheduledAt;
+    // Play Again always requires a freshly selected future time.
+    _scheduledAt = widget.playAgainTarget == null
+        ? widget.initialScheduledAt
+        : null;
     if (_scheduledAt != null) {
       _dateTimeController.text = _friendlyDateTime(_scheduledAt!);
     }
-    _level = widget.initialLevel;
+    _level = widget.initialLevel ?? widget.playAgainTarget?.safeLevel;
   }
 
   @override
@@ -5080,12 +5663,36 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           : (await FirebaseFirestore.instance.collection('matches').add(match))
                 .id;
 
+      var invitationSent = false;
+      var invitationFailed = false;
+      if (widget.playAgainTarget != null) {
+        try {
+          await (widget.playAgainRepository ?? FirebasePlayAgainRepository())
+              .invite(
+                matchId: matchId,
+                inviteeUid: widget.playAgainTarget!.uid,
+                sourceMatchId: widget.playAgainTarget!.sourceMatchId,
+              );
+          invitationSent = true;
+        } catch (_) {
+          invitationFailed = true;
+        }
+      }
+
       if (!mounted) return;
 
       final messenger = ScaffoldMessenger.of(context);
       Navigator.pop(context, MatchMutationResult(matchId, location));
       messenger.showSnackBar(
-        const SnackBar(content: Text('Match created successfully.')),
+        SnackBar(
+          content: Text(
+            invitationSent
+                ? 'Match created and invitation sent.'
+                : invitationFailed
+                ? 'Match created, but the invitation could not be sent.'
+                : 'Match created successfully.',
+          ),
+        ),
       );
     } on MatchActionException catch (error) {
       if (!mounted) return;
@@ -5186,6 +5793,17 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             'Choose a club, time, and who the game is for.',
             style: TextStyle(color: Colors.white70),
           ),
+          if (widget.playAgainTarget != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Invite ${widget.playAgainTarget!.displayName} after creating',
+              key: const Key('play-again-create-context'),
+              style: const TextStyle(
+                color: Color(0xFF74E8A0),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           _sectionTitle('Where'),
           PlacesAutocompleteField(
@@ -5713,6 +6331,10 @@ class PlayerProfileScreen extends StatefulWidget {
   final PublicPlayerProfileLoader loader;
   final String? viewerUid;
   final String? viewerEmail;
+  final PlayedWithRepository? playedWithRepository;
+  final FriendsRepository? friendsRepository;
+  final MessagingRepository? messagingRepository;
+  final ValueChanged<PlayAgainTarget>? onPlayAgain;
 
   const PlayerProfileScreen({
     super.key,
@@ -5722,6 +6344,10 @@ class PlayerProfileScreen extends StatefulWidget {
     this.loader = loadPublicPlayerProfile,
     this.viewerUid,
     this.viewerEmail,
+    this.playedWithRepository,
+    this.friendsRepository,
+    this.messagingRepository,
+    this.onPlayAgain,
   });
 
   @override
@@ -5730,97 +6356,85 @@ class PlayerProfileScreen extends StatefulWidget {
 
 class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
   late Future<PublicPlayerProfile> _profile = widget.loader(widget.uid);
-  bool _isSubmittingRating = false;
+  late Future<PlayedWithRelationship?> _playedTogether = _loadPlayedTogether();
+  late Future<(bool, PlayedWithRelationship?)> _playAgainEligibility =
+      _loadPlayAgainEligibility();
 
   User? get _firebaseUser =>
       Firebase.apps.isEmpty ? null : FirebaseAuth.instance.currentUser;
 
   String get _viewerUid => widget.viewerUid ?? _firebaseUser?.uid ?? '';
-  String get _viewerEmail => widget.viewerEmail ?? _firebaseUser?.email ?? '';
 
-  void _retry() => setState(() {
-    _profile = widget.loader(widget.uid);
-  });
-
-  Future<void> _ratePlayer(Match match) async {
-    final user = _firebaseUser;
-    if (user == null || _isSubmittingRating) return;
-    var selected = 0;
-    final rating = await showDialog<int>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Rate player'),
-          content: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(5, (index) {
-              final value = index + 1;
-              return IconButton(
-                key: Key('rating-star-$value'),
-                tooltip: '$value star${value == 1 ? '' : 's'}',
-                onPressed: () => setDialogState(() => selected = value),
-                icon: Icon(
-                  value <= selected ? Icons.star : Icons.star_border,
-                  color: Colors.amber,
-                ),
-              );
-            }),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: selected == 0
-                  ? null
-                  : () => Navigator.pop(dialogContext, selected),
-              child: const Text('Confirm'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (rating == null || !mounted) return;
-
-    setState(() => _isSubmittingRating = true);
+  Future<void> _message(String name, int avatarVersion) async {
+    final repository =
+        widget.messagingRepository ?? FirebaseMessagingRepository();
     try {
-      await FirebaseFirestore.instance
-          .collection('matches')
-          .doc(match.id)
-          .collection('ratingRaters')
-          .doc(user.uid)
-          .collection('ratings')
-          .doc(widget.uid)
-          .set({
-            'matchId': match.id,
-            'raterUid': user.uid,
-            'ratedUid': widget.uid,
-            'rating': rating,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
+      final id = await repository.ensureDirect(widget.uid);
       if (!mounted) return;
-      setState(() {
-        _profile = widget.loader(widget.uid);
-        _isSubmittingRating = false;
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Rating submitted.')));
-    } on FirebaseException catch (error) {
-      if (!mounted) return;
-      setState(() => _isSubmittingRating = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            error.code == 'permission-denied'
-                ? 'This match is not eligible for rating.'
-                : 'Could not submit rating.',
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ConversationScreen(
+            conversationId: id,
+            currentUid: _viewerUid,
+            title: name.isEmpty ? 'Player' : name,
+            repository: repository,
+            otherUid: widget.uid,
+            avatarVersion: avatarVersion,
           ),
         ),
       );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Messaging is available to accepted friends.'),
+          ),
+        );
+      }
     }
   }
+
+  Future<PlayedWithRelationship?> _loadPlayedTogether() {
+    final viewerUid = _viewerUid;
+    if (viewerUid.isEmpty ||
+        viewerUid == widget.uid ||
+        (widget.playedWithRepository == null && Firebase.apps.isEmpty)) {
+      return Future.value();
+    }
+    return (widget.playedWithRepository ?? FirestorePlayedWithRepository())
+        .relationship(viewerUid, widget.uid);
+  }
+
+  Future<(bool, PlayedWithRelationship?)> _loadPlayAgainEligibility() async {
+    if (_viewerUid.isEmpty ||
+        _viewerUid == widget.uid ||
+        widget.onPlayAgain == null) {
+      return (false, null);
+    }
+    try {
+      final results = await Future.wait<Object?>([
+        _loadPlayedTogether(),
+        (widget.friendsRepository ?? FirebaseFriendsRepository()).policy(
+          widget.uid,
+        ),
+      ]);
+      final relationship = results[0] as PlayedWithRelationship?;
+      final policy = results[1] as RelationshipPolicy;
+      return (
+        policy.interactionAllowed &&
+            (relationship != null || policy.status == 'accepted'),
+        relationship,
+      );
+    } catch (_) {
+      return (false, null);
+    }
+  }
+
+  void _retry() => setState(() {
+    _profile = widget.loader(widget.uid);
+    _playedTogether = _loadPlayedTogether();
+    _playAgainEligibility = _loadPlayAgainEligibility();
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -5853,13 +6467,13 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
           final level = profile.level.isNotEmpty
               ? profile.level
               : widget.fallbackLevel.trim();
+          final summary = profile.ratingSummary;
           final recentMatches = recentPlayerMatches(
             profile.matches,
             limit: profile.matches.length,
           );
-          final summary = profile.ratingSummary;
           final viewerUid = _viewerUid;
-          final viewerEmail = _viewerEmail;
+          final viewerEmail = widget.viewerEmail ?? _firebaseUser?.email ?? '';
           final ratingsByMatch = {
             for (final rating in profile.ratings)
               if (rating.raterUid == viewerUid) rating.matchId: rating,
@@ -5867,6 +6481,16 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ProfileAvatar(
+                  uid: profile.uid,
+                  displayName: name,
+                  avatarVersion: profile.avatarVersion,
+                  radius: 44,
+                ),
+              ),
+              const SizedBox(height: 12),
               Text(
                 name.isEmpty ? 'Player' : name,
                 key: const Key('public-profile-name'),
@@ -5881,18 +6505,132 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                 key: const Key('public-profile-level'),
                 style: const TextStyle(fontSize: 18, color: Colors.white70),
               ),
-              const SizedBox(height: 24),
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.sports_tennis),
-                  title: const Text('Recent matches'),
-                  trailing: Text(
-                    '${profile.matches.length}',
-                    key: const Key('public-profile-match-count'),
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Chip(
+                    label: Text(
+                      '${profile.socialProfile.preferredSide.label} side',
                     ),
+                  ),
+                  Chip(label: Text(profile.socialProfile.playFrequency.label)),
+                ],
+              ),
+              if (profile.socialProfile.bio.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(profile.socialProfile.bio),
+              ],
+              if (profile.city.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  [
+                    profile.area,
+                    profile.city,
+                    profile.countryCode,
+                  ].where((value) => value.isNotEmpty).join(', '),
+                  key: const Key('public-profile-location'),
+                  style: const TextStyle(color: Colors.white60),
+                ),
+              ],
+              const SizedBox(height: 24),
+              FutureBuilder<(bool, PlayedWithRelationship?)>(
+                future: _playAgainEligibility,
+                builder: (context, eligibility) {
+                  if (eligibility.data?.$1 != true) {
+                    return const SizedBox.shrink();
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: FilledButton.icon(
+                      key: const Key('play-again-profile'),
+                      onPressed: () => widget.onPlayAgain!(
+                        PlayAgainTarget(
+                          uid: widget.uid,
+                          displayName: name.isEmpty ? 'Player' : name,
+                          sourceMatchId: eligibility.data?.$2?.lastMatchId,
+                        ),
+                      ),
+                      icon: const Icon(Icons.replay),
+                      label: const Text('Play Again'),
+                    ),
+                  );
+                },
+              ),
+              if (viewerUid.isNotEmpty &&
+                  viewerUid != widget.uid &&
+                  (widget.friendsRepository != null ||
+                      Firebase.apps.isNotEmpty)) ...[
+                FriendAction(
+                  targetUid: widget.uid,
+                  repository:
+                      widget.friendsRepository ?? FirebaseFriendsRepository(),
+                  onChanged: _retry,
+                ),
+                FutureBuilder<RelationshipPolicy>(
+                  future:
+                      (widget.friendsRepository ?? FirebaseFriendsRepository())
+                          .policy(widget.uid),
+                  builder: (context, policy) =>
+                      policy.data?.status == 'accepted'
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: FilledButton.icon(
+                            key: const Key('message-friend'),
+                            onPressed: () =>
+                                _message(name, profile.avatarVersion),
+                            icon: const Icon(Icons.chat_bubble_outline),
+                            label: const Text('Message'),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+                const SizedBox(height: 12),
+              ],
+              FutureBuilder<PlayedWithRelationship?>(
+                future: _playedTogether,
+                builder: (context, relationshipSnapshot) {
+                  final relationship = relationshipSnapshot.data;
+                  if (relationship == null) return const SizedBox.shrink();
+                  final count = relationship.completedMatchCount;
+                  return Card(
+                    key: const Key('public-profile-played-together'),
+                    child: ListTile(
+                      leading: const Icon(Icons.group_outlined),
+                      title: Text(
+                        'Played together $count ${count == 1 ? 'time' : 'times'}',
+                      ),
+                      subtitle: Text(
+                        'Last played ${playedWithShortDate(relationship.lastPlayedAt)}',
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Row(
+                    children: [
+                      _ProfileStat(
+                        label: 'Completed matches',
+                        value: '${profile.completedMatchCount}',
+                      ),
+                      const _ProfileStatDivider(),
+                      _ProfileStat(
+                        label: 'Repeat players',
+                        value: '${profile.repeatPlayerCount}',
+                      ),
+                      if (profile.matches.isNotEmpty) ...[
+                        const _ProfileStatDivider(),
+                        _ProfileStat(
+                          label: 'Shared matches',
+                          value: '${profile.matches.length}',
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
@@ -5931,18 +6669,13 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                         ),
                 ),
               ),
-              const SizedBox(height: 24),
-              const Text(
-                'Recent match history',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              if (recentMatches.isEmpty)
+              if (recentMatches.isNotEmpty) ...[
+                const SizedBox(height: 24),
                 const Text(
-                  'No matches to show yet.',
-                  style: TextStyle(color: Colors.white70),
-                )
-              else
+                  'Shared match ratings',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
                 ...recentMatches.map((match) {
                   final existing = ratingsByMatch[match.id];
                   final eligible =
@@ -5961,14 +6694,6 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                       title: Text(
                         match.club.isEmpty ? 'Padel match' : match.club,
                       ),
-                      subtitle: Text(
-                        match.scheduledAt == null
-                            ? (match.level.isEmpty
-                                  ? 'Date unavailable'
-                                  : explicitLevel(match.level))
-                            : '${_friendlyDateTime(match.scheduledAt!)}'
-                                  '${match.level.isEmpty ? '' : ' · ${explicitLevel(match.level)}'}',
-                      ),
                       trailing: existing != null
                           ? Text(
                               '${existing.rating} ★',
@@ -5977,15 +6702,14 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                           : eligible
                           ? TextButton(
                               key: Key('rate-player-${match.id}'),
-                              onPressed: _isSubmittingRating
-                                  ? null
-                                  : () => _ratePlayer(match),
-                              child: const Text('Rate player'),
+                              onPressed: null,
+                              child: const Text('Rate in match details'),
                             )
                           : null,
                     ),
                   );
                 }),
+              ],
             ],
           );
         },
@@ -6344,6 +7068,44 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   bool _isLeaving = false;
   bool _isCancelling = false;
   final Set<String> _processingRequestIds = {};
+
+  Future<void> _playAgain(Match match, String uid, String name) async {
+    final result = await Navigator.of(context).push<MatchMutationResult>(
+      MaterialPageRoute(
+        builder: (_) => CreateMatchScreen(
+          playAgainTarget: PlayAgainTarget(
+            uid: uid,
+            displayName: name,
+            sourceMatchId: match.id,
+            location: match.location,
+            level: match.level,
+          ),
+        ),
+      ),
+    );
+    if (result != null) await widget.onMatchUpdated?.call(result);
+  }
+
+  Future<void> _openMatchChat(Match match) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final repository = FirebaseMessagingRepository();
+    try {
+      final ensured = await repository.ensureMatch(match.id);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ConversationScreen(
+            conversationId: ensured.conversationId,
+            currentUid: uid,
+            title: match.club.isEmpty ? 'Match chat' : match.club,
+            repository: repository,
+          ),
+        ),
+      );
+    } catch (_) {
+      if (mounted) _showMessage('Match chat is unavailable.');
+    }
+  }
 
   Future<void> _requestToJoin() async {
     if (!matchAllowsChanges(widget.match, DateTime.now())) {
@@ -6896,14 +7658,28 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                 padding: const EdgeInsets.all(20),
                 children: [
                   MatchDetailsSummary(match: match, completed: completed),
+                  if (isOrganizer || hasJoined) ...[
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      key: const Key('open-match-chat'),
+                      onPressed: () => _openMatchChat(match),
+                      icon: const Icon(Icons.forum_outlined),
+                      label: const Text('Match Chat'),
+                    ),
+                  ],
                   const SizedBox(height: 28),
-                  const Text(
-                    'Players',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  Text(
+                    completed ? 'Players from this match' : 'Players',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  if (match.creatorUid.isNotEmpty ||
-                      match.creatorEmail.isNotEmpty)
+                  if ((match.creatorUid.isNotEmpty ||
+                          match.creatorEmail.isNotEmpty ||
+                          match.creatorDisplayName == 'Deleted player') &&
+                      (!completed || match.creatorUid != currentUid))
                     ProfilePlayerTile(
                       uid: match.creatorUid,
                       fallbackName: match.creatorDisplayName.isNotEmpty
@@ -6911,9 +7687,21 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                           : 'Organizer',
                       fallbackLevel: match.creatorLevel,
                       role: 'Organizer',
+                      historical: completed,
+                      onPlayAgain: completed && match.creatorUid.isNotEmpty
+                          ? () => _playAgain(
+                              match,
+                              match.creatorUid,
+                              match.creatorDisplayName.isEmpty
+                                  ? 'Organizer'
+                                  : match.creatorDisplayName,
+                            )
+                          : null,
                     ),
                   ...match.players.map(
-                    (player) => player.uid == match.creatorUid
+                    (player) =>
+                        player.uid == match.creatorUid ||
+                            (completed && player.uid == currentUid)
                         ? const SizedBox.shrink()
                         : ProfilePlayerTile(
                             uid: player.uid,
@@ -6922,6 +7710,16 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                                 : 'Player',
                             fallbackLevel: player.level,
                             role: 'Confirmed',
+                            historical: completed,
+                            onPlayAgain: completed && player.uid.isNotEmpty
+                                ? () => _playAgain(
+                                    match,
+                                    player.uid,
+                                    player.displayName.isEmpty
+                                        ? 'Player'
+                                        : player.displayName,
+                                  )
+                                : null,
                           ),
                   ),
                   if (!completed &&
@@ -7338,23 +8136,45 @@ class _InfoChip extends StatelessWidget {
 class _PlayerTile extends StatelessWidget {
   final String name;
   final String subtitle;
+  final String uid;
+  final int avatarVersion;
+  final bool deleted;
   final VoidCallback? onTap;
+  final VoidCallback? onPlayAgain;
 
-  const _PlayerTile({required this.name, required this.subtitle, this.onTap});
+  const _PlayerTile({
+    required this.name,
+    required this.subtitle,
+    this.uid = '',
+    this.avatarVersion = 0,
+    this.deleted = false,
+    this.onTap,
+    this.onPlayAgain,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final firstLetter = name.isNotEmpty
-        ? name.substring(0, 1).toUpperCase()
-        : '?';
-
     return Card(
       child: ListTile(
         onTap: onTap,
-        leading: CircleAvatar(child: Text(firstLetter)),
+        leading: ProfileAvatar(
+          uid: uid,
+          displayName: name,
+          avatarVersion: avatarVersion,
+          deleted: deleted,
+        ),
         title: Text(name),
         subtitle: Text(subtitle),
-        trailing: onTap == null ? null : const Icon(Icons.chevron_right),
+        trailing: onPlayAgain != null
+            ? IconButton(
+                key: const Key('play-again-match-player'),
+                tooltip: 'Play Again',
+                onPressed: onPlayAgain,
+                icon: const Icon(Icons.replay),
+              )
+            : onTap == null
+            ? null
+            : const Icon(Icons.chevron_right),
       ),
     );
   }
@@ -7366,6 +8186,8 @@ class ProfilePlayerTile extends StatelessWidget {
   final String fallbackLevel;
   final String role;
   final PublicPlayerProfileLoader? profileLoader;
+  final bool historical;
+  final VoidCallback? onPlayAgain;
 
   const ProfilePlayerTile({
     super.key,
@@ -7374,10 +8196,35 @@ class ProfilePlayerTile extends StatelessWidget {
     required this.fallbackLevel,
     required this.role,
     this.profileLoader,
+    this.historical = false,
+    this.onPlayAgain,
   });
 
   @override
   Widget build(BuildContext context) {
+    final viewerUid = Firebase.apps.isEmpty
+        ? ''
+        : FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isNotEmpty && viewerUid.isNotEmpty && viewerUid != uid) {
+      return FutureBuilder<Map<String, RelationshipPolicy>>(
+        future: FirebaseRelationshipPolicyService().policies([uid]),
+        builder: (context, snapshot) {
+          if (snapshot.hasData &&
+              snapshot.data![uid]?.interactionAllowed == false) {
+            if (!historical) return const SizedBox.shrink();
+            return _PlayerTile(
+              name: fallbackName.isEmpty ? 'Player' : fallbackName,
+              subtitle: _playerSubtitle(role, fallbackLevel),
+            );
+          }
+          return _buildVisible(context, allowPlayAgain: snapshot.hasData);
+        },
+      );
+    }
+    return _buildVisible(context, allowPlayAgain: true);
+  }
+
+  Widget _buildVisible(BuildContext context, {required bool allowPlayAgain}) {
     void openProfile() {
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -7386,6 +8233,9 @@ class ProfilePlayerTile extends StatelessWidget {
             fallbackName: fallbackName,
             fallbackLevel: fallbackLevel,
             loader: profileLoader ?? loadPublicPlayerProfile,
+            onPlayAgain: onPlayAgain == null
+                ? null
+                : (target) => onPlayAgain!(),
           ),
         ),
       );
@@ -7410,6 +8260,16 @@ class ProfilePlayerTile extends StatelessWidget {
         final profile = snapshot.hasData && snapshot.data!.exists
             ? PublicUserProfile.fromDocument(snapshot.data!)
             : null;
+        final missing =
+            snapshot.connectionState != ConnectionState.waiting &&
+            (snapshot.hasError || snapshot.data?.exists != true);
+        if (missing) {
+          return const _PlayerTile(
+            name: 'Deleted player',
+            subtitle: 'Player unavailable',
+            deleted: true,
+          );
+        }
         final name = profile?.displayName.isNotEmpty == true
             ? profile!.displayName
             : fallbackName.isEmpty
@@ -7421,7 +8281,10 @@ class ProfilePlayerTile extends StatelessWidget {
         return _PlayerTile(
           name: name,
           subtitle: _playerSubtitle(role, level),
+          uid: uid,
+          avatarVersion: profile?.avatarVersion ?? 0,
           onTap: openProfile,
+          onPlayAgain: allowPlayAgain ? onPlayAgain : null,
         );
       },
     );

@@ -1,6 +1,7 @@
 import { HttpsError } from 'firebase-functions/v2/https';
 import { assertSafeFirestore } from './backend_environment.js';
-import { deletionStateFor, requireRecentAuthentication, DELETION_BARRIERS, DELETION_JOBS } from './account_state.js';
+import { CURRENT_DELETION_SCHEMA_VERSION, deletionStateFor, requireRecentAuthentication,
+  DELETION_BARRIERS, DELETION_JOBS } from './account_state.js';
 
 export const DELETION_OUTBOX = 'accountDeletionOutbox';
 
@@ -40,11 +41,11 @@ export async function acceptAccountDeletion(db, request, now = new Date()) {
         throw new HttpsError('internal', 'Deletion state requires recovery.');
       }
     } else {
-      const state = deletionStateFor(uid, now);
+      const state = deletionStateFor(uid, now, CURRENT_DELETION_SCHEMA_VERSION);
       tx.create(barrierRef, state.barrier);
       tx.create(jobRef, { ...state.job, phase: 'disableAuth',
         authDisabledAt: null, authRevokedAt: null, authMissing: false });
-      tx.create(outboxRef, { uid, schemaVersion: 1, jobId: uid,
+      tx.create(outboxRef, { uid, schemaVersion: state.job.schemaVersion, jobId: uid,
         deletionRequestedAt: now, status: 'auth_pending', attemptCount: 0,
         nextAttemptAt: now, leaseExpiresAt: null, lastErrorCode: null });
     }

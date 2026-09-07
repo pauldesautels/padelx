@@ -8,10 +8,15 @@
     "test:migration": "node --test test/migrate_phase8a_safety.test.mjs test/migrate_phase8_scalability_safety.test.mjs",
     "test:functions": "firebase emulators:exec --project demo-padelx-phase8 --only auth,firestore,functions \"node --test test/functions_emulator.test.mjs\"",
     "test:rules": "firebase emulators:exec --project demo-padelx-phase8 --only firestore \"node --test test/firestore_rules.test.mjs\"",
+    "test:storage": "firebase emulators:exec --project demo-padelx-phase8 --only firestore,storage \"node --test test/storage_rules.test.mjs\"",
     "test:deletion-worker": "firebase emulators:exec --project demo-padelx-phase8 --only auth,firestore \"node --test test/account_deletion_worker.test.mjs\"",
     "test:backend": "node --test test/backend_foundation.test.mjs test/account_deletion.test.mjs",
     "test:admission": "firebase emulators:exec --project demo-padelx-phase8 --only auth,firestore,functions \"node --test test/account_deletion_emulator.test.mjs\"",
-    "test:deletion": "firebase emulators:exec --project demo-padelx-phase8 --only auth,firestore,functions \"node --test --test-concurrency=1 test/account_deletion*.mjs test/backend_foundation.test.mjs test/functions_emulator.test.mjs test/firestore_rules.test.mjs\"",
+    "test:deletion": "npm run test:deletion-core && npm run test:deletion-completion && npm run test:admission && npm run test:functions && npm run test:rules && npm run test:storage",
+    "test:deletion-core": "firebase emulators:exec --project demo-padelx-phase8 --only auth,firestore \"node --test --test-concurrency=1 test/account_deletion.test.mjs test/account_deletion_join_requests.test.mjs test/account_deletion_matches.test.mjs test/account_deletion_notifications.test.mjs test/account_deletion_ratings.test.mjs test/account_deletion_v2.test.mjs test/account_deletion_v2_emulator.test.mjs test/account_deletion_verify.test.mjs test/account_deletion_worker.test.mjs test/backend_foundation.test.mjs\"",
+    "test:deletion-completion": "firebase emulators:exec --project demo-padelx-phase8 --only auth,firestore,storage,functions \"node --test --test-concurrency=1 test/account_deletion_completion.test.mjs\"",
+    "test:phase9": "firebase emulators:exec --project demo-padelx-phase8 --only auth,firestore \"node --test test/account_deletion_v2.test.mjs && node --test test/account_deletion_v2_emulator.test.mjs && node --test test/friendship.test.mjs && node --test test/messaging.test.mjs && node --test test/play_again.test.mjs && node --test test/player_discovery.test.mjs && node --test test/played_with_projection.test.mjs\"",
+    "test:phase9-safety": "node --test test/*safety.test.mjs",
     "prepare:deletion": "node tool/prepare_account_deletion.mjs"
   },
   "devDependencies": {

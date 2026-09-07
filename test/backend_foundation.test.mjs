@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateBackendEnvironment, backendEnvironment, assertContributionAccountingReady } from '../functions/backend_environment.js';
+import { validateBackendEnvironment, backendEnvironment, assertContributionAccountingReady,
+  assertPlayedWithProjectionReady } from '../functions/backend_environment.js';
 import { deletionStateFor, requireRecentAuthentication, requireSignedIn } from '../functions/account_state.js';
 import { ratingIdentity, ratingAggregateAfterDelta } from '../functions/rating_contributions.js';
 
@@ -18,6 +19,10 @@ test('backend project selection fails closed before accessing services', () => {
   assert.throws(() => backendEnvironment({ FIREBASE_CONFIG: '{bad' }));
   assert.throws(() => assertContributionAccountingReady(staging, {}));
   assert.doesNotThrow(() => assertContributionAccountingReady(staging, { PADELX_RATING_CONTRIBUTIONS_READY: 'true' }));
+  assert.throws(() => assertPlayedWithProjectionReady(staging, {}));
+  assert.doesNotThrow(() => assertPlayedWithProjectionReady(staging, {
+    PADELX_PLAYED_WITH_PROJECTION_ENABLED: 'true',
+  }));
 });
 
 test('recent auth uses only signed auth_time and authenticated UID', () => {

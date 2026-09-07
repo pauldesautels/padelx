@@ -54,15 +54,30 @@ function publicProfile(uid, overrides = {}) {
     uid,
     displayName: `Player ${uid}`,
     level: 'Level 3',
+    countryCode: 'MX',
+    city: 'Mexico City',
+    area: 'Roma Norte',
+    preferredSide: 'either',
+    playFrequency: 'weekly',
+    bio: '',
+    discoverable: false,
     ...overrides,
   };
 }
 
 function privateProfile(uid, overrides = {}) {
   return {
-    ...publicProfile(uid),
+    uid,
+    displayName: `Player ${uid}`,
+    level: 'Level 3',
+    preferredSide: 'either',
+    playFrequency: 'weekly',
+    bio: '',
+    discoverable: false,
     email: `${uid}@example.com`,
     discoveryLocation: discovery(),
+    createdAt: Timestamp.fromMillis(now),
+    updatedAt: Timestamp.fromMillis(now),
     ...overrides,
   };
 }
@@ -116,6 +131,10 @@ async function createProfilePair(db, uid, overrides = {}) {
     uid,
     displayName: `Player ${uid}`,
     level: 'Level 3',
+    preferredSide: 'either',
+    playFrequency: 'weekly',
+    bio: '',
+    discoverable: false,
     ...(overrides.shared ?? {}),
   };
   batch.set(doc(db, 'users', uid), {
@@ -128,6 +147,9 @@ async function createProfilePair(db, uid, overrides = {}) {
   });
   batch.set(doc(db, 'publicProfiles', uid), {
     ...shared,
+    countryCode: overrides.discoveryLocation?.countryCode ?? 'MX',
+    city: overrides.discoveryLocation?.city ?? 'Mexico City',
+    area: overrides.discoveryLocation?.area ?? 'Roma Norte',
     ...(overrides.publicOnly ?? {}),
   });
   return batch.commit();
@@ -210,6 +232,27 @@ describe('verified email boundary', () => {
 });
 
 describe('private and public profiles', () => {
+  test('avatar version is synchronized and cannot reference another user path', async () => {
+    const db = auth('alice');
+    await assertSucceeds(createProfilePair(db, 'alice'));
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users/alice'), {
+      avatarVersion: 42,
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(db, 'publicProfiles/alice'), { avatarVersion: 42 });
+    await assertSucceeds(batch.commit());
+    await assertFails(updateDoc(doc(db, 'publicProfiles/alice'), {
+      avatarPath: 'profileAvatars/bob/avatar-42.jpg',
+    }));
+    await assertFails(updateDoc(doc(db, 'publicProfiles/alice'), {
+      avatarVersion: -1,
+    }));
+    await assertFails(updateDoc(doc(db, 'publicProfiles/alice'), {
+      avatarVersion: 43,
+    }));
+  });
+
   test('private users are owner-only while public profiles are signed-in readable', async () => {
     await seed('users/alice', privateProfile('alice'));
     await seed('publicProfiles/alice', publicProfile('alice'));
@@ -251,6 +294,22 @@ describe('private and public profiles', () => {
     }));
   });
 
+  test('clients cannot forge server-maintained played-with aggregates', async () => {
+    await assertFails(createProfilePair(auth('fresh'), 'fresh', {
+      publicOnly: { completedMatchCount: 1, repeatPlayerCount: 1 },
+    }));
+    await seed('users/alice', privateProfile('alice'));
+    await seed('publicProfiles/alice', {
+      ...publicProfile('alice'), completedMatchCount: 3, repeatPlayerCount: 1,
+    });
+    await assertFails(updateDoc(doc(auth('alice'), 'publicProfiles/alice'), {
+      completedMatchCount: 99,
+    }));
+    await assertFails(updateDoc(doc(auth('alice'), 'publicProfiles/alice'), {
+      repeatPlayerCount: 99,
+    }));
+  });
+
   test('arbitrary fields, spoofed email, invalid level, and coordinates are rejected', async () => {
     await assertFails(createProfilePair(auth('alice'), 'alice', { privateOnly: { admin: true } }));
     await assertFails(createProfilePair(auth('alice'), 'alice', { publicOnly: { email: 'public@example.com' } }));
@@ -265,6 +324,61 @@ describe('private and public profiles', () => {
     await assertFails(createProfilePair(auth('alice'), 'alice', {
       publicOnly: { displayName: 'Different Name' },
     }));
+  });
+
+  test('social profile fields and coarse public location stay synchronized', async () => {
+    await assertSucceeds(createProfilePair(auth('alice'), 'alice', {
+      shared: {
+        preferredSide: 'left', playFrequency: 'several_per_week',
+        bio: 'Competitive but friendly.', discoverable: true,
+      },
+    }));
+    await assertFails(createProfilePair(auth('bob'), 'bob', {
+      shared: { preferredSide: 'middle' },
+    }));
+    await assertFails(createProfilePair(auth('carol'), 'carol', {
+      shared: { playFrequency: 'daily' },
+    }));
+    await assertFails(createProfilePair(auth('dave'), 'dave', {
+      shared: { bio: 'x'.repeat(161) },
+    }));
+    await assertFails(createProfilePair(auth('erin'), 'erin', {
+      shared: { discoverable: 'yes' },
+    }));
+    await assertFails(createProfilePair(auth('frank'), 'frank', {
+      publicOnly: { city: 'Guadalajara' },
+    }));
+  });
+
+  test('public profiles reject all private and precise location fields', async () => {
+    for (const prohibited of [
+      { email: 'alice@example.com' },
+      { latitude: 19.4 },
+      { longitude: -99.1 },
+      { placeId: 'secret-place' },
+    ]) {
+      await assertFails(createProfilePair(auth('alice'), 'alice', {
+        publicOnly: prohibited,
+      }));
+    }
+  });
+
+  test('owner can edit social fields atomically without changing aggregates', async () => {
+    await seed('users/alice', privateProfile('alice'));
+    await seed('publicProfiles/alice', {
+      ...publicProfile('alice'), ratingCount: 2, ratingSum: 9, ratingAverage: 4.5,
+    });
+    const db = auth('alice');
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users/alice'), {
+      preferredSide: 'right', playFrequency: 'several_per_week',
+      bio: 'Right-side player', discoverable: true, updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(db, 'publicProfiles/alice'), {
+      preferredSide: 'right', playFrequency: 'several_per_week',
+      bio: 'Right-side player', discoverable: true,
+    });
+    await assertSucceeds(batch.commit());
   });
 });
 
@@ -444,7 +558,9 @@ describe('join requests, notifications, and ratings', () => {
 
 describe('account deletion foundation', () => {
   test('barriers, jobs, and contributions are server-owned for all users', async () => {
-    for (const collectionName of ['accountDeletionBarriers', 'accountDeletionJobs', 'accountDeletionOutbox', 'ratingContributions']) {
+    for (const collectionName of ['accountDeletionBarriers', 'accountDeletionJobs', 'accountDeletionOutbox',
+      'ratingContributions', 'playedWithMatchContributions', 'playedWithContributions',
+      'playedWithPairs', 'socialProjectionState']) {
       await seed(`${collectionName}/alice`, { status: 'deleting', schemaVersion: 1 });
       for (const uid of ['alice', 'bob']) {
         const db = auth(uid);
@@ -507,6 +623,67 @@ describe('account deletion foundation', () => {
     await assertFails(setDoc(doc(auth('other'), 'matches/m1/joinRequests/other'), {
       ...request, userId: 'other', displayName: 'Player other', email: 'other@example.com',
     }));
+  });
+});
+
+describe('played-with access boundary', () => {
+  test('owners can read only their own projection and no client can write it', async () => {
+    const value = { otherUid: 'bob', completedMatchCount: 1, projectionVersion: 1,
+      firstPlayedAt: past(), lastPlayedAt: past(), lastMatchId: 'm1', updatedAt: past() };
+    await seed('users/alice/playedWith/bob', value);
+    await assertSucceeds(getDoc(doc(auth('alice'), 'users/alice/playedWith/bob')));
+    await assertFails(getDoc(doc(auth('bob'), 'users/alice/playedWith/bob')));
+    await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), 'users/alice/playedWith/bob')));
+    for (const db of [auth('alice'), auth('bob')]) {
+      await assertFails(setDoc(doc(db, 'users/alice/playedWith/new'), value));
+      await assertFails(updateDoc(doc(db, 'users/alice/playedWith/bob'), { completedMatchCount: 2 }));
+      await assertFails(deleteDoc(doc(db, 'users/alice/playedWith/bob')));
+    }
+  });
+});
+
+describe('friend and block access boundary', () => {
+  test('friend views are owner-readable and all social records are server-written', async () => {
+    const view = { otherUid: 'bob', friendshipId: 'pair', status: 'pending',
+      direction: 'incoming', createdAt: past(), updatedAt: past() };
+    await seed('users/alice/friendViews/bob', view);
+    await assertSucceeds(getDoc(doc(auth('alice'), 'users/alice/friendViews/bob')));
+    await assertFails(getDoc(doc(auth('bob'), 'users/alice/friendViews/bob')));
+    for (const db of [auth('alice'), auth('bob')]) {
+      await assertFails(setDoc(doc(db, 'users/alice/friendViews/new'), view));
+      await assertFails(setDoc(doc(db, 'friendships/pair'), { memberUids: ['alice', 'bob'] }));
+      await assertFails(getDoc(doc(db, 'friendships/pair')));
+    }
+  });
+
+  test('a blocker can get only their own block and cannot list or write blocks', async () => {
+    await seed('blocks/owned', { blockerUid: 'alice', blockedUid: 'bob', createdAt: past() });
+    await assertSucceeds(getDoc(doc(auth('alice'), 'blocks/owned')));
+    await assertFails(getDoc(doc(auth('bob'), 'blocks/owned')));
+    await assertFails(getDocs(query(collection(auth('alice'), 'blocks'), where('blockerUid', '==', 'alice'))));
+    await assertFails(setDoc(doc(auth('alice'), 'blocks/new'), { blockerUid: 'alice', blockedUid: 'bob' }));
+  });
+});
+
+describe('messaging access boundary', () => {
+  test('canonical conversations, messages, views, and rate limits are server-only', async () => {
+    await seed('conversations/direct_pair', { type: 'direct', memberUids: ['alice', 'bob'] });
+    await seed('conversations/direct_pair/messages/message', {
+      senderUid: 'alice', text: 'hello', createdAt: past(), requestId: 'request_123456789',
+    });
+    await seed('users/alice/conversationViews/direct_pair', {
+      conversationId: 'direct_pair', type: 'direct', otherUid: 'bob', unreadCount: 1,
+    });
+    await seed('messagingRateLimits/alice', { count: 1, windowStartedAt: past() });
+    for (const db of [auth('alice'), auth('bob')]) {
+      await assertFails(getDoc(doc(db, 'conversations/direct_pair')));
+      await assertFails(getDoc(doc(db, 'conversations/direct_pair/messages/message')));
+      await assertFails(setDoc(doc(db, 'conversations/new'), { type: 'direct' }));
+      await assertFails(setDoc(doc(db, 'conversations/direct_pair/messages/new'), { text: 'x' }));
+      await assertFails(getDoc(doc(db, 'users/alice/conversationViews/direct_pair')));
+      await assertFails(setDoc(doc(db, 'users/alice/conversationViews/new'), { unreadCount: 0 }));
+      await assertFails(getDoc(doc(db, 'messagingRateLimits/alice')));
+    }
   });
 });
 

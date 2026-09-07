@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/main.dart';
+import 'package:padelx/social_profile.dart';
 
 void main() {
   const profile = UserProfile(
@@ -10,6 +11,12 @@ void main() {
     displayName: 'Ana María With A Longer Player Name',
     level: '3.5',
     email: 'ana.private@example.com',
+    socialProfile: SocialProfileData(
+      preferredSide: PreferredSide.left,
+      playFrequency: PlayFrequency.weekly,
+      bio: 'Friendly competitive player.',
+      discoverable: true,
+    ),
   );
 
   Widget app(Widget child) => MaterialApp(
@@ -89,6 +96,10 @@ void main() {
     expect(find.text('Matches'), findsOneWidget);
     expect(find.text('2'), findsNWidgets(2));
     expect(find.byKey(const Key('edit-profile-action')), findsOneWidget);
+    expect(find.text('Left side'), findsOneWidget);
+    expect(find.text('Weekly'), findsOneWidget);
+    expect(find.text('Friendly competitive player.'), findsOneWidget);
+    expect(find.text('Visible in Players discovery'), findsOneWidget);
   });
 
   testWidgets('profile remains overflow-free at 320px wide', (tester) async {

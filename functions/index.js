@@ -1,19 +1,32 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
 import { onCall } from 'firebase-functions/v2/https';
 import { admitAccountDeletion, lockDeletionAuth } from './account_deletion.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { encodeGeohash } from './aggregate_helpers.js';
-import { backendEnvironment, assertContributionAccountingReady } from './backend_environment.js';
+import { backendEnvironment, assertContributionAccountingReady, assertPhase9Enabled } from './backend_environment.js';
 import { reconcileRating } from './rating_contributions.js';
+import { reconcilePlayedWithMatch, recoverPlayedWithMatches } from './played_with_projection.js';
+import { requestFriendOperation, respondToFriendRequestOperation,
+  cancelFriendRequestOperation, removeFriendOperation } from './friendship.js';
+import { blockPlayerOperation, unblockPlayerOperation } from './blocks.js';
+import { getRelationshipPoliciesOperation } from './friendship_policy.js';
+import { ensureDirectConversationOperation, ensureMatchConversationOperation,
+  listConversationsOperation, listMessagesOperation, markConversationReadOperation,
+  sendMessageOperation } from './messaging.js';
+import { createPlayAgainInvitationOperation, dismissPlayAgainInvitationOperation,
+  reconcilePlayAgainInvitesForMatch } from './play_again.js';
+import { discoverPlayersOperation } from './player_discovery.js';
 
 function backendFirestore() {
   const environment = backendEnvironment();
   const app = getApps().find((candidate) => candidate.name === 'padelx-trusted')
-    ?? initializeApp({ projectId: environment.projectId }, 'padelx-trusted');
+    ?? initializeApp({ projectId: environment.projectId,
+      storageBucket: `${environment.projectId}.appspot.com` }, 'padelx-trusted');
   if (app.options.projectId !== environment.projectId) throw new Error('Backend project mismatch.');
-  return { firestore: getFirestore(app), auth: getAuth(app), environment };
+  return { firestore: getFirestore(app), auth: getAuth(app), bucket: getStorage(app).bucket(), environment };
 }
 
 export async function handleMatchLocationWritten(event) {
@@ -49,12 +62,53 @@ export const aggregatePlayerRating = onDocumentWritten({
   retry: true,
 }, handlePlayerRatingWritten);
 
+export const projectPlayedWithMatch = onDocumentWritten({
+  document: 'matches/{matchId}', retry: true, maxInstances: 4,
+}, async (event) => {
+  const { firestore } = backendFirestore();
+  assertPhase9Enabled(backendEnvironment());
+  await reconcilePlayedWithMatch(firestore, event.params.matchId);
+});
+
 // App Check is enforced for every non-emulator invocation.
 export const requestAccountDeletion = onCall({
   enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== 'true',
 }, async (request) => {
   const { firestore, auth } = backendFirestore();
   return admitAccountDeletion(firestore, auth, request);
+});
+
+const socialCallable = (operation) => onCall({
+  enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== 'true',
+}, async (request) => {
+  const { firestore } = backendFirestore();
+  assertPhase9Enabled(backendEnvironment());
+  return operation(firestore, request);
+});
+
+export const requestFriend = socialCallable(requestFriendOperation);
+export const respondToFriendRequest = socialCallable(respondToFriendRequestOperation);
+export const cancelFriendRequest = socialCallable(cancelFriendRequestOperation);
+export const removeFriend = socialCallable(removeFriendOperation);
+export const blockPlayer = socialCallable(blockPlayerOperation);
+export const unblockPlayer = socialCallable(unblockPlayerOperation);
+export const getRelationshipPolicies = socialCallable(getRelationshipPoliciesOperation);
+export const ensureDirectConversation = socialCallable(ensureDirectConversationOperation);
+export const ensureMatchConversation = socialCallable(ensureMatchConversationOperation);
+export const sendMessage = socialCallable(sendMessageOperation);
+export const listMessages = socialCallable(listMessagesOperation);
+export const listConversations = socialCallable(listConversationsOperation);
+export const markConversationRead = socialCallable(markConversationReadOperation);
+export const createPlayAgainInvitation = socialCallable(createPlayAgainInvitationOperation);
+export const dismissPlayAgainInvitation = socialCallable(dismissPlayAgainInvitationOperation);
+export const discoverPlayers = socialCallable(discoverPlayersOperation);
+
+export const reconcilePlayAgainInvitations = onDocumentWritten({
+  document: 'matches/{matchId}', retry: true, maxInstances: 4,
+}, async (event) => {
+  const { firestore } = backendFirestore();
+  assertPhase9Enabled(backendEnvironment());
+  await reconcilePlayAgainInvitesForMatch(firestore, event.params.matchId);
 });
 
 // At-least-once delivery retries Auth lockdown after a lost callable response
@@ -69,10 +123,17 @@ export const lockAccountDeletionAuth = onDocumentCreated({
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { recoverAccountDeletions } from './account_deletion_dispatch.js';
 import { deletedAuthFallback } from './account_deletion_auth_trigger.js';
+export const recoverPlayedWithProjection = onSchedule({
+  schedule: 'every 5 minutes', timeoutSeconds: 120, maxInstances: 1,
+}, async () => {
+  const { firestore } = backendFirestore();
+  assertPhase9Enabled(backendEnvironment());
+  await recoverPlayedWithMatches(firestore);
+});
 export const recoverAccountDeletionJobs = onSchedule({
   schedule: 'every 1 minutes', timeoutSeconds: 120, maxInstances: 1,
 }, async () => {
-  const { firestore, auth } = backendFirestore();
-  await recoverAccountDeletions(firestore, auth);
+  const { firestore, auth, bucket } = backendFirestore();
+  await recoverAccountDeletions(firestore, auth, bucket);
 });
 export const cleanupDeletedAuthUser = deletedAuthFallback(backendFirestore);

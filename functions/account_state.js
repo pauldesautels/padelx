@@ -1,21 +1,36 @@
 import { assertSafeFirestore } from './backend_environment.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 
-export const ACCOUNT_SCHEMA_VERSION = 1;
+export const LEGACY_ACCOUNT_SCHEMA_VERSION = 1;
+// Retained for Phase 8 fixtures/operators. New admissions use CURRENT_*.
+export const ACCOUNT_SCHEMA_VERSION = LEGACY_ACCOUNT_SCHEMA_VERSION;
+export const CURRENT_DELETION_SCHEMA_VERSION = 2;
 export const DELETION_BARRIERS = 'accountDeletionBarriers';
 export const DELETION_JOBS = 'accountDeletionJobs';
 export const DELETION_PHASES = Object.freeze([
   'accepted', 'disableAuth', 'matches', 'joinRequests', 'notifications',
-  'ratings', 'verify', 'deleteAuth', 'complete',
+  'social', 'messaging', 'ratings', 'storage', 'verify', 'deleteAuth', 'complete',
 ]);
+export const DELETION_PHASES_BY_VERSION = Object.freeze({
+  1: Object.freeze(['accepted', 'matches', 'joinRequests', 'notifications', 'ratings', 'verify', 'deleteAuth']),
+  2: Object.freeze(['accepted', 'matches', 'joinRequests', 'social', 'messaging',
+    'notifications', 'ratings', 'storage', 'verify', 'deleteAuth']),
+});
+
+export function deletionPhasesFor(schemaVersion) {
+  const phases = DELETION_PHASES_BY_VERSION[schemaVersion];
+  if (!phases) throw new Error('Unsupported deletion schema version.');
+  return phases;
+}
 
 // Pure schema builder only: this slice never accepts or starts deletion jobs.
-export function deletionStateFor(uid, deletionRequestedAt) {
+export function deletionStateFor(uid, deletionRequestedAt, schemaVersion = ACCOUNT_SCHEMA_VERSION) {
   if (typeof uid !== 'string' || !uid || uid.includes('/')
       || !(deletionRequestedAt instanceof Date) || !Number.isFinite(deletionRequestedAt.getTime())) {
     throw new Error('Valid UID and server cutoff required.');
   }
-  const common = { uid, schemaVersion: ACCOUNT_SCHEMA_VERSION, deletionRequestedAt };
+  deletionPhasesFor(schemaVersion);
+  const common = { uid, schemaVersion, deletionRequestedAt };
   return {
     barrier: { ...common, status: 'deleting' },
     job: { ...common, status: 'pending', phase: 'accepted', checkpoint: null,

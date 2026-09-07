@@ -36,6 +36,18 @@ export function assertContributionAccountingReady(environment, env = process.env
   }
 }
 
+export function assertPlayedWithProjectionReady(environment, env = process.env) {
+  if (environment.mode !== 'emulator' && env.PADELX_PLAYED_WITH_PROJECTION_ENABLED !== 'true') {
+    throw new Error('Played With projection must be explicitly enabled for this environment.');
+  }
+}
+
+export function assertPhase9Enabled(environment, env = process.env) {
+  if (environment.mode !== 'emulator' && env.PADELX_PHASE9_ENABLED !== 'true') {
+    throw new Error('Phase 9 social backend is disabled for this environment.');
+  }
+}
+
 export function assertSafeFirestore(firestore) {
   const environment = backendEnvironment();
   if (firestore.projectId !== environment.projectId) throw new Error('Firestore project does not match trusted runtime.');

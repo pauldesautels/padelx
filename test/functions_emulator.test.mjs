@@ -23,6 +23,10 @@ import { ratingIdentity, reconcileRating } from '../functions/rating_contributio
 import { requireActiveAccount } from '../functions/account_state.js';
 import { getAuth } from 'firebase-admin/auth';
 import { encodeGeohash } from '../functions/aggregate_helpers.js';
+import { friendshipId, blockId } from '../functions/friendship_policy.js';
+import { directConversationId } from '../functions/messaging_policy.js';
+import { ensureDirectConversationOperation, ensureMatchConversationOperation,
+  listMessagesOperation, markConversationReadOperation, sendMessageOperation } from '../functions/messaging.js';
 
 const projectId = 'demo-padelx-phase8';
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
@@ -105,6 +109,11 @@ async function adminData(path) {
   const snapshot = await getFirestore().doc(path).get();
   return snapshot.exists ? snapshot.data() : undefined;
 }
+
+const callable = (uid, data, at = new Date()) => ({
+  auth: { uid, token: { email_verified: true } }, data,
+  rawRequest: { messagingNow: at },
+});
 
 before(async () => {
   assert.match(projectId, /^demo-/, 'tests must use an offline Firebase demo project');
@@ -330,4 +339,64 @@ test('rater barrier removes only its contribution and absent targets stay absent
   await reconcileRating(firestore, paths[1]);
   assert.equal(await adminData(`publicProfiles/${target}`), undefined);
   assert.equal(await adminData(`ratingContributions/${ratingIdentity(paths[1]).contributionId}`), undefined);
+});
+
+test('messaging callables enforce direct and match policy with exact unread accounting', async () => {
+  const firestore = getFirestore();
+  for (const uid of ['msg-a', 'msg-b', 'msg-pending', 'msg-outsider']) {
+    await seed(`users/${uid}`, profile(uid));
+    await seed(`publicProfiles/${uid}`, profile(uid));
+  }
+  await seed(`friendships/${friendshipId('msg-a', 'msg-b')}`, {
+    memberUids: ['msg-a', 'msg-b'], requesterUid: 'msg-a', recipientUid: 'msg-b', status: 'accepted',
+  });
+  await seed(`friendships/${friendshipId('msg-a', 'msg-pending')}`, {
+    memberUids: ['msg-a', 'msg-pending'], requesterUid: 'msg-a', recipientUid: 'msg-pending', status: 'pending',
+  });
+  await assert.rejects(() => ensureDirectConversationOperation(firestore,
+    callable('msg-a', { otherUid: 'msg-pending' })), /Messaging is unavailable/);
+  const ensured = await ensureDirectConversationOperation(firestore, callable('msg-a', { otherUid: 'msg-b' }));
+  assert.equal(ensured.conversationId, directConversationId('msg-a', 'msg-b'));
+  await Promise.all(Array.from({ length: 5 }, (_, index) => sendMessageOperation(firestore,
+    callable('msg-a', { conversationId: ensured.conversationId, text: `message ${index}`,
+      requestId: `request_message_${index}_0000` }))));
+  assert.equal((await adminData(`users/msg-b/conversationViews/${ensured.conversationId}`)).unreadCount, 5);
+  await sendMessageOperation(firestore, callable('msg-a', { conversationId: ensured.conversationId,
+    text: 'message 0', requestId: 'request_message_0_0000' }));
+  assert.equal((await adminData(`users/msg-b/conversationViews/${ensured.conversationId}`)).unreadCount, 5,
+    'replaying a request ID must not duplicate or increment unread');
+  const page = await listMessagesOperation(firestore,
+    callable('msg-b', { conversationId: ensured.conversationId, limit: 2 }));
+  assert.equal(page.messages.length, 2);
+  assert.equal(page.hasMore, true);
+  await markConversationReadOperation(firestore, callable('msg-b', { conversationId: ensured.conversationId }));
+  assert.equal((await adminData(`users/msg-b/conversationViews/${ensured.conversationId}`)).unreadCount, 0);
+
+  await seed(`blocks/${blockId('msg-b', 'msg-a')}`, { blockerUid: 'msg-b', blockedUid: 'msg-a' });
+  await assert.rejects(() => sendMessageOperation(firestore, callable('msg-a', {
+    conversationId: ensured.conversationId, text: 'blocked', requestId: 'request_blocked_0000',
+  })), /Messaging is unavailable/);
+  await firestore.doc(`blocks/${blockId('msg-b', 'msg-a')}`).delete();
+  await firestore.doc(`friendships/${friendshipId('msg-a', 'msg-b')}`).delete();
+  const history = await listMessagesOperation(firestore, callable('msg-b', { conversationId: ensured.conversationId }));
+  assert.equal(history.canSend, false);
+  await assert.rejects(() => sendMessageOperation(firestore, callable('msg-b', {
+    conversationId: ensured.conversationId, text: 'unfriended', requestId: 'request_unfriend_0000',
+  })), /Messaging is unavailable/);
+
+  await seed('matches/msg-match', matchData('msg-a', {
+    players: [{ uid: 'msg-b', displayName: 'Player msg-b', level: 'Level 3' }],
+    participantUids: ['msg-a', 'msg-b'], spotsLeft: 2,
+  }));
+  await assert.rejects(() => ensureMatchConversationOperation(firestore,
+    callable('msg-outsider', { matchId: 'msg-match' })), /Match chat is unavailable/);
+  const matchChat = await ensureMatchConversationOperation(firestore, callable('msg-b', { matchId: 'msg-match' }));
+  assert.equal(matchChat.canSend, true);
+  await seed(`blocks/${blockId('msg-a', 'msg-b')}`, { blockerUid: 'msg-a', blockedUid: 'msg-b' });
+  await sendMessageOperation(firestore, callable('msg-b', { conversationId: matchChat.conversationId,
+    text: 'Court 2', requestId: 'request_match_block_0000' }));
+  await firestore.doc('matches/msg-match').update({ players: [], participantUids: ['msg-a'], spotsLeft: 3 });
+  await assert.rejects(() => sendMessageOperation(firestore, callable('msg-b', {
+    conversationId: matchChat.conversationId, text: 'left', requestId: 'request_after_leave_0000',
+  })), /Messaging is unavailable|read-only/);
 });

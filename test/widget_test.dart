@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:padelx/current_location.dart';
 import 'package:padelx/location.dart';
 import 'package:padelx/main.dart';
+import 'package:padelx/social_profile.dart';
 import 'package:padelx/places.dart';
 
 void main() {
@@ -2251,6 +2252,15 @@ void main() {
             uid: 'player',
             displayName: 'Ana',
             level: 'Level 4',
+            countryCode: 'MX',
+            city: 'Mexico City',
+            area: 'Roma Norte',
+            socialProfile: const SocialProfileData(
+              preferredSide: PreferredSide.right,
+              playFrequency: PlayFrequency.severalPerWeek,
+              bio: 'Always up for a competitive match.',
+              discoverable: true,
+            ),
             matches: matches,
           ),
         ),
@@ -2262,8 +2272,13 @@ void main() {
     expect(find.text('Ana'), findsOneWidget);
     expect(find.text('Level 4'), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Roma Padel'), 300);
     expect(find.text('Roma Padel'), findsOneWidget);
     expect(find.text('private@example.com'), findsNothing);
+    expect(find.text('Right side'), findsOneWidget);
+    expect(find.text('Several times a week'), findsOneWidget);
+    expect(find.text('Always up for a competitive match.'), findsOneWidget);
+    expect(find.text('Roma Norte, Mexico City, MX'), findsOneWidget);
   });
 
   testWidgets('even a malformed player row opens the public profile screen', (

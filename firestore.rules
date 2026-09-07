@@ -74,14 +74,49 @@ service cloud.firestore {
         && (('latitude' in location) == ('longitude' in location));
     }
 
+    function validPreferredSide(value) {
+      return value is string && value in ['left', 'right', 'either'];
+    }
+
+    function validPlayFrequency(value) {
+      return value is string
+        && value in ['occasional', 'weekly', 'several_per_week'];
+    }
+
+    function validBio(value) {
+      return value is string && value.size() <= 160;
+    }
+
+    function validCoarsePublicLocation(data) {
+      return data.countryCode is string && data.countryCode.size() <= 2
+        && data.city is string && data.city.size() <= 80
+        && data.area is string && data.area.size() <= 100
+        && ((data.countryCode == '' && data.city == '' && data.area == '')
+          || (data.countryCode.size() == 2 && data.city.size() >= 1));
+    }
+
+    function validSocialProfile(data) {
+      return validPreferredSide(data.preferredSide)
+        && validPlayFrequency(data.playFrequency)
+        && validBio(data.bio)
+        && data.discoverable is bool;
+    }
+
+    function validAvatar(data) {
+      return !('avatarVersion' in data)
+        || (data.avatarVersion is int && data.avatarVersion >= 0);
+    }
+
     function validPrivateUser(userId, data) {
       return data.keys().hasAll([
           'uid', 'displayName', 'level', 'email', 'discoveryLocation',
-          'createdAt', 'updatedAt'
+          'createdAt', 'updatedAt', 'preferredSide', 'playFrequency', 'bio',
+          'discoverable'
         ])
         && data.keys().hasOnly([
           'uid', 'displayName', 'level', 'email', 'discoveryLocation',
-          'createdAt', 'updatedAt'
+          'createdAt', 'updatedAt', 'preferredSide', 'playFrequency', 'bio',
+          'discoverable', 'avatarVersion'
         ])
         && data.uid == userId
         && data.uid == request.auth.uid
@@ -92,23 +127,39 @@ service cloud.firestore {
         && data.email == request.auth.token.email
         && data.createdAt is timestamp
         && data.updatedAt is timestamp
-        && validDiscoveryLocation(data.discoveryLocation);
+        && validDiscoveryLocation(data.discoveryLocation)
+        && validSocialProfile(data)
+        && validAvatar(data);
     }
 
     function validPublicProfile(userId, data) {
-      return data.keys().hasAll(['uid', 'displayName', 'level'])
+      return data.keys().hasAll([
+          'uid', 'displayName', 'level', 'countryCode', 'city', 'area',
+          'preferredSide', 'playFrequency', 'bio', 'discoverable'
+        ])
         && data.keys().hasOnly([
           'uid', 'displayName', 'level', 'ratingCount', 'ratingSum',
-          'ratingAverage'
+          'ratingAverage', 'countryCode', 'city', 'area', 'preferredSide',
+          'playFrequency', 'bio', 'discoverable', 'completedMatchCount',
+          'repeatPlayerCount', 'avatarVersion'
         ])
         && data.uid == userId
         && validDisplayName(data.displayName)
         && validProfileLevel(data.level)
+        && validCoarsePublicLocation(data)
+        && validSocialProfile(data)
+        && validAvatar(data)
         && (!('ratingCount' in data) || (
           data.ratingCount is int && data.ratingCount >= 0
           && data.ratingSum is int && data.ratingSum >= 0
           && data.ratingAverage is number && data.ratingAverage >= 0
           && data.ratingAverage <= 5
+        ))
+        && (!('completedMatchCount' in data) || (
+          data.completedMatchCount is int && data.completedMatchCount >= 0
+        ))
+        && (!('repeatPlayerCount' in data) || (
+          data.repeatPlayerCount is int && data.repeatPlayerCount >= 0
         ));
     }
 
@@ -121,7 +172,17 @@ service cloud.firestore {
       ).data;
       return privateData.uid == publicData.uid
         && privateData.displayName == publicData.displayName
-        && privateData.level == publicData.level;
+        && privateData.level == publicData.level
+        && privateData.preferredSide == publicData.preferredSide
+        && privateData.playFrequency == publicData.playFrequency
+        && privateData.bio == publicData.bio
+        && privateData.discoverable == publicData.discoverable
+        && (('avatarVersion' in privateData) == ('avatarVersion' in publicData))
+        && (!('avatarVersion' in privateData)
+          || privateData.avatarVersion == publicData.avatarVersion)
+        && privateData.discoveryLocation.countryCode == publicData.countryCode
+        && privateData.discoveryLocation.city == publicData.city
+        && privateData.discoveryLocation.area == publicData.area;
     }
 
     function isOrganizer(matchId) {
@@ -691,6 +752,35 @@ service cloud.firestore {
         )
         && profilesMatchAfter(userId);
       allow delete: if false;
+
+      match /playedWith/{otherUid} {
+        allow read: if verifiedUser() && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      match /friendViews/{otherUid} {
+        allow read: if verifiedUser() && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      match /conversationViews/{conversationId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /conversations/{conversationId} {
+      allow read, write: if false;
+      match /messages/{messageId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /messagingRateLimits/{userId} {
+      allow read, write: if false;
+    }
+
+    match /playAgainRateLimits/{userId} {
+      allow read, write: if false;
     }
 
     match /publicProfiles/{userId} {
@@ -698,14 +788,21 @@ service cloud.firestore {
       allow create: if verifiedUser()
         && request.auth.uid == userId
         && validPublicProfile(userId, request.resource.data)
-        && !request.resource.data.keys().hasAny(['ratingCount', 'ratingSum', 'ratingAverage'])
+        && !request.resource.data.keys().hasAny([
+          'ratingCount', 'ratingSum', 'ratingAverage',
+          'completedMatchCount', 'repeatPlayerCount'
+        ])
         && existsAfter(/databases/$(database)/documents/users/$(userId))
         && profilesMatchAfter(userId);
       allow update: if verifiedUser()
         && request.auth.uid == userId
         && validPublicProfile(userId, request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['displayName', 'level'])
+          .hasOnly([
+            'displayName', 'level', 'countryCode', 'city', 'area',
+            'preferredSide', 'playFrequency', 'bio', 'discoverable',
+            'avatarVersion'
+          ])
         && existsAfter(/databases/$(database)/documents/users/$(userId))
         && profilesMatchAfter(userId);
       allow delete: if false;
@@ -741,6 +838,26 @@ service cloud.firestore {
       allow read, write: if false;
     }
     match /ratingContributions/{contributionId} {
+      allow read, write: if false;
+    }
+    match /playedWithMatchContributions/{matchId} {
+      allow read, write: if false;
+    }
+    match /playedWithContributions/{contributionId} {
+      allow read, write: if false;
+    }
+    match /playedWithPairs/{pairId} {
+      allow read, write: if false;
+    }
+    match /friendships/{pairId} {
+      allow read, write: if false;
+    }
+    match /blocks/{blockId} {
+      allow get: if verifiedUser()
+        && resource.data.blockerUid == request.auth.uid;
+      allow list, write: if false;
+    }
+    match /socialProjectionState/{stateId} {
       allow read, write: if false;
     }
 
@@ -846,6 +963,11 @@ service cloud.firestore {
         );
 
         allow delete: if isOrganizer(matchId) && matchCanStillChange(matchId);
+      }
+
+      match /invites/{inviteeUid} {
+        allow read: if verifiedUser() && request.auth.uid == inviteeUid;
+        allow write: if false;
       }
 
 

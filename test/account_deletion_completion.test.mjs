@@ -2,21 +2,31 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { admitAccountDeletion, lockDeletionAuth } from '../functions/account_deletion.js';
 import { dispatchAccountDeletion, acceptDeletedAuthUser, recoverAccountDeletions } from '../functions/account_deletion_dispatch.js';
-import { acquireDeletionLease, runDeleteAuthDeletionPhase } from '../functions/account_deletion_worker.js';
+import { acquireDeletionLease, runAcceptedDeletionPhase, runDeleteAuthDeletionPhase,
+  runJoinRequestsDeletionPhase, runMatchesDeletionPhase, runNotificationsDeletionPhase,
+  runRatingsDeletionPhase, runVerifyDeletionPhase } from '../functions/account_deletion_worker.js';
+import { deletionStateFor, DELETION_PHASES_BY_VERSION } from '../functions/account_state.js';
 import { prepareDeletion, preparationOptions } from '../tool/prepare_account_deletion.mjs';
-const projectId = 'demo-padelx-completion';
+import { reconcilePlayedWithMatch } from '../functions/played_with_projection.js';
+import { friendshipId, blockId } from '../functions/friendship_policy.js';
+import { directConversationId, matchConversationId } from '../functions/messaging_policy.js';
+import { playAgainNotificationId } from '../functions/play_again.js';
+const projectId = 'demo-padelx-phase8';
 process.env.GCLOUD_PROJECT = projectId; process.env.GOOGLE_CLOUD_PROJECT = projectId;
 process.env.FIREBASE_CONFIG = JSON.stringify({ projectId });
 const app = initializeApp({ projectId }, 'completion');
-const db = getFirestore(app), auth = getAuth(app); after(() => deleteApp(app));
+const db = getFirestore(app), auth = getAuth(app);
+const bucket = getStorage(app).bucket(`${projectId}.appspot.com`);
+after(() => deleteApp(app));
 const ref = uid => db.doc(`accountDeletionJobs/${uid}`);
 const request = uid => ({ auth: { uid, token: { auth_time: Math.floor(Date.now()/1000) } }, data: {} });
 async function finish(uid) {
   for (let i = 0; i < 20; i++) {
-    await dispatchAccountDeletion(db, auth, uid);
+    await dispatchAccountDeletion(db, auth, bucket, uid);
     if ((await ref(uid).get()).data().status === 'completed') return;
   }
   assert.fail('deletion did not complete');
@@ -26,7 +36,7 @@ test('unverified incomplete user, lost response, duplicate dispatch, Auth finali
   await admitAccountDeletion(db, auth, request(uid));
   const cutoff = (await ref(uid).get()).data().deletionRequestedAt;
   await admitAccountDeletion(db, auth, request(uid));
-  await Promise.all([dispatchAccountDeletion(db, auth, uid), dispatchAccountDeletion(db, auth, uid)]);
+  await Promise.all([dispatchAccountDeletion(db, auth, bucket, uid), dispatchAccountDeletion(db, auth, bucket, uid)]);
   await finish(uid);
   await assert.rejects(auth.getUser(uid), { code: 'auth/user-not-found' });
   const job = (await ref(uid).get()).data();
@@ -42,6 +52,51 @@ test('unverified incomplete user, lost response, duplicate dispatch, Auth finali
 test('direct Auth fallback uses pipeline and absent Auth is successful', async () => {
   const uid = 'external-delete'; await acceptDeletedAuthUser(db, uid); await finish(uid);
   assert.equal((await ref(uid).get()).data().status, 'completed');
+});
+
+test('existing schema-v1 jobs resume from every Phase 8 phase and never enter Phase 9 phases', async () => {
+  const phases = DELETION_PHASES_BY_VERSION[1].filter((phase) => phase !== 'complete');
+  const handlers = {
+    accepted: (uid, owned) => runAcceptedDeletionPhase(db, auth, uid, owned),
+    matches: (uid, owned) => runMatchesDeletionPhase(db, uid, owned),
+    joinRequests: (uid, owned) => runJoinRequestsDeletionPhase(db, uid, owned),
+    notifications: (uid, owned) => runNotificationsDeletionPhase(db, uid, owned),
+    ratings: (uid, owned) => runRatingsDeletionPhase(db, uid, owned),
+    verify: (uid, owned) => runVerifyDeletionPhase(db, uid, owned),
+  };
+  for (const targetPhase of phases) {
+    const uid = `schema-v1-${targetPhase}`; const cutoffDate = new Date('2026-03-01T00:00:00Z');
+    await auth.createUser({ uid });
+    const state = deletionStateFor(uid, cutoffDate, 1);
+    await db.doc(`accountDeletionJobs/${uid}`).set({ ...state.job, authMissing: false,
+      authDisabledAt: null, authRevokedAt: null });
+    await db.doc(`accountDeletionBarriers/${uid}`).set(state.barrier);
+    await db.doc(`accountDeletionOutbox/${uid}`).set({ ...state.barrier, jobId: uid,
+      status: 'ready_for_cleanup', nextAttemptAt: cutoffDate });
+    const owned = { leaseOwner: 'schema-v1-setup', leaseToken: `token-${targetPhase}` };
+    assert.equal(await acquireDeletionLease(db, uid, owned), true);
+    const observed = [];
+    while ((await ref(uid).get()).data().phase !== targetPhase) {
+      const phase = (await ref(uid).get()).data().phase; observed.push(phase);
+      for (let attempts = 0; attempts < 30 && (await ref(uid).get()).data().phase === phase; attempts++) {
+        await handlers[phase](uid, owned);
+      }
+    }
+    observed.push(targetPhase);
+    assert.equal(observed.some((phase) => ['social', 'messaging', 'storage'].includes(phase)), false);
+    await ref(uid).update({ status: 'retry_wait', leaseOwner: null, leaseToken: null,
+      leaseExpiresAt: null, nextAttemptAt: new Date(0) });
+    await db.doc(`accountDeletionOutbox/${uid}`).update({ nextAttemptAt: new Date(0) });
+    await recoverAccountDeletions(db, auth, bucket);
+    for (let attempts = 0; attempts < 30 && (await ref(uid).get()).data().status !== 'completed'; attempts++) {
+      await db.doc(`accountDeletionOutbox/${uid}`).update({ nextAttemptAt: new Date(0) });
+      await ref(uid).update({ nextAttemptAt: new Date(0) });
+      await recoverAccountDeletions(db, auth, bucket);
+    }
+    const completed = (await ref(uid).get()).data();
+    assert.equal(completed.status, 'completed', `${targetPhase}: ${JSON.stringify(completed)}`);
+    await assert.rejects(auth.getUser(uid), { code: 'auth/user-not-found' });
+  }
 });
 test('Auth deletion requires verified phase, fences stale workers and does not complete on transient failure', async () => {
   const uid = 'finalization-failure'; await admitAccountDeletion(db, auth, request(uid));
@@ -139,6 +194,101 @@ test('combined deletion preserves all four match outcomes and exact surviving ra
   await assert.rejects(auth.getUser(uid), { code: 'auth/user-not-found' });
 });
 
+test('fully populated schema-v2 deletion removes Phase 9 identity and preserves exact surviving aggregates', async () => {
+  const uid = 'phase9-full-delete', left = 'phase9-left', right = 'phase9-right';
+  await auth.createUser({ uid, email: 'delete-me@example.com', displayName: 'Delete Me' });
+  for (const player of [uid, left, right]) {
+    await db.doc(`users/${player}`).set({ uid: player, email: `${player}@example.com`, bio: 'private bio',
+      discoveryLocation: { countryCode: 'MX', city: 'Mexico City', area: 'Centro' }, avatarVersion: 7 });
+    await db.doc(`publicProfiles/${player}`).set({ uid: player, displayName: player, bio: 'public bio',
+      countryCode: 'MX', city: 'Mexico City', area: 'Centro', avatarVersion: 7,
+      completedMatchCount: 0, repeatPlayerCount: 0 });
+  }
+  const past = Timestamp.fromDate(new Date('2026-01-01T12:00:00Z'));
+  for (const id of ['phase9-history-one', 'phase9-history-two']) {
+    await db.doc(`matches/${id}`).set({ creatorUid: uid, players: [{ uid: left }, { uid: right }],
+      participantUids: [uid, left, right], spotsLeft: 1, scheduledAt: past });
+    await reconcilePlayedWithMatch(db, id, new Date('2026-02-01T00:00:00Z'));
+  }
+  assert.deepEqual([(await db.doc(`users/${left}/playedWith/${right}`).get()).data().completedMatchCount,
+    (await db.doc(`publicProfiles/${left}`).get()).data().repeatPlayerCount], [2, 2]);
+
+  const accepted = friendshipId(uid, left), pending = friendshipId(uid, right);
+  await db.doc(`friendships/${accepted}`).set({ memberUids: [uid, left].sort(), requesterUid: uid,
+    recipientUid: left, status: 'accepted' });
+  await db.doc(`friendships/${pending}`).set({ memberUids: [uid, right].sort(), requesterUid: right,
+    recipientUid: uid, status: 'pending' });
+  await db.doc(`users/${left}/friendViews/${uid}`).set({ otherUid: uid, status: 'accepted' });
+  await db.doc(`users/${right}/friendViews/${uid}`).set({ otherUid: uid, status: 'pending' });
+  await db.doc(`blocks/${blockId(uid, right)}`).set({ blockerUid: uid, blockedUid: right });
+  await db.doc(`blocks/${blockId(left, uid)}`).set({ blockerUid: left, blockedUid: uid });
+
+  const directId = directConversationId(uid, left), matchId = 'phase9-history-one';
+  const matchChatId = matchConversationId(matchId);
+  await db.doc(`conversations/${directId}`).set({ type: 'direct', memberUids: [uid, left].sort(),
+    friendshipId: accepted, lastSenderUid: uid, lastMessagePreview: 'private' });
+  await db.doc(`conversations/${directId}/messages/phase9-authored-direct`).set({ senderUid: uid,
+    text: 'private authored text', createdAt: past, requestId: 'phase9-authored-direct' });
+  await db.doc(`conversations/${directId}/messages/phase9-received-direct`).set({ senderUid: left,
+    text: 'survivor text', createdAt: past, requestId: 'phase9-received-direct' });
+  await db.doc(`conversations/${matchChatId}`).set({ type: 'match', matchId,
+    memberUids: [uid, left, right], lastSenderUid: uid, lastMessagePreview: 'private match text' });
+  await db.doc(`conversations/${matchChatId}/messages/phase9-authored-match`).set({ senderUid: uid,
+    text: 'private match text', createdAt: past, requestId: 'phase9-authored-match' });
+  for (const player of [uid, left, right]) {
+    await db.doc(`users/${player}/conversationViews/${matchChatId}`).set({ conversationId: matchChatId,
+      otherUid: uid, lastMessageAt: past });
+  }
+  await db.doc(`users/${left}/conversationViews/${directId}`).set({ conversationId: directId, otherUid: uid, lastMessageAt: past });
+
+  for (const id of ['phase9-invite-by', 'phase9-invite-to']) await db.doc(`matches/${id}`).set({
+    creatorUid: id.endsWith('by') ? uid : left, players: [], participantUids: [id.endsWith('by') ? uid : left],
+    spotsLeft: 3, scheduledAt: Timestamp.fromDate(new Date('2027-01-01T00:00:00Z')) });
+  await db.doc(`matches/phase9-invite-by/invites/${left}`).set({ matchId: 'phase9-invite-by', inviterUid: uid, inviteeUid: left, status: 'pending' });
+  await db.doc(`matches/phase9-invite-to/invites/${uid}`).set({ matchId: 'phase9-invite-to', inviterUid: left, inviteeUid: uid, status: 'pending' });
+  for (const [inviteMatch, inviter, invitee] of [['phase9-invite-by', uid, left], ['phase9-invite-to', left, uid]]) {
+    await db.doc(`notifications/${playAgainNotificationId(inviteMatch, invitee)}`).set({ type: 'play_again_invite',
+      recipientUid: invitee, actorUid: inviter, matchId: inviteMatch, eventId: invitee });
+  }
+  await db.doc(`notifications/message_${directId}_${left}`).set({ type: 'direct_message', recipientUid: left,
+    actorUid: uid, conversationId: directId });
+  await db.doc(`notifications/message_${matchChatId}_${uid}`).set({ type: 'match_message', recipientUid: uid,
+    actorUid: left, conversationId: matchChatId, matchId });
+  await db.doc(`messagingRateLimits/${uid}`).set({ count: 4 });
+  await db.doc(`playAgainRateLimits/${uid}`).set({ inviterUid: uid, createdAt: [past] });
+  await bucket.file(`profileAvatars/${uid}/avatar.jpg`).save(Buffer.from([0xff, 0xd8, 0xff]), { contentType: 'image/jpeg' });
+
+  await admitAccountDeletion(db, auth, request(uid)); await finish(uid);
+  const job = (await ref(uid).get()).data();
+  assert.equal(job.status, 'completed'); assert.equal(job.phase, 'complete');
+  assert.equal((await db.doc(`accountDeletionOutbox/${uid}`).get()).data().status, 'consumed');
+  assert.equal((await db.doc(`accountDeletionBarriers/${uid}`).get()).data().status, 'deleted');
+  await assert.rejects(auth.getUser(uid), { code: 'auth/user-not-found' });
+  assert.equal((await bucket.getFiles({ prefix: `profileAvatars/${uid}/` }))[0].length, 0);
+  for (const path of [`users/${uid}`, `publicProfiles/${uid}`, `friendships/${accepted}`,
+    `friendships/${pending}`, `blocks/${blockId(uid, right)}`, `blocks/${blockId(left, uid)}`,
+    `conversations/${directId}`, `users/${left}/conversationViews/${directId}`,
+    `messagingRateLimits/${uid}`, `playAgainRateLimits/${uid}`]) {
+    assert.equal((await db.doc(path).get()).exists, false, path);
+  }
+  assert.equal((await db.collectionGroup('friendViews').where('otherUid', '==', uid).get()).empty, true);
+  assert.equal((await db.collectionGroup('playedWith').where('otherUid', '==', uid).get()).empty, true);
+  assert.equal((await db.collectionGroup('invites').where('inviterUid', '==', uid).get()).empty, true);
+  assert.equal((await db.collectionGroup('invites').where('inviteeUid', '==', uid).get()).empty, true);
+  const directTombstone = (await db.doc(`conversations/${directId}/messages/phase9-authored-direct`).get()).data();
+  const matchTombstone = (await db.doc(`conversations/${matchChatId}/messages/phase9-authored-match`).get()).data();
+  for (const message of [directTombstone, matchTombstone]) {
+    assert.deepEqual(Object.keys(message).sort(), ['createdAt', 'requestId', 'senderDeleted', 'text']);
+    assert.equal(message.text, 'Deleted message'); assert.equal(message.senderDeleted, true);
+  }
+  assert.equal((await db.doc(`conversations/${matchChatId}`).get()).data().memberUids.includes(uid), false);
+  assert.deepEqual([(await db.doc(`users/${left}/playedWith/${right}`).get()).data().completedMatchCount,
+    (await db.doc(`publicProfiles/${left}`).get()).data().completedMatchCount,
+    (await db.doc(`publicProfiles/${left}`).get()).data().repeatPlayerCount], [2, 2, 1]);
+  assert.deepEqual((await db.doc('matches/phase9-history-one').get()).data().organizer,
+    { deleted: true, displayName: 'Deleted player' });
+});
+
 test('actual first-generation Auth deletion event creates the durable pipeline', async () => {
   const eventApp = initializeApp({ projectId: 'demo-padelx-phase8' }, 'auth-event');
   try {
@@ -168,7 +318,7 @@ test('eight retryable dispatch failures block without deleting Auth; future retr
   for (let i = 0; i < 8; i++) {
     await db.doc(`accountDeletionOutbox/${uid}`).update({ nextAttemptAt: new Date(0) });
     await ref(uid).update({ nextAttemptAt: new Date(0) });
-    await dispatchAccountDeletion(db, failingAuth, uid);
+    await dispatchAccountDeletion(db, failingAuth, bucket, uid);
     if (i === 0) {
       const before = (await ref(uid).get()).data();
       assert.equal(await acquireDeletionLease(db, uid, { leaseOwner: 'early', leaseToken: 'early' }), false);
@@ -178,7 +328,7 @@ test('eight retryable dispatch failures block without deleting Auth; future retr
   const job = (await ref(uid).get()).data();
   assert.equal(job.status, 'blocked'); assert.equal(job.lastErrorCode, 'retry-exhausted');
   assert.equal(job.completedAt, null); assert.ok(await auth.getUser(uid));
-  await recoverAccountDeletions(db, auth);
+  await recoverAccountDeletions(db, auth, bucket);
   assert.equal((await ref(uid).get()).data().status, 'blocked');
 });
 
