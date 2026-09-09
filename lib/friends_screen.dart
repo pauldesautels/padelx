@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import 'friends.dart';
@@ -24,19 +25,93 @@ class _FriendActionState extends State<FriendAction> {
     widget.targetUid,
   );
   bool _busy = false;
-  void _reload() =>
-      setState(() => _policy = widget.repository.policy(widget.targetUid));
-  Future<void> _run(Future<void> Function() action) async {
+  void _reload() => setState(() {
+    _policy = widget.repository.policy(widget.targetUid);
+  });
+
+  String _errorCode(Object error) =>
+      error is FirebaseFunctionsException ? error.code : 'unknown';
+
+  void _logFailure(String operation, Object error) {
+    debugPrint(
+      'Social mutation $operation failed (code: ${_errorCode(error)}).',
+    );
+  }
+
+  void _notifyChanged(String operation) {
+    try {
+      widget.onChanged?.call();
+    } catch (error) {
+      debugPrint(
+        'Social mutation $operation post-success refresh failed '
+        '(code: ${_errorCode(error)}).',
+      );
+    }
+  }
+
+  Future<bool> _reconcileAddFriend() async {
+    try {
+      final policy = await widget.repository.policy(widget.targetUid);
+      final established =
+          policy.status == 'accepted' ||
+          (policy.status == 'pending' &&
+              policy.direction == FriendDirection.outgoing);
+      debugPrint(
+        'Social mutation requestFriend reconciliation '
+        '${established ? 'established' : 'not-established'}.',
+      );
+      if (established && mounted) {
+        setState(() {
+          _policy = Future.value(policy);
+        });
+      }
+      return established;
+    } catch (error) {
+      debugPrint(
+        'Social mutation requestFriend reconciliation failed '
+        '(code: ${_errorCode(error)}).',
+      );
+      return false;
+    }
+  }
+
+  void _showUnavailable() {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This social action is unavailable.')),
+      );
+    }
+  }
+
+  Future<void> _run(
+    String operation,
+    Future<void> Function() action, {
+    bool reconcileAddFriend = false,
+  }) async {
     setState(() => _busy = true);
     try {
-      await action();
-      widget.onChanged?.call();
-      _reload();
-    } catch (_) {
+      try {
+        await action();
+      } catch (error) {
+        _logFailure(operation, error);
+        if (reconcileAddFriend && await _reconcileAddFriend()) {
+          _notifyChanged(operation);
+          return;
+        }
+        _showUnavailable();
+        return;
+      }
+
+      _notifyChanged(operation);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('This social action is unavailable.')),
-        );
+        try {
+          _reload();
+        } catch (error) {
+          debugPrint(
+            'Social mutation $operation post-success reload failed '
+            '(code: ${_errorCode(error)}).',
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -57,7 +132,10 @@ class _FriendActionState extends State<FriendAction> {
           key: const Key('unblock-player'),
           onPressed: _busy
               ? null
-              : () => _run(() => widget.repository.unblock(widget.targetUid)),
+              : () => _run(
+                  'unblock',
+                  () => widget.repository.unblock(widget.targetUid),
+                ),
           child: const Text('Unblock'),
         );
       }
@@ -65,6 +143,7 @@ class _FriendActionState extends State<FriendAction> {
         return PopupMenuButton<String>(
           key: const Key('friends-action'),
           onSelected: (value) => _run(
+            value == 'block' ? 'block' : 'removeFriend',
             value == 'block'
                 ? () => widget.repository.block(widget.targetUid)
                 : () => widget.repository.remove(widget.targetUid),
@@ -85,6 +164,7 @@ class _FriendActionState extends State<FriendAction> {
               onPressed: _busy
                   ? null
                   : () => _run(
+                      'respondToFriendRequest',
                       () => widget.repository.respond(widget.targetUid, true),
                     ),
               child: const Text('Accept'),
@@ -94,6 +174,7 @@ class _FriendActionState extends State<FriendAction> {
               onPressed: _busy
                   ? null
                   : () => _run(
+                      'respondToFriendRequest',
                       () => widget.repository.respond(widget.targetUid, false),
                     ),
               child: const Text('Decline'),
@@ -106,7 +187,10 @@ class _FriendActionState extends State<FriendAction> {
           key: const Key('cancel-friend-request'),
           onPressed: _busy
               ? null
-              : () => _run(() => widget.repository.cancel(widget.targetUid)),
+              : () => _run(
+                  'cancelFriendRequest',
+                  () => widget.repository.cancel(widget.targetUid),
+                ),
           child: const Text('Requested'),
         );
       }
@@ -118,14 +202,16 @@ class _FriendActionState extends State<FriendAction> {
             onPressed: _busy
                 ? null
                 : () => _run(
+                    'requestFriend',
                     () => widget.repository.requestFriend(widget.targetUid),
+                    reconcileAddFriend: true,
                   ),
             icon: const Icon(Icons.person_add_alt_1),
             label: const Text('Add Friend'),
           ),
           PopupMenuButton<String>(
             onSelected: (_) =>
-                _run(() => widget.repository.block(widget.targetUid)),
+                _run('block', () => widget.repository.block(widget.targetUid)),
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'block', child: Text('Block')),
             ],
