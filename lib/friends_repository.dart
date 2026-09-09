@@ -18,6 +18,7 @@ class FriendsPage {
 }
 
 abstract class FriendsRepository {
+  Stream<void> watchFriendViews(String viewerUid);
   Future<FriendsPage> loadPage(
     String viewerUid, {
     required String status,
@@ -46,6 +47,14 @@ class FirebaseFriendsRepository implements FriendsRepository {
   Future<void> _call(String name, Map<String, Object> data) async {
     await functions.httpsCallable(name).call(data);
   }
+
+  @override
+  Stream<void> watchFriendViews(String viewerUid) => firestore
+      .collection('users')
+      .doc(viewerUid)
+      .collection('friendViews')
+      .snapshots()
+      .map((_) {});
 
   @override
   Future<FriendsPage> loadPage(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
@@ -249,16 +251,96 @@ class _FriendsScreenState extends State<FriendsScreen> {
     _Section('Outgoing Requests', 'pending', FriendDirection.outgoing),
     _Section('Accepted Friends', 'accepted', null),
   ];
+  late final List<GlobalKey<_FriendSectionState>> _sectionKeys;
+  StreamSubscription<void>? _friendViewsSubscription;
+  int _listenerGeneration = 0;
+  bool _receivedInitialSnapshot = false;
+  bool _refreshing = false;
+  bool _refreshPending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _sectionKeys = List.generate(
+      sections.length,
+      (_) => GlobalKey<_FriendSectionState>(),
+    );
+    _startFriendViewsListener();
+  }
+
+  void _startFriendViewsListener() {
+    _receivedInitialSnapshot = false;
+    _friendViewsSubscription = widget.repository
+        .watchFriendViews(widget.viewerUid)
+        .listen(
+          (_) {
+            if (!_receivedInitialSnapshot) {
+              _receivedInitialSnapshot = true;
+              return;
+            }
+            unawaited(_refreshSections());
+          },
+          onError: (Object _) {
+            debugPrint('Friends projection listener failed.');
+          },
+        );
+  }
+
+  Future<void> _restartFriendViewsListener(int generation) async {
+    final previous = _friendViewsSubscription;
+    _friendViewsSubscription = null;
+    await previous?.cancel();
+    if (!mounted || generation != _listenerGeneration) return;
+    _startFriendViewsListener();
+    await _refreshSections();
+  }
+
+  Future<void> _refreshSections() async {
+    if (_refreshing) {
+      _refreshPending = true;
+      return;
+    }
+    _refreshing = true;
+    try {
+      do {
+        _refreshPending = false;
+        await Future.wait([
+          for (final key in _sectionKeys)
+            if (key.currentState case final state?) state.refresh(),
+        ]);
+      } while (mounted && _refreshPending);
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant FriendsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.viewerUid != widget.viewerUid ||
+        oldWidget.repository != widget.repository) {
+      _listenerGeneration++;
+      unawaited(_restartFriendViewsListener(_listenerGeneration));
+    }
+  }
+
+  @override
+  void dispose() {
+    _listenerGeneration++;
+    unawaited(_friendViewsSubscription?.cancel());
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Friends')),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        for (final section in sections)
+        for (var index = 0; index < sections.length; index++)
           _FriendSection(
-            key: ValueKey('${section.status}-${section.direction}'),
-            section: section,
+            key: _sectionKeys[index],
+            section: sections[index],
             viewerUid: widget.viewerUid,
             repository: widget.repository,
             onProfileTap: widget.onProfileTap,
@@ -291,33 +373,39 @@ class _FriendSectionState extends State<_FriendSection> {
   bool loading = false;
   bool hasMore = true;
   Object? error;
+  bool _resetPending = false;
   @override
   void initState() {
     super.initState();
     _load();
   }
 
+  Future<void> refresh() => _load(reset: true);
+
   Future<void> _load({bool reset = false}) async {
-    if (loading || (!hasMore && !reset)) return;
+    if (loading) {
+      if (reset) _resetPending = true;
+      return;
+    }
+    if (!hasMore && !reset) return;
+    final requestedCursor = reset ? null : cursor;
     setState(() {
       loading = true;
       error = null;
-      if (reset) {
-        views.clear();
-        profiles.clear();
-        cursor = null;
-        hasMore = true;
-      }
     });
     try {
       final page = await widget.repository.loadPage(
         widget.viewerUid,
         status: widget.section.status,
         direction: widget.section.direction,
-        cursor: cursor,
+        cursor: requestedCursor,
       );
       if (!mounted) return;
       setState(() {
+        if (reset) {
+          views.clear();
+          profiles.clear();
+        }
         final known = views.map((item) => item.otherUid).toSet();
         views.addAll(page.views.where((item) => known.add(item.otherUid)));
         profiles.addAll(page.profiles);
@@ -325,14 +413,22 @@ class _FriendSectionState extends State<_FriendSection> {
         hasMore = page.hasMore;
       });
     } catch (value) {
+      debugPrint('Friends section refresh failed.');
       if (mounted) setState(() => error = value);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted) {
+        setState(() => loading = false);
+        if (_resetPending) {
+          _resetPending = false;
+          unawaited(_load(reset: true));
+        }
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) => Column(
+    key: Key('friends-section-${widget.section.title}'),
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(

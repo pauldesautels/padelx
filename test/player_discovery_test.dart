@@ -11,6 +11,7 @@ class FakeFriends implements FriendsRepository {
   @override Future<RelationshipPolicy> policy(String uid) async => const RelationshipPolicy();
   @override Future<void> remove(String uid) async {} @override Future<void> requestFriend(String uid) async {}
   @override Future<void> respond(String uid, bool accept) async {} @override Future<void> unblock(String uid) async {}
+  @override Stream<void> watchFriendViews(String viewerUid) => const Stream.empty();
 }
 
 void main() {
