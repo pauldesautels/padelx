@@ -1,7 +1,16 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'messaging.dart';
 import 'messaging_repository.dart';
 import 'profile_avatar.dart';
+
+typedef ConversationNotificationStream =
+    Stream<Map<String, dynamic>?> Function(
+      String conversationId,
+      String currentUid,
+    );
 
 class ConversationScreen extends StatefulWidget {
   final String conversationId;
@@ -10,6 +19,7 @@ class ConversationScreen extends StatefulWidget {
   final MessagingRepository repository;
   final String? otherUid;
   final int avatarVersion;
+  final ConversationNotificationStream? notificationStream;
   const ConversationScreen({
     super.key,
     required this.conversationId,
@@ -18,6 +28,7 @@ class ConversationScreen extends StatefulWidget {
     required this.repository,
     this.otherUid,
     this.avatarVersion = 0,
+    this.notificationStream,
   });
   @override
   State<ConversationScreen> createState() => _ConversationScreenState();
@@ -33,20 +44,70 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _hasMore = false,
       _canSend = true;
   String? _disabledReason;
+  StreamSubscription<Map<String, dynamic>?>? _notificationSubscription;
+  String? _lastHandledNotification;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _startNotificationListener();
+    _load(source: 'initial');
   }
 
   @override
   void dispose() {
+    _notificationSubscription?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  void _startNotificationListener() {
+    if (_notificationSubscription != null) return;
+    final stream =
+        widget.notificationStream?.call(
+          widget.conversationId,
+          widget.currentUid,
+        ) ??
+        FirebaseFirestore.instance
+            .doc(
+              'notifications/message_${widget.conversationId}_${widget.currentUid}',
+            )
+            .snapshots()
+            .map((snapshot) => snapshot.data());
+    _notificationSubscription = stream.listen(
+      _handleNotification,
+      onError: (Object error, StackTrace stackTrace) {
+        debugPrint(
+          'Conversation notification listener failed: ${error.runtimeType}.',
+        );
+      },
+    );
+  }
+
+  void _handleNotification(Map<String, dynamic>? notification) {
+    if (notification == null || notification['isRead'] != false) return;
+    if (notification['recipientUid'] != widget.currentUid ||
+        notification['conversationId'] != widget.conversationId) {
+      return;
+    }
+    final actorUid = notification['actorUid']?.toString();
+    if (actorUid == null || actorUid.isEmpty || actorUid == widget.currentUid) {
+      return;
+    }
+    final createdAt = notification['createdAt'];
+    final createdKey = switch (createdAt) {
+      Timestamp value => '${value.seconds}:${value.nanoseconds}',
+      DateTime value => value.microsecondsSinceEpoch.toString(),
+      _ => createdAt?.toString(),
+    };
+    if (createdKey == null) return;
+    final notificationKey = '$actorUid:$createdKey';
+    if (_lastHandledNotification == notificationKey) return;
+    _lastHandledNotification = notificationKey;
+    _load(source: 'notification');
+  }
+
+  Future<void> _load({String source = 'refresh'}) async {
     try {
       final page = await widget.repository.messages(widget.conversationId);
       if (!mounted) return;
@@ -60,8 +121,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
         _disabledReason = page.disabledReason;
         _loading = false;
       });
-      await widget.repository.markRead(widget.conversationId);
-    } catch (_) {
+      try {
+        await widget.repository.markRead(widget.conversationId);
+      } catch (error) {
+        debugPrint('Conversation mark-read failed: ${error.runtimeType}.');
+      }
+    } catch (error) {
+      debugPrint(
+        'Conversation $source message load failed: ${error.runtimeType}.',
+      );
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -95,7 +163,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     try {
       await widget.repository.send(widget.conversationId, text, requestId);
       _controller.clear();
-      await _load();
+      await _load(source: 'send');
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -128,7 +196,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         IconButton(
           key: const Key('refresh-conversation'),
           tooltip: 'Refresh messages',
-          onPressed: _load,
+          onPressed: () => _load(source: 'manual'),
           icon: const Icon(Icons.refresh),
         ),
       ],
