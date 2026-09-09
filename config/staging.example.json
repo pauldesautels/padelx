@@ -7,6 +7,7 @@
   "FIREBASE_AUTH_DOMAIN": "padelx-staging.firebaseapp.com",
   "FIREBASE_STORAGE_BUCKET": "replace-with-staging-bucket",
   "FIREBASE_APP_CHECK_MODE": "attested",
+  "FIREBASE_APP_CHECK_DEBUG_TOKEN": "replace-with-local-staging-debug-token",
   "FIREBASE_APP_CHECK_RECAPTCHA_ENTERPRISE_SITE_KEY": "replace-with-staging-enterprise-site-key",
   "GOOGLE_PLACES_API_KEY": "replace-with-staging-places-key"
 }

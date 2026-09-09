@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:padelx/firebase_environment.dart';
 
 const _apiKey = 'test-api-key';
@@ -93,6 +94,66 @@ void main() {
       expect(options.apiKey, _apiKey);
     });
 
+    test('iOS staging accepts only complete native staging values', () {
+      final options = _iosOptions();
+      expect(options.projectId, stagingFirebaseProjectId);
+      expect(options.appId, contains(':ios:'));
+      expect(options.iosBundleId, stagingIosBundleId);
+    });
+
+    test('iOS staging rejects a web App ID', () {
+      expect(
+        () => _iosOptions(appId: '1:708585002488:web:abc'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('web and production App IDs are not accepted'),
+          ),
+        ),
+      );
+    });
+
+    test('iOS staging rejects a production native App ID', () {
+      expect(
+        () => _iosOptions(appId: '1:425226080221:ios:abc'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('iOS staging rejects production project and wrong bundle ID', () {
+      expect(
+        () => _iosOptions(projectId: productionFirebaseProjectId),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        () => _iosOptions(bundleId: 'com.example.padelx'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains(stagingIosBundleId),
+          ),
+        ),
+      );
+    });
+
+    test('iOS device test requires its bundle ID and a debug build', () {
+      final options = _iosOptions(
+        bundleId: deviceTestIosBundleId,
+        isDebugBuild: true,
+        isDeviceTestBuild: true,
+      );
+      expect(options.iosBundleId, deviceTestIosBundleId);
+      expect(
+        () => _iosOptions(
+          bundleId: deviceTestIosBundleId,
+          isDeviceTestBuild: true,
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
     test('production requires explicit values', () {
       expect(
         () => firebaseOptionsForEnvironment(
@@ -148,6 +209,27 @@ void main() {
       );
     });
   });
+}
+
+FirebaseOptions _iosOptions({
+  String projectId = stagingFirebaseProjectId,
+  String appId = '1:708585002488:ios:abc',
+  String bundleId = stagingIosBundleId,
+  bool isDebugBuild = false,
+  bool isDeviceTestBuild = false,
+}) {
+  return firebaseOptionsForEnvironment(
+    environment: 'staging',
+    projectId: projectId,
+    apiKey: _apiKey,
+    appId: appId,
+    messagingSenderId: stagingMessagingSenderId,
+    storageBucket: stagingStorageBucket,
+    iosBundleId: bundleId,
+    isDebugBuild: isDebugBuild,
+    isDeviceTestBuild: isDeviceTestBuild,
+    targetPlatform: TargetPlatform.iOS,
+  );
 }
 
 FirebaseOptions _options(String environment, String projectId) {

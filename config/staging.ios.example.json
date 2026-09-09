@@ -1,0 +1,11 @@
+{
+  "FIREBASE_ENVIRONMENT": "staging",
+  "FIREBASE_APP_CHECK_MODE": "attested",
+  "FIREBASE_PROJECT_ID": "padelx-staging",
+  "FIREBASE_API_KEY": "replace-with-real-staging-ios-api-key",
+  "FIREBASE_APP_ID": "replace-with-real-staging-ios-app-id-containing-colon-ios-colon",
+  "FIREBASE_MESSAGING_SENDER_ID": "708585002488",
+  "FIREBASE_STORAGE_BUCKET": "padelx-staging.firebasestorage.app",
+  "FIREBASE_IOS_BUNDLE_ID": "com.padelx.app.staging",
+  "GOOGLE_PLACES_API_KEY": "replace-with-staging-places-key"
+}

@@ -1,7 +1,13 @@
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kDebugMode, kIsWeb;
 
 const productionFirebaseProjectId = 'padelx-f168f';
+const stagingFirebaseProjectId = 'padelx-staging';
+const stagingIosBundleId = 'com.padelx.app.staging';
+const deviceTestIosBundleId = 'com.padelx.app.devicetest';
+const stagingMessagingSenderId = '708585002488';
+const stagingStorageBucket = 'padelx-staging.firebasestorage.app';
 const _supportedFirebaseEnvironments = {'development', 'staging', 'production'};
 
 FirebaseOptions firebaseOptionsForCurrentEnvironment() {
@@ -17,6 +23,9 @@ FirebaseOptions firebaseOptionsForCurrentEnvironment() {
     storageBucket: const String.fromEnvironment('FIREBASE_STORAGE_BUCKET'),
     iosBundleId: const String.fromEnvironment('FIREBASE_IOS_BUNDLE_ID'),
     isDebugBuild: kDebugMode,
+    isDeviceTestBuild: const bool.fromEnvironment('PADELX_IOS_DEVICE_TEST'),
+    isWeb: kIsWeb,
+    targetPlatform: defaultTargetPlatform,
   );
 }
 
@@ -30,9 +39,18 @@ FirebaseOptions firebaseOptionsForEnvironment({
   String storageBucket = '',
   String iosBundleId = '',
   bool isDebugBuild = false,
+  bool isDeviceTestBuild = false,
+  bool isWeb = false,
+  TargetPlatform? targetPlatform,
 }) {
   final selectedEnvironment = environment.trim();
   final selectedProjectId = projectId.trim();
+
+  if (isDeviceTestBuild && selectedEnvironment != 'staging') {
+    throw StateError(
+      'PADELX_IOS_DEVICE_TEST requires FIREBASE_ENVIRONMENT=staging.',
+    );
+  }
 
   if (!_supportedFirebaseEnvironments.contains(selectedEnvironment)) {
     throw StateError(
@@ -82,6 +100,45 @@ FirebaseOptions firebaseOptionsForEnvironment({
     throw StateError(
       'Firebase configuration still contains example placeholder values.',
     );
+  }
+
+  final isIos = !isWeb && targetPlatform == TargetPlatform.iOS;
+  if (selectedEnvironment == 'staging' && isIos) {
+    final selectedAppId = requiredValues['FIREBASE_APP_ID']!;
+    final selectedBundleId = iosBundleId.trim();
+    final selectedSenderId = requiredValues['FIREBASE_MESSAGING_SENDER_ID']!;
+    final selectedStorageBucket = storageBucket.trim();
+
+    if (selectedProjectId != stagingFirebaseProjectId) {
+      throw StateError(
+        'iOS staging requires FIREBASE_PROJECT_ID=padelx-staging.',
+      );
+    }
+    if (!selectedAppId.startsWith('1:$stagingMessagingSenderId:ios:')) {
+      throw StateError(
+        'iOS staging requires a native Firebase iOS App ID owned by '
+        'padelx-staging; web and production App IDs are not accepted.',
+      );
+    }
+    if (isDeviceTestBuild && !isDebugBuild) {
+      throw StateError(
+        'PADELX_IOS_DEVICE_TEST is allowed only in debug builds.',
+      );
+    }
+    final expectedBundleId = isDeviceTestBuild
+        ? deviceTestIosBundleId
+        : stagingIosBundleId;
+    if (selectedBundleId != expectedBundleId) {
+      throw StateError(
+        'iOS staging requires FIREBASE_IOS_BUNDLE_ID=$expectedBundleId.',
+      );
+    }
+    if (selectedSenderId != stagingMessagingSenderId) {
+      throw StateError('iOS staging has an unexpected messaging sender ID.');
+    }
+    if (selectedStorageBucket != stagingStorageBucket) {
+      throw StateError('iOS staging has an unexpected storage bucket.');
+    }
   }
 
   return FirebaseOptions(

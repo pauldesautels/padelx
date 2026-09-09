@@ -40,6 +40,8 @@ migrate_working_dir/
 
 # Local Flutter compile-time configuration (contains developer secrets)
 /config/*.local.json
+/ios/Runner/Firebase/Staging/GoogleService-Info.plist
+/.phase9-*-checkpoint.json
 
 # Symbolication related
 app.*.symbols

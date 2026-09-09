@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/firebase_app_check_configuration.dart';
+import 'package:padelx/firebase_environment.dart' show stagingFirebaseProjectId;
 
 void main() {
   group('staging web App Check configuration', () {
@@ -8,6 +9,17 @@ void main() {
 
       expect(configuration!.mode, AppCheckMode.debug);
       expect(configuration.enterpriseSiteKey, isNull);
+      expect(configuration.platform, AppCheckPlatform.web);
+      expect(configuration.debugToken, isNull);
+    });
+
+    test('staging web debug passes an explicit local debug token', () {
+      final configuration = _configuration(
+        mode: 'debug',
+        debugToken: 'local-debug-token',
+      );
+
+      expect(configuration!.debugToken, 'local-debug-token');
     });
 
     test('staging attested is accepted with an Enterprise site key', () {
@@ -18,6 +30,17 @@ void main() {
 
       expect(configuration!.mode, AppCheckMode.attested);
       expect(configuration.enterpriseSiteKey, 'test-enterprise-site-key');
+      expect(configuration.debugToken, isNull);
+    });
+
+    test('attested mode never uses a supplied debug token', () {
+      final configuration = _configuration(
+        mode: 'attested',
+        siteKey: 'test-enterprise-site-key',
+        debugToken: 'local-debug-token',
+      );
+
+      expect(configuration!.debugToken, isNull);
     });
 
     test('attested without a real Enterprise site key is rejected', () {
@@ -49,6 +72,18 @@ void main() {
             contains('cannot be used in production'),
           ),
         ),
+      );
+    });
+
+    test('production rejects a debug token even without debug mode', () {
+      expect(
+        () => _configuration(
+          environment: 'production',
+          projectId: 'padelx-f168f',
+          mode: '',
+          debugToken: 'local-debug-token',
+        ),
+        throwsA(isA<StateError>()),
       );
     });
 
@@ -93,7 +128,69 @@ void main() {
       );
     });
 
-    test('non-web staging fails closed', () {
+    test('iOS staging selects native Apple attestation', () {
+      final configuration = _configuration(
+        isWeb: false,
+        isIos: true,
+        mode: 'attested',
+      );
+      expect(configuration!.platform, AppCheckPlatform.ios);
+      expect(configuration.mode, AppCheckMode.attested);
+      expect(configuration.enterpriseSiteKey, isNull);
+    });
+
+    test('iOS staging rejects debug App Check', () {
+      expect(
+        () => _configuration(isWeb: false, isIos: true, mode: 'debug'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('non-debug staging rejects iOS debug App Check', () {
+      expect(
+        () => _configuration(
+          isWeb: false,
+          isIos: true,
+          mode: 'debug',
+          isDeviceTestBuild: true,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('in a debug build'),
+          ),
+        ),
+      );
+    });
+
+    test('debug device-test iOS selects Apple debug provider', () {
+      final configuration = _configuration(
+        isWeb: false,
+        isIos: true,
+        mode: 'debug',
+        isDebugBuild: true,
+        isDeviceTestBuild: true,
+      );
+      expect(configuration!.platform, AppCheckPlatform.ios);
+      expect(configuration.mode, AppCheckMode.debug);
+      expect(configuration.debugToken, isNull);
+    });
+
+    test('iOS device-test ignores the web debug token define', () {
+      final configuration = _configuration(
+        isWeb: false,
+        isIos: true,
+        mode: 'debug',
+        isDebugBuild: true,
+        isDeviceTestBuild: true,
+        debugToken: 'web-only-token',
+      );
+      expect(configuration!.platform, AppCheckPlatform.ios);
+      expect(configuration.debugToken, isNull);
+    });
+
+    test('unsupported native staging platform fails closed', () {
       expect(
         () => _configuration(isWeb: false, mode: 'debug'),
         throwsA(isA<UnsupportedError>()),
@@ -102,18 +199,26 @@ void main() {
   });
 }
 
-StagingWebAppCheckConfiguration? _configuration({
+StagingAppCheckConfiguration? _configuration({
   String environment = 'staging',
   String projectId = stagingFirebaseProjectId,
   bool isWeb = true,
+  bool isIos = false,
+  bool isDebugBuild = false,
+  bool isDeviceTestBuild = false,
   required String mode,
   String siteKey = '',
+  String debugToken = '',
 }) {
-  return stagingWebAppCheckConfiguration(
+  return stagingAppCheckConfiguration(
     environment: environment,
     projectId: projectId,
     isWeb: isWeb,
+    isIos: isIos,
+    isDebugBuild: isDebugBuild,
+    isDeviceTestBuild: isDeviceTestBuild,
     mode: mode,
     enterpriseSiteKey: siteKey,
+    debugToken: debugToken,
   );
 }
