@@ -1309,6 +1309,19 @@ List<Match> sortedMatches(Iterable<Match> matches) {
   return sorted;
 }
 
+List<Match> mergeDiscoveryMatchGroups(Iterable<Iterable<Match>> groups) {
+  final byId = <String, Match>{};
+  for (final group in groups) {
+    for (final match in group) {
+      byId[match.id] = match;
+    }
+  }
+  return sortedMatches(byId.values);
+}
+
+List<Match> discoveryWithoutMatch(Iterable<Match> matches, String matchId) =>
+    matches.where((match) => match.id != matchId).toList();
+
 String _friendlyDateTime(DateTime value) {
   const weekdays = [
     'Monday',
@@ -2604,6 +2617,12 @@ Future<UserProfile?> _loadUserProfile(String uid) async {
 class HomeScreen extends StatefulWidget {
   final UserProfile? profile;
   final Future<List<Match>> Function()? discoveryLoader;
+  final Stream<List<Match>> Function(
+    MatchLocation? location,
+    double radiusKm,
+    int perCellLimit,
+  )?
+  discoveryStreamLoader;
   final Future<Map<String, dynamic>?> Function(String matchId)?
   matchDocumentLoader;
   final Widget Function()? createMatchScreenBuilder;
@@ -2616,6 +2635,7 @@ class HomeScreen extends StatefulWidget {
     super.key,
     this.profile,
     this.discoveryLoader,
+    this.discoveryStreamLoader,
     this.matchDocumentLoader,
     this.createMatchScreenBuilder,
     this.indexRetryDelay = const Duration(milliseconds: 400),
@@ -2632,7 +2652,11 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   int _notificationLimit = 50;
   int _myMatchLimit = 100;
-  late Future<List<Match>> _discoveryMatches = _loadDiscoveryMatches();
+  final List<Match> _discoveryMatches = [];
+  StreamSubscription<List<Match>>? _discoverySubscription;
+  bool _discoveryLoading = true;
+  bool _discoveryError = false;
+  int _discoveryGeneration = 0;
   MatchLocation? _discoveryOverride;
   double _discoveryRadiusKm = 25;
   int _discoveryPerCellLimit = discoveryInitialCellLimit;
@@ -2647,6 +2671,30 @@ class _HomeScreenState extends State<HomeScreen> {
       widget.friendsRepository ?? FirebaseFriendsRepository();
 
   MessagingRepository get _messagingRepository => FirebaseMessagingRepository();
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_restartDiscovery());
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile?.discoveryLocation !=
+            widget.profile?.discoveryLocation ||
+        oldWidget.discoveryLoader != widget.discoveryLoader ||
+        oldWidget.discoveryStreamLoader != widget.discoveryStreamLoader) {
+      unawaited(_restartDiscovery());
+    }
+  }
+
+  @override
+  void dispose() {
+    _discoveryGeneration++;
+    unawaited(_discoverySubscription?.cancel());
+    super.dispose();
+  }
 
   void _openMessages() {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -2746,10 +2794,251 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _refreshDiscovery() async {
+    await _restartDiscovery();
+  }
+
+  void _handleMatchDeleted(String matchId) {
     if (!mounted) return;
     setState(() {
-      _discoveryMatches = _loadDiscoveryMatches();
+      final retained = discoveryWithoutMatch(_discoveryMatches, matchId);
+      _discoveryMatches
+        ..clear()
+        ..addAll(retained);
     });
+  }
+
+  Future<void> _restartDiscovery() async {
+    final generation = ++_discoveryGeneration;
+    final previous = _discoverySubscription;
+    _discoverySubscription = null;
+    await previous?.cancel();
+    if (!mounted || generation != _discoveryGeneration) return;
+    if (_discoveryMatches.isEmpty) {
+      setState(() {
+        _discoveryLoading = true;
+        _discoveryError = false;
+      });
+    }
+    final injectedStream = widget.discoveryStreamLoader;
+    if (injectedStream != null) {
+      _listenToDiscovery(
+        injectedStream(
+          _discoveryOverride,
+          _discoveryRadiusKm,
+          _discoveryPerCellLimit,
+        ),
+        generation,
+      );
+      return;
+    }
+    final injectedLoader = widget.discoveryLoader;
+    if (injectedLoader != null) {
+      try {
+        final matches = await injectedLoader();
+        if (!mounted || generation != _discoveryGeneration) return;
+        setState(() {
+          _discoveryMatches
+            ..clear()
+            ..addAll(sortedMatches(matches));
+          _discoveryLoading = false;
+          _discoveryError = false;
+        });
+      } catch (_) {
+        if (!mounted || generation != _discoveryGeneration) return;
+        debugPrint('Discover one-time test loader failed.');
+        setState(() {
+          _discoveryLoading = false;
+          _discoveryError = _discoveryMatches.isEmpty;
+        });
+      }
+      return;
+    }
+    _listenToDiscovery(_watchDiscoveryMatches(), generation);
+  }
+
+  void _listenToDiscovery(Stream<List<Match>> stream, int generation) {
+    _discoverySubscription = stream.listen(
+      (matches) {
+        if (!mounted || generation != _discoveryGeneration) return;
+        setState(() {
+          _discoveryMatches
+            ..clear()
+            ..addAll(matches);
+          _discoveryLoading = false;
+          _discoveryError = false;
+        });
+      },
+      onError: (Object _) {
+        if (!mounted || generation != _discoveryGeneration) return;
+        debugPrint('Discover match listener failed.');
+        setState(() {
+          _discoveryLoading = false;
+          _discoveryError = _discoveryMatches.isEmpty;
+        });
+      },
+    );
+  }
+
+  void _expandInitialDiscoveryIfNeeded({
+    required int resultCount,
+    required bool anyQueryHasMore,
+  }) {
+    if (!shouldExpandInitialDiscovery(
+      requestedLimit: _discoveryPerCellLimit,
+      filteredResultCount: resultCount,
+      anyCellHasMore: anyQueryHasMore,
+    )) {
+      return;
+    }
+    _discoveryPerCellLimit = discoveryInitialCellLimit * 2;
+    scheduleMicrotask(() => unawaited(_restartDiscovery()));
+  }
+
+  Stream<List<Match>> _watchDiscoveryMatches() {
+    final profileLocation = widget.profile?.discoveryLocation;
+    final selected = _discoveryOverride;
+    final latitude = selected?.latitude ?? profileLocation?.latitude;
+    final longitude = selected?.longitude ?? profileLocation?.longitude;
+    if (latitude == null || longitude == null) {
+      if (profileLocation == null || !profileLocation.isConfigured) {
+        return Stream.value(const []);
+      }
+      final query = FirebaseFirestore.instance
+          .collection('matches')
+          .where('location.countryCode', isEqualTo: profileLocation.countryCode)
+          .where('location.city', isEqualTo: profileLocation.city)
+          .where(
+            'scheduledAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(DateTime.now()),
+          )
+          .orderBy('scheduledAt')
+          .limit(_discoveryPerCellLimit + 1);
+      return query.snapshots().map((snapshot) {
+        final matches = sortedMatches(
+          snapshot.docs.take(_discoveryPerCellLimit).map(Match.fromDocument),
+        );
+        _expandInitialDiscoveryIfNeeded(
+          resultCount: matches.length,
+          anyQueryHasMore: snapshot.docs.length > _discoveryPerCellLimit,
+        );
+        return matches;
+      });
+    }
+
+    final cells = geohashCellsForRadius(
+      latitude,
+      longitude,
+      _discoveryRadiusKm,
+    );
+    final hashField = cells.first.length == 4 ? 'geoHash4' : 'geoHash3';
+    final controller = StreamController<List<Match>>();
+    final subscriptions =
+        <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+    final results = <String, List<Match>>{};
+    final hasMore = <String, bool>{};
+    final ready = <String>{};
+    var closed = false;
+
+    void emit() {
+      if (closed || ready.length != cells.length) return;
+      final merged = mergeDiscoveryMatchGroups(results.values);
+      _expandInitialDiscoveryIfNeeded(
+        resultCount: merged.length,
+        anyQueryHasMore: hasMore.values.any((value) => value),
+      );
+      controller.add(merged);
+    }
+
+    controller.onListen = () {
+      for (final cell in cells) {
+        final query = FirebaseFirestore.instance
+            .collection('matches')
+            .where(hashField, isEqualTo: cell)
+            .where(
+              'scheduledAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(DateTime.now()),
+            )
+            .orderBy('scheduledAt')
+            .limit(_discoveryPerCellLimit + 1);
+        subscriptions.add(
+          query.snapshots().listen((snapshot) {
+            ready.add(cell);
+            hasMore[cell] = snapshot.docs.length > _discoveryPerCellLimit;
+            results[cell] = snapshot.docs
+                .take(_discoveryPerCellLimit)
+                .map(Match.fromDocument)
+                .where((match) {
+                  final distance = distanceBetweenKm(
+                    fromLatitude: latitude,
+                    fromLongitude: longitude,
+                    toLatitude: match.location.latitude,
+                    toLongitude: match.location.longitude,
+                  );
+                  return distance != null && distance <= _discoveryRadiusKm;
+                })
+                .toList();
+            emit();
+          }, onError: controller.addError),
+        );
+      }
+    };
+    controller.onCancel = () async {
+      closed = true;
+      await Future.wait(
+        subscriptions.map((subscription) => subscription.cancel()),
+      );
+    };
+    return controller.stream;
+  }
+
+  Stream<List<Match>> _watchPendingMatchDocuments(
+    QuerySnapshot<Map<String, dynamic>> requestSnapshot,
+  ) {
+    final ids = requestSnapshot.docs
+        .map(JoinRequest.fromDocument)
+        .map((request) => request.matchId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (ids.isEmpty) return Stream.value(const []);
+    final controller = StreamController<List<Match>>();
+    final subscriptions =
+        <StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>[];
+    final matches = <String, Match>{};
+    final ready = <String>{};
+    var closed = false;
+
+    void emit() {
+      if (!closed && ready.length == ids.length) {
+        controller.add(sortedMatches(matches.values));
+      }
+    }
+
+    controller.onListen = () {
+      for (final id in ids) {
+        subscriptions.add(
+          FirebaseFirestore.instance
+              .collection('matches')
+              .doc(id)
+              .snapshots()
+              .listen((document) {
+                ready.add(id);
+                if (document.exists) {
+                  matches[id] = Match.fromDocument(document);
+                } else {
+                  matches.remove(id);
+                }
+                emit();
+              }, onError: controller.addError),
+        );
+      }
+    };
+    controller.onCancel = () async {
+      closed = true;
+      await Future.wait(
+        subscriptions.map((subscription) => subscription.cancel()),
+      );
+    };
+    return controller.stream;
   }
 
   Future<void> _waitForIndexAndRefresh(MatchMutationResult result) async {
@@ -2780,99 +3069,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _loadMoreDiscovery() {
     _discoveryPerCellLimit += discoveryInitialCellLimit;
     _refreshDiscovery();
-  }
-
-  Future<List<Match>> _loadDiscoveryMatches() async {
-    final injectedLoader = widget.discoveryLoader;
-    if (injectedLoader != null) return injectedLoader();
-    final override = _discoveryOverride;
-    final profileLocation = widget.profile?.discoveryLocation;
-    final latitude = override?.latitude ?? profileLocation?.latitude;
-    final longitude = override?.longitude ?? profileLocation?.longitude;
-    final firestore = FirebaseFirestore.instance;
-    final now = Timestamp.fromDate(DateTime.now());
-    if (latitude == null || longitude == null) {
-      if (profileLocation == null || !profileLocation.isConfigured) {
-        return const [];
-      }
-      Future<(List<QueryDocumentSnapshot<Map<String, dynamic>>>, bool)> fetch(
-        int limit,
-      ) async {
-        final snapshot = await firestore
-            .collection('matches')
-            .where(
-              'location.countryCode',
-              isEqualTo: profileLocation.countryCode,
-            )
-            .where('location.city', isEqualTo: profileLocation.city)
-            .where('scheduledAt', isGreaterThanOrEqualTo: now)
-            .orderBy('scheduledAt')
-            .limit(limit + 1)
-            .get();
-        return (
-          snapshot.docs.take(limit).toList(),
-          snapshot.docs.length > limit,
-        );
-      }
-
-      var result = await fetch(_discoveryPerCellLimit);
-      if (shouldExpandInitialDiscovery(
-        requestedLimit: _discoveryPerCellLimit,
-        filteredResultCount: result.$1.length,
-        anyCellHasMore: result.$2,
-      )) {
-        result = await fetch(discoveryInitialCellLimit * 2);
-      }
-      return result.$1.map(Match.fromDocument).toList();
-    }
-    final cells = geohashCellsForRadius(
-      latitude,
-      longitude,
-      _discoveryRadiusKm,
-    );
-    final hashField = cells.first.length == 4 ? 'geoHash4' : 'geoHash3';
-    Future<(List<Match>, bool)> fetch(int limit) async {
-      final snapshots = await Future.wait(
-        cells.map(
-          (cell) => firestore
-              .collection('matches')
-              .where(hashField, isEqualTo: cell)
-              .where('scheduledAt', isGreaterThanOrEqualTo: now)
-              .orderBy('scheduledAt')
-              .limit(limit + 1)
-              .get(),
-        ),
-      );
-      final byId = <String, Match>{};
-      for (final snapshot in snapshots) {
-        for (final document in snapshot.docs.take(limit)) {
-          final match = Match.fromDocument(document);
-          final distance = distanceBetweenKm(
-            fromLatitude: latitude,
-            fromLongitude: longitude,
-            toLatitude: match.location.latitude,
-            toLongitude: match.location.longitude,
-          );
-          if (distance != null && distance <= _discoveryRadiusKm) {
-            byId[match.id] = match;
-          }
-        }
-      }
-      return (
-        sortedMatches(byId.values),
-        snapshots.any((snapshot) => snapshot.docs.length > limit),
-      );
-    }
-
-    var result = await fetch(_discoveryPerCellLimit);
-    if (shouldExpandInitialDiscovery(
-      requestedLimit: _discoveryPerCellLimit,
-      filteredResultCount: result.$1.length,
-      anyCellHasMore: result.$2,
-    )) {
-      result = await fetch(discoveryInitialCellLimit * 2);
-    }
-    return result.$1;
   }
 
   void _reportStreamError(String streamName, AsyncSnapshot<Object?> snapshot) {
@@ -2970,102 +3166,85 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Match>>(
-      future: _discoveryMatches,
-      builder: (context, snapshot) {
-        _reportStreamError('matches', snapshot);
-        final matches = snapshot.data ?? <Match>[];
-        final currentUid = Firebase.apps.isEmpty
-            ? null
-            : FirebaseAuth.instance.currentUser?.uid;
-        if (currentUid == null) {
-          return _buildScaffold(snapshot, matches, const [], const [], '');
-        }
-        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    final discoverySnapshot = AsyncSnapshot<List<Match>>.withData(
+      _discoveryLoading ? ConnectionState.waiting : ConnectionState.active,
+      List<Match>.unmodifiable(_discoveryMatches),
+    );
+    final matches = discoverySnapshot.data ?? <Match>[];
+    final currentUid = Firebase.apps.isEmpty
+        ? null
+        : FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid == null) {
+      return _buildScaffold(
+        discoverySnapshot,
+        matches,
+        const [],
+        const [],
+        '',
+        discoveryError: _discoveryError,
+      );
+    }
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('matches')
+          .where('participantUids', arrayContains: currentUid)
+          .orderBy('scheduledAt', descending: true)
+          .limit(_myMatchLimit)
+          .snapshots(),
+      builder: (context, myMatchSnapshot) {
+        _reportStreamError('user matches', myMatchSnapshot);
+        final myMatches = myMatchSnapshot.hasData
+            ? myMatchSnapshot.data!.docs
+                  .where((doc) => matchIncludesPlayer(doc.data(), currentUid))
+                  .map(Match.fromDocument)
+                  .toList()
+            : <Match>[];
+        return StreamBuilder<List<Match>>(
           stream: FirebaseFirestore.instance
-              .collection('matches')
-              .where('participantUids', arrayContains: currentUid)
-              .orderBy('scheduledAt', descending: true)
-              .limit(_myMatchLimit)
-              .snapshots(),
-          builder: (context, myMatchSnapshot) {
-            _reportStreamError('user matches', myMatchSnapshot);
-            final myMatches = myMatchSnapshot.hasData
-                ? myMatchSnapshot.data!.docs
-                      .where(
-                        (doc) => matchIncludesPlayer(doc.data(), currentUid),
-                      )
-                      .map(Match.fromDocument)
-                      .toList()
-                : <Match>[];
-            return StreamBuilder<List<Match>>(
+              .collectionGroup('joinRequests')
+              .where('userId', isEqualTo: currentUid)
+              .where('status', isEqualTo: 'pending')
+              .orderBy('requestedAt', descending: true)
+              .limit(50)
+              .snapshots()
+              .asyncExpand(_watchPendingMatchDocuments),
+          builder: (context, requestSnapshot) {
+            _reportStreamError('current-user joinRequests', requestSnapshot);
+            final pendingMatches = requestSnapshot.data ?? <Match>[];
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
-                  .collectionGroup('joinRequests')
-                  .where('userId', isEqualTo: currentUid)
-                  .where('status', isEqualTo: 'pending')
-                  .orderBy('requestedAt', descending: true)
-                  .limit(50)
-                  .snapshots()
-                  .asyncMap((requestSnapshot) async {
-                    final ids = requestSnapshot.docs
-                        .map(JoinRequest.fromDocument)
-                        .map((request) => request.matchId)
-                        .where((id) => id.isNotEmpty)
-                        .toSet();
-                    final documents = await Future.wait(
-                      ids.map(
-                        (id) => FirebaseFirestore.instance
-                            .collection('matches')
-                            .doc(id)
-                            .get(),
-                      ),
-                    );
-                    return documents
-                        .where((document) => document.exists)
-                        .map(Match.fromDocument)
-                        .toList();
-                  }),
-              builder: (context, requestSnapshot) {
-                _reportStreamError(
-                  'current-user joinRequests',
-                  requestSnapshot,
-                );
-                final pendingMatches = requestSnapshot.data ?? <Match>[];
-                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('notifications')
-                      .where('recipientUid', isEqualTo: currentUid)
-                      .orderBy('createdAt', descending: true)
-                      .limit(_notificationLimit)
-                      .snapshots(),
-                  builder: (context, notificationSnapshot) {
-                    _reportStreamError('notifications', notificationSnapshot);
-                    final notifications = notificationSnapshot.hasData
-                        ? notificationSnapshot.data!.docs
-                              .map(AppNotification.fromDocument)
-                              .toList()
-                        : <AppNotification>[];
-                    return _buildScaffold(
-                      snapshot,
-                      matches,
-                      myMatches,
-                      pendingMatches,
-                      currentUid,
-                      requestsError: requestSnapshot.hasError,
-                      hasMoreMyMatches:
-                          myMatchSnapshot.hasData &&
-                          myMatchSnapshot.data!.docs.length == _myMatchLimit,
-                      notifications: notifications,
-                      notificationsLoading:
-                          notificationSnapshot.connectionState ==
-                          ConnectionState.waiting,
-                      notificationsError: notificationSnapshot.hasError,
-                      hasMoreNotifications:
-                          notificationSnapshot.hasData &&
-                          notificationSnapshot.data!.docs.length ==
-                              _notificationLimit,
-                    );
-                  },
+                  .collection('notifications')
+                  .where('recipientUid', isEqualTo: currentUid)
+                  .orderBy('createdAt', descending: true)
+                  .limit(_notificationLimit)
+                  .snapshots(),
+              builder: (context, notificationSnapshot) {
+                _reportStreamError('notifications', notificationSnapshot);
+                final notifications = notificationSnapshot.hasData
+                    ? notificationSnapshot.data!.docs
+                          .map(AppNotification.fromDocument)
+                          .toList()
+                    : <AppNotification>[];
+                return _buildScaffold(
+                  discoverySnapshot,
+                  matches,
+                  myMatches,
+                  pendingMatches,
+                  currentUid,
+                  discoveryError: _discoveryError,
+                  requestsError: requestSnapshot.hasError,
+                  hasMoreMyMatches:
+                      myMatchSnapshot.hasData &&
+                      myMatchSnapshot.data!.docs.length == _myMatchLimit,
+                  notifications: notifications,
+                  notificationsLoading:
+                      notificationSnapshot.connectionState ==
+                      ConnectionState.waiting,
+                  notificationsError: notificationSnapshot.hasError,
+                  hasMoreNotifications:
+                      notificationSnapshot.hasData &&
+                      notificationSnapshot.data!.docs.length ==
+                          _notificationLimit,
                 );
               },
             );
@@ -3081,6 +3260,7 @@ class _HomeScreenState extends State<HomeScreen> {
     List<Match> myMatches,
     List<Match> pendingMatches,
     String currentUid, {
+    bool discoveryError = false,
     bool requestsError = false,
     bool hasMoreMyMatches = false,
     List<AppNotification> notifications = const [],
@@ -3106,7 +3286,7 @@ class _HomeScreenState extends State<HomeScreen> {
         matches: openMatches,
         preferredLocation: widget.profile?.discoveryLocation,
         isLoading: snapshot.connectionState == ConnectionState.waiting,
-        error: snapshot.hasError,
+        error: discoveryError,
         playedWithPreview: currentUid.isEmpty
             ? null
             : PlayedWithPreview(
@@ -3128,7 +3308,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onDiscoveryQueryChanged: _changeDiscovery,
           onLoadMoreNearby: _loadMoreDiscovery,
           isLoading: snapshot.connectionState == ConnectionState.waiting,
-          error: snapshot.hasError,
+          error: discoveryError,
         ),
         mine: MyMatchesTab(
           matches: myMatches,
@@ -3138,7 +3318,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onFindMatch: () => _onItemTapped(1),
           onCreateMatch: _openCreateMatchScreen,
           isLoading: snapshot.connectionState == ConnectionState.waiting,
-          error: snapshot.hasError || requestsError,
+          error: discoveryError || requestsError,
           hasMore: hasMoreMyMatches,
           onLoadMore: () => setState(() => _myMatchLimit += 100),
         ),
@@ -3221,6 +3401,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (context) => MatchDetailsScreen(
                   match: resolvedMatch,
                   onMatchUpdated: _waitForIndexAndRefresh,
+                  onMatchDeleted: _handleMatchDeleted,
                 ),
               ),
             );
@@ -4208,11 +4389,17 @@ class MatchCard extends StatelessWidget {
           final refresh = context
               .findAncestorStateOfType<_HomeScreenState>()
               ?._waitForIndexAndRefresh;
+          final removeDeleted = context
+              .findAncestorStateOfType<_HomeScreenState>()
+              ?._handleMatchDeleted;
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) =>
-                  MatchDetailsScreen(match: match, onMatchUpdated: refresh),
+              builder: (context) => MatchDetailsScreen(
+                match: match,
+                onMatchUpdated: refresh,
+                onMatchDeleted: removeDeleted,
+              ),
             ),
           );
         },
@@ -7052,11 +7239,13 @@ class _InlineLoadError extends StatelessWidget {
 class MatchDetailsScreen extends StatefulWidget {
   final Match match;
   final Future<void> Function(MatchMutationResult)? onMatchUpdated;
+  final ValueChanged<String>? onMatchDeleted;
 
   const MatchDetailsScreen({
     super.key,
     required this.match,
     this.onMatchUpdated,
+    this.onMatchDeleted,
   });
 
   @override
@@ -7515,6 +7704,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       });
 
       if (!mounted) return;
+      widget.onMatchDeleted?.call(widget.match.id);
       final messenger = ScaffoldMessenger.of(context);
       Navigator.pop(context);
       messenger.showSnackBar(const SnackBar(content: Text('Match cancelled.')));

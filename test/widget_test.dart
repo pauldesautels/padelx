@@ -903,6 +903,68 @@ void main() {
     expect(find.text('Completed'), findsOneWidget);
   });
 
+  testWidgets(
+    'mounted My Matches reflects deletion approval and participant leave',
+    (tester) async {
+      final now = DateTime.utc(2026, 8, 28, 12);
+      Match live({
+        required String id,
+        required String creator,
+        List<MatchPlayer> players = const [],
+      }) => Match(
+        id: id,
+        title: id,
+        club: '$id Club',
+        level: '2',
+        spotsLeft: 2,
+        creatorUid: creator,
+        creatorEmail: '',
+        players: players,
+        scheduledAt: now.add(const Duration(days: 1)),
+      );
+      final organizer = live(id: 'organizer', creator: 'me');
+      final joined = live(
+        id: 'joined',
+        creator: 'other',
+        players: const [MatchPlayer(uid: 'me', email: '')],
+      );
+
+      Future<void> show(List<Match> matches) => tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MyMatchesTab(
+              matches: matches,
+              currentUid: 'me',
+              isLoading: false,
+              error: false,
+              nowProvider: () => now,
+            ),
+          ),
+        ),
+      );
+
+      await show([organizer, joined]);
+      expect(find.text('organizer Club'), findsOneWidget);
+      expect(find.text('joined Club'), findsOneWidget);
+
+      await show([joined]);
+      expect(find.text('organizer Club'), findsNothing);
+      expect(find.text('joined Club'), findsOneWidget);
+
+      await show(const []);
+      expect(find.text('joined Club'), findsNothing);
+
+      final approved = live(
+        id: 'approved',
+        creator: 'other',
+        players: const [MatchPlayer(uid: 'me', email: '')],
+      );
+      await show([approved]);
+      expect(find.text('approved Club'), findsOneWidget);
+      expect(find.text('Joined'), findsOneWidget);
+    },
+  );
+
   testWidgets('my matches classifies and sorts around a deterministic clock', (
     tester,
   ) async {

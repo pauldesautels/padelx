@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/discovery_refresh.dart';
+import 'package:padelx/geohash.dart';
 import 'package:padelx/location.dart';
 import 'package:padelx/main.dart';
 import 'package:padelx/places_autocomplete.dart';
@@ -20,6 +21,35 @@ const result = MatchMutationResult('new-match', location);
 const indexed = {'geoHash3': '9g3', 'geoHash4': '9g3w'};
 
 void main() {
+  test('geohash discovery merge deduplicates by match ID and sorts', () {
+    final now = DateTime.now();
+    Match match(String id, int hours, String level) => Match(
+      id: id,
+      title: id,
+      club: id,
+      level: level,
+      spotsLeft: 2,
+      creatorUid: 'owner',
+      creatorEmail: '',
+      players: const [],
+      location: location,
+      scheduledAt: now.add(Duration(hours: hours)),
+    );
+    final first = match('same', 3, '2');
+    final replacement = match('same', 2, '3');
+    final earlier = match('earlier', 1, '2');
+
+    final merged = mergeDiscoveryMatchGroups([
+      [first],
+      [replacement, earlier],
+    ]);
+    expect(merged.map((match) => match.id), ['earlier', 'same']);
+    expect(merged.last.level, '3');
+    expect(discoveryWithoutMatch(merged, 'same').map((match) => match.id), [
+      'earlier',
+    ]);
+  });
+
   testWidgets(
     'Home and Matches share completed discovery across tab switches and refresh',
     (tester) async {
@@ -416,5 +446,138 @@ void main() {
       isTrue,
     );
     expect(reads, 2);
+  });
+
+  testWidgets('live Discover updates edits and removes deleted matches', (
+    tester,
+  ) async {
+    var listens = 0;
+    var cancellations = 0;
+    final stream = StreamController<List<Match>>.broadcast(
+      onListen: () => listens++,
+      onCancel: () => cancellations++,
+    );
+    Match match(String level) => Match(
+      id: 'live',
+      title: 'Live match',
+      club: 'Live Club',
+      level: level,
+      spotsLeft: 2,
+      creatorUid: 'owner',
+      creatorEmail: '',
+      players: const [],
+      location: location,
+      scheduledAt: DateTime.now().add(const Duration(days: 1)),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(discoveryStreamLoader: (_, _, _) => stream.stream),
+      ),
+    );
+    expect(listens, 1);
+    stream.add([match('2')]);
+    await tester.pumpAndSettle();
+    expect(find.text('Live Club'), findsOneWidget);
+    expect(find.text('Level 2'), findsWidgets);
+
+    stream.add([match('3')]);
+    await tester.pumpAndSettle();
+    expect(find.text('Level 3'), findsWidgets);
+
+    stream.add(const []);
+    await tester.pumpAndSettle();
+    expect(find.text('Live Club'), findsNothing);
+    expect(listens, 1);
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pumpAndSettle();
+    expect(cancellations, 1);
+    unawaited(stream.close());
+  });
+
+  testWidgets('Discover replaces its listener when query inputs change', (
+    tester,
+  ) async {
+    final controllers = <StreamController<List<Match>>>[];
+    final cancellations = <int>[];
+    final limits = <int>[];
+    Stream<List<Match>> loader(
+      MatchLocation? selected,
+      double radius,
+      int limit,
+    ) {
+      limits.add(limit);
+      final index = controllers.length;
+      cancellations.add(0);
+      final controller = StreamController<List<Match>>.broadcast(
+        onCancel: () => cancellations[index]++,
+      );
+      controllers.add(controller);
+      return controller.stream;
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(home: HomeScreen(discoveryStreamLoader: loader)),
+    );
+    controllers.single.add(const []);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Matches').last);
+    await tester.pumpAndSettle();
+    tester.widget<MatchesTab>(find.byType(MatchesTab)).onDiscoveryQueryChanged!(
+      location,
+      10,
+    );
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(controllers, hasLength(2));
+    expect(cancellations.first, 1);
+
+    controllers.last.add(const []);
+    await tester.pumpAndSettle();
+    tester.widget<MatchesTab>(find.byType(MatchesTab)).onLoadMoreNearby!();
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(controllers, hasLength(3));
+    expect(cancellations[1], 1);
+    expect(limits, [discoveryInitialCellLimit, discoveryInitialCellLimit, 20]);
+
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pumpAndSettle();
+    expect(cancellations.last, 1);
+    for (final controller in controllers) {
+      unawaited(controller.close());
+    }
+  });
+
+  testWidgets('Discover listener failure preserves its last successful rows', (
+    tester,
+  ) async {
+    final controller = StreamController<List<Match>>.broadcast();
+    final match = Match(
+      id: 'retained',
+      title: 'Retained',
+      club: 'Retained Club',
+      level: '2',
+      spotsLeft: 2,
+      creatorUid: 'owner',
+      creatorEmail: '',
+      players: const [],
+      location: location,
+      scheduledAt: DateTime.now().add(const Duration(days: 1)),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(discoveryStreamLoader: (_, _, _) => controller.stream),
+      ),
+    );
+    controller.add([match]);
+    await tester.pumpAndSettle();
+    controller.addError(Exception('listener'));
+    await tester.pumpAndSettle();
+    expect(find.text('Retained Club'), findsOneWidget);
+    expect(find.text('Matches are unavailable right now.'), findsNothing);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    unawaited(controller.close());
   });
 }
