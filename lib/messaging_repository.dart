@@ -29,6 +29,7 @@ class MessagesPage {
 }
 
 abstract class MessagingRepository {
+  Stream<String> watchInboxInvalidations(String currentUid);
   Future<String> ensureDirect(String otherUid);
   Future<({String conversationId, bool canSend, String? disabledReason})>
   ensureMatch(String matchId);
@@ -59,6 +60,33 @@ class FirebaseMessagingRepository implements MessagingRepository {
   ) async => Map<dynamic, dynamic>.from(
     (await functions.httpsCallable(name).call(data)).data as Map,
   );
+
+  String _notificationVersion(Object? value) {
+    if (value is Timestamp) return '${value.seconds}:${value.nanoseconds}';
+    if (value is DateTime) return value.microsecondsSinceEpoch.toString();
+    return value?.toString() ?? '';
+  }
+
+  @override
+  Stream<String> watchInboxInvalidations(String currentUid) => firestore
+      .collection('notifications')
+      .where('recipientUid', isEqualTo: currentUid)
+      .snapshots()
+      .map((snapshot) {
+        final versions =
+            snapshot.docs
+                .where((doc) {
+                  final type = doc.data()['type'];
+                  return type == 'direct_message' || type == 'match_message';
+                })
+                .map(
+                  (doc) =>
+                      '${doc.id}:${_notificationVersion(doc.data()['createdAt'])}',
+                )
+                .toList()
+              ..sort();
+        return versions.join('|');
+      });
 
   @override
   Future<String> ensureDirect(String otherUid) async => (await _call(
