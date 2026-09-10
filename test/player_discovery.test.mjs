@@ -50,6 +50,7 @@ test('suppresses blocks in both directions', async () => {
   await db.doc(`blocks/${blockId('viewer', 'mine')}`).set({ blockerUid: 'viewer', blockedUid: 'mine' });
   await db.doc(`blocks/${blockId('theirs', 'viewer')}`).set({ blockerUid: 'theirs', blockedUid: 'viewer' });
   assert.deepEqual((await discover()).players, []);
+  assert.deepEqual((await discover({ area: 'roma' })).players, []);
 });
 
 test('area, level, side compatibility, and Either-only semantics are explicit', async () => {

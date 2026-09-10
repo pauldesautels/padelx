@@ -1,5 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'area_selector.dart';
 import 'level.dart';
+import 'location.dart';
+import 'places.dart';
 import 'profile_avatar.dart';
 import 'friends_repository.dart';
 import 'friends_screen.dart';
@@ -15,12 +20,22 @@ class PlayersScreen extends StatefulWidget {
   final FriendsRepository friendsRepository;
   final PlayerTap onProfileTap;
   final PlayerPlayAgain? onPlayAgain;
+  final DiscoveryLocation discoveryLocation;
+  final VoidCallback? onEditProfileLocation;
+  final GooglePlacesClient? placesClient;
   const PlayersScreen({
     super.key,
     required this.repository,
     required this.friendsRepository,
     required this.onProfileTap,
     this.onPlayAgain,
+    this.discoveryLocation = const DiscoveryLocation(
+      country: '',
+      countryCode: '',
+      city: '',
+    ),
+    this.onEditProfileLocation,
+    this.placesClient,
   });
   @override
   State<PlayersScreen> createState() => _PlayersScreenState();
@@ -31,14 +46,31 @@ class _PlayersScreenState extends State<PlayersScreen> {
   var filters = const PlayerDiscoveryFilters();
   Object? cursor, error;
   bool loading = false, hasMore = true, noLocation = false;
+  Timer? _filterTimer;
+  int _filterGeneration = 0;
+  bool _queuedFilterLoad = false;
+  DateTime? _lastRequestStarted;
   @override
   void initState() {
     super.initState();
     _load();
   }
 
+  @override
+  void dispose() {
+    _filterTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _load({bool reset = false}) async {
-    if (loading || (!hasMore && !reset)) return;
+    if (loading) {
+      if (reset) _queuedFilterLoad = true;
+      return;
+    }
+    if (!hasMore && !reset) return;
+    final requestedFilters = filters;
+    final requestedGeneration = _filterGeneration;
+    _lastRequestStarted = DateTime.now();
     setState(() {
       loading = true;
       error = null;
@@ -51,6 +83,11 @@ class _PlayersScreenState extends State<PlayersScreen> {
     try {
       final page = await widget.repository.discover(filters, cursor: cursor);
       if (!mounted) return;
+      if (requestedGeneration != _filterGeneration ||
+          requestedFilters != filters) {
+        _queuedFilterLoad = true;
+        return;
+      }
       setState(() {
         players.addAll(page.players);
         cursor = page.cursor;
@@ -58,15 +95,41 @@ class _PlayersScreenState extends State<PlayersScreen> {
         noLocation = page.noLocation;
       });
     } catch (value) {
-      if (mounted) setState(() => error = value);
+      if (mounted && requestedGeneration == _filterGeneration) {
+        setState(() => error = value);
+      }
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted) {
+        setState(() => loading = false);
+        if (_queuedFilterLoad) {
+          _queuedFilterLoad = false;
+          _scheduleFilterLoad();
+        }
+      }
     }
   }
 
   void _setFilters(PlayerDiscoveryFilters value) {
-    filters = value;
-    _load(reset: true);
+    if (value == filters) return;
+    setState(() => filters = value);
+    _filterGeneration += 1;
+    _queuedFilterLoad = true;
+    _scheduleFilterLoad();
+  }
+
+  void _scheduleFilterLoad() {
+    _filterTimer?.cancel();
+    if (loading) return;
+    final elapsed = _lastRequestStarted == null
+        ? const Duration(days: 1)
+        : DateTime.now().difference(_lastRequestStarted!);
+    final delay = elapsed >= const Duration(milliseconds: 800)
+        ? Duration.zero
+        : const Duration(milliseconds: 800) - elapsed;
+    _filterTimer = Timer(delay, () {
+      _queuedFilterLoad = false;
+      _load(reset: true);
+    });
   }
 
   @override
@@ -84,7 +147,32 @@ class _PlayersScreenState extends State<PlayersScreen> {
         style: TextStyle(color: Colors.white70),
       ),
       const SizedBox(height: 16),
-      _Filters(filters: filters, onChanged: _setFilters),
+      if (widget.discoveryLocation.isConfigured) ...[
+        Semantics(
+          header: true,
+          child: Text(
+            'Players in\n${widget.discoveryLocation.city}',
+            key: const Key('players-active-city'),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          ),
+        ),
+        if (widget.onEditProfileLocation != null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: const Key('players-edit-location'),
+              onPressed: widget.onEditProfileLocation,
+              child: const Text('Edit profile location'),
+            ),
+          ),
+        const SizedBox(height: 8),
+      ],
+      _Filters(
+        filters: filters,
+        location: widget.discoveryLocation,
+        placesClient: widget.placesClient,
+        onChanged: _setFilters,
+      ),
       const SizedBox(height: 12),
       if (noLocation)
         const _State(
@@ -138,93 +226,110 @@ class _PlayersScreenState extends State<PlayersScreen> {
 
 class _Filters extends StatelessWidget {
   final PlayerDiscoveryFilters filters;
+  final DiscoveryLocation location;
+  final GooglePlacesClient? placesClient;
   final ValueChanged<PlayerDiscoveryFilters> onChanged;
-  const _Filters({required this.filters, required this.onChanged});
+  const _Filters({
+    required this.filters,
+    required this.location,
+    required this.onChanged,
+    this.placesClient,
+  });
   @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 8,
-    runSpacing: 8,
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      SizedBox(
-        width: 130,
-        child: TextField(
-          key: const Key('players-area-filter'),
-          decoration: const InputDecoration(labelText: 'Area', isDense: true),
-          onSubmitted: (value) => onChanged(
-            PlayerDiscoveryFilters(
-              area: value,
-              level: filters.level,
-              preferredSide: filters.preferredSide,
-              relationship: filters.relationship,
+      AreaSelectorField(
+        key: const Key('players-area-filter'),
+        value: filters.area,
+        location: location,
+        placesClient: placesClient,
+        onChanged: (value) => onChanged(
+          PlayerDiscoveryFilters(
+            area: value,
+            level: filters.level,
+            preferredSide: filters.preferredSide,
+            relationship: filters.relationship,
+          ),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 16,
+        runSpacing: 8,
+        children: [
+          DropdownButton<String>(
+            key: const Key('players-level-filter'),
+            value: filters.level.isEmpty ? 'any' : filters.level,
+            items: ['any', ...padelLevelValues]
+                .map(
+                  (v) => DropdownMenuItem(
+                    value: v,
+                    child: Text(
+                      v == 'any'
+                          ? 'Any level'
+                          : (RegExp(r'^[0-9]').hasMatch(v) ? 'Level $v' : v),
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) => onChanged(
+              PlayerDiscoveryFilters(
+                area: filters.area,
+                level: v == 'any' ? '' : v!,
+                preferredSide: filters.preferredSide,
+                relationship: filters.relationship,
+              ),
             ),
           ),
-        ),
-      ),
-      DropdownButton<String>(
-        value: filters.level.isEmpty ? 'any' : filters.level,
-        items: ['any', ...padelLevelValues]
-            .map(
-              (v) => DropdownMenuItem(
-                value: v,
-                child: Text(
-                  v == 'any'
-                      ? 'Any level'
-                      : (RegExp(r'^[0-9]').hasMatch(v) ? 'Level $v' : v),
-                ),
+          DropdownButton<String>(
+            key: const Key('players-side-filter'),
+            value: filters.preferredSide,
+            items:
+                const {
+                      'any': 'Any side',
+                      'left': 'Left',
+                      'right': 'Right',
+                      'either': 'Either only',
+                    }.entries
+                    .map(
+                      (e) =>
+                          DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    )
+                    .toList(),
+            onChanged: (v) => onChanged(
+              PlayerDiscoveryFilters(
+                area: filters.area,
+                level: filters.level,
+                preferredSide: v!,
+                relationship: filters.relationship,
               ),
-            )
-            .toList(),
-        onChanged: (v) => onChanged(
-          PlayerDiscoveryFilters(
-            area: filters.area,
-            level: v == 'any' ? '' : v!,
-            preferredSide: filters.preferredSide,
-            relationship: filters.relationship,
+            ),
           ),
-        ),
-      ),
-      DropdownButton<String>(
-        value: filters.preferredSide,
-        items:
-            const {
-                  'any': 'Any side',
-                  'left': 'Left',
-                  'right': 'Right',
-                  'either': 'Either only',
-                }.entries
-                .map(
-                  (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
-                )
-                .toList(),
-        onChanged: (v) => onChanged(
-          PlayerDiscoveryFilters(
-            area: filters.area,
-            level: filters.level,
-            preferredSide: v!,
-            relationship: filters.relationship,
+          DropdownButton<PlayerRelationshipFilter>(
+            key: const Key('players-relationship-filter'),
+            value: filters.relationship,
+            items:
+                const {
+                      PlayerRelationshipFilter.all: 'Everyone',
+                      PlayerRelationshipFilter.friends: 'Friends',
+                      PlayerRelationshipFilter.playedWith: 'Played With',
+                    }.entries
+                    .map(
+                      (e) =>
+                          DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    )
+                    .toList(),
+            onChanged: (v) => onChanged(
+              PlayerDiscoveryFilters(
+                area: filters.area,
+                level: filters.level,
+                preferredSide: filters.preferredSide,
+                relationship: v!,
+              ),
+            ),
           ),
-        ),
-      ),
-      DropdownButton<PlayerRelationshipFilter>(
-        value: filters.relationship,
-        items:
-            const {
-                  PlayerRelationshipFilter.all: 'Everyone',
-                  PlayerRelationshipFilter.friends: 'Friends',
-                  PlayerRelationshipFilter.playedWith: 'Played With',
-                }.entries
-                .map(
-                  (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
-                )
-                .toList(),
-        onChanged: (v) => onChanged(
-          PlayerDiscoveryFilters(
-            area: filters.area,
-            level: filters.level,
-            preferredSide: filters.preferredSide,
-            relationship: v!,
-          ),
-        ),
+        ],
       ),
     ],
   );

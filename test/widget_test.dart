@@ -2545,6 +2545,10 @@ class _FakePlacesClient extends GooglePlacesClient {
     String query, {
     required String sessionToken,
     bool citiesOnly = false,
+    bool areasOnly = false,
+    String countryCode = '',
+    double? biasLatitude,
+    double? biasLongitude,
   }) async => const [
     PlacePrediction(
       placeId: 'roma-padel',

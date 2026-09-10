@@ -17,6 +17,14 @@ class PlacePrediction {
   const PlacePrediction({required this.placeId, required this.label});
 }
 
+const areaPlaceTypes = <String>[
+  'neighborhood',
+  'sublocality',
+  'sublocality_level_1',
+  'sublocality_level_2',
+  'sublocality_level_3',
+];
+
 class GooglePlacesClient {
   static const _baseUrl = 'https://places.googleapis.com/v1';
   final String apiKey;
@@ -42,6 +50,10 @@ class GooglePlacesClient {
     String query, {
     required String sessionToken,
     bool citiesOnly = false,
+    bool areasOnly = false,
+    String countryCode = '',
+    double? biasLatitude,
+    double? biasLongitude,
   }) async {
     if (!isConfigured || query.trim().length < 2) return const [];
     final response = await _client.post(
@@ -51,6 +63,16 @@ class GooglePlacesClient {
         'input': query.trim(),
         'sessionToken': sessionToken,
         if (citiesOnly) 'includedPrimaryTypes': ['(cities)'],
+        if (areasOnly) 'includedPrimaryTypes': areaPlaceTypes,
+        if (countryCode.trim().isNotEmpty)
+          'includedRegionCodes': [countryCode.trim().toLowerCase()],
+        if (hasUsableCoordinates(biasLatitude, biasLongitude))
+          'locationBias': {
+            'circle': {
+              'center': {'latitude': biasLatitude, 'longitude': biasLongitude},
+              'radius': 50000.0,
+            },
+          },
       }),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -121,6 +143,16 @@ class GooglePlacesClient {
     );
   }
 }
+
+bool isAreaInDiscoveryLocation(
+  MatchLocation candidate,
+  DiscoveryLocation discoveryLocation,
+) =>
+    candidate.area.trim().isNotEmpty &&
+    candidate.countryCode.trim().toUpperCase() ==
+        discoveryLocation.countryCode.trim().toUpperCase() &&
+    candidate.city.trim().toLowerCase() ==
+        discoveryLocation.city.trim().toLowerCase();
 
 @visibleForTesting
 String safeGooglePlacesErrorSummary(String body, {String apiKey = ''}) {

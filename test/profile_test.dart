@@ -3,7 +3,41 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/main.dart';
+import 'package:padelx/location.dart';
+import 'package:padelx/places.dart';
 import 'package:padelx/social_profile.dart';
+
+class _ProfilePlacesClient extends GooglePlacesClient {
+  _ProfilePlacesClient() : super(apiKey: 'test-key');
+
+  @override
+  Future<List<PlacePrediction>> autocomplete(
+    String query, {
+    required String sessionToken,
+    bool citiesOnly = false,
+    bool areasOnly = false,
+    String countryCode = '',
+    double? biasLatitude,
+    double? biasLongitude,
+  }) async => const [
+    PlacePrediction(placeId: 'new-city', label: 'Guadalajara, Mexico'),
+  ];
+
+  @override
+  Future<MatchLocation> placeDetails(
+    String placeId, {
+    required String sessionToken,
+  }) async => const MatchLocation(
+    clubName: 'Guadalajara',
+    countryCode: 'MX',
+    country: 'Mexico',
+    region: 'Jalisco',
+    city: 'Guadalajara',
+    area: '',
+    latitude: 20.6597,
+    longitude: -103.3496,
+  );
+}
 
 void main() {
   const profile = UserProfile(
@@ -97,6 +131,138 @@ void main() {
     await tester.pump();
     expect(find.text('Choose a level from 1 to 7.'), findsWidgets);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Complete and Edit Profile use a controlled optional Area', (
+    tester,
+  ) async {
+    const locatedProfile = UserProfile(
+      uid: 'player',
+      displayName: 'Player',
+      level: '3',
+      email: '',
+      discoveryLocation: DiscoveryLocation(
+        country: 'Mexico',
+        countryCode: 'MX',
+        city: 'Mexico City',
+        area: 'Legacy Roma',
+      ),
+    );
+    for (final required in [true, false]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ProfileEditorScreen.test(
+            key: UniqueKey(),
+            uid: 'player',
+            profile: locatedProfile,
+            isRequired: required,
+            placesClient: _ProfilePlacesClient(),
+            onSignOut: () {},
+          ),
+        ),
+      );
+      final area = find.byKey(const Key('profile-area-field'));
+      await tester.scrollUntilVisible(
+        area,
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('profile-city-heading')), findsOneWidget);
+      expect(find.text('Change city'), findsOneWidget);
+      expect(find.text('Area / Neighborhood (optional)'), findsOneWidget);
+      expect(area, findsOneWidget);
+      expect(
+        find.widgetWithText(TextField, 'Area / Neighborhood (optional)'),
+        findsNothing,
+      );
+      await tester.tap(area);
+      await tester.pumpAndSettle();
+      expect(find.text('Current area: Legacy Roma'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('area-selector-any')));
+      await tester.pumpAndSettle();
+      expect(find.text('Any area'), findsOneWidget);
+    }
+  });
+
+  testWidgets('Complete Profile identifies city and Area as separate choices', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProfileEditorScreen.test(
+          uid: 'player',
+          displayName: 'Player',
+          isRequired: true,
+          onSignOut: () {},
+          placesClient: _ProfilePlacesClient(),
+        ),
+      ),
+    );
+    final city = find.byKey(const Key('profile-city-selector'));
+    await tester.scrollUntilVisible(
+      city,
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Choose city'), findsOneWidget);
+    expect(find.text('Search cities only'), findsOneWidget);
+
+    final area = find.byKey(const Key('profile-area-field'));
+    await tester.scrollUntilVisible(
+      area,
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Area / Neighborhood (optional)'), findsOneWidget);
+  });
+
+  testWidgets('selecting a different city clears the previous Area', (
+    tester,
+  ) async {
+    const locatedProfile = UserProfile(
+      uid: 'player',
+      displayName: 'Player',
+      level: '3',
+      email: '',
+      discoveryLocation: DiscoveryLocation(
+        country: 'Mexico',
+        countryCode: 'MX',
+        city: 'Mexico City',
+        area: 'Roma',
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProfileEditorScreen.test(
+          uid: 'player',
+          profile: locatedProfile,
+          placesClient: _ProfilePlacesClient(),
+        ),
+      ),
+    );
+    final citySearch = find.byKey(const Key('places-autocomplete-field'));
+    await tester.scrollUntilVisible(
+      citySearch,
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(citySearch, 'Guad');
+    await tester.pump(const Duration(milliseconds: 301));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Guadalajara, Mexico'));
+    await tester.pumpAndSettle();
+    final area = find.byKey(const Key('profile-area-field'));
+    await tester.scrollUntilVisible(
+      area,
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Any area'), findsOneWidget);
+    expect(find.text('Roma'), findsNothing);
   });
 
   testWidgets('private profile shows identity and existing computed stats', (

@@ -12,6 +12,17 @@ class PlayerDiscoveryFilters {
     this.relationship = PlayerRelationshipFilter.all,
   });
 
+  @override
+  bool operator ==(Object other) =>
+      other is PlayerDiscoveryFilters &&
+      area == other.area &&
+      level == other.level &&
+      preferredSide == other.preferredSide &&
+      relationship == other.relationship;
+
+  @override
+  int get hashCode => Object.hash(area, level, preferredSide, relationship);
+
   Map<String, Object> toMap({Object? cursor}) => {
     if (area.trim().isNotEmpty) 'area': area.trim(),
     if (level.trim().isNotEmpty) 'level': level.trim(),

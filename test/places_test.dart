@@ -5,11 +5,101 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:padelx/places.dart';
+import 'package:padelx/location.dart';
 
 const _apiKey = 'test-places-key';
 const _bundleIdentifier = 'com.padelx.app.devicetest';
 
 void main() {
+  test(
+    'Area autocomplete sends types, country restriction, and location bias',
+    () async {
+      late http.Request request;
+      final client = _client(
+        isWeb: true,
+        platform: TargetPlatform.iOS,
+        handler: (value) async {
+          request = value;
+          return http.Response('{"suggestions":[]}', 200);
+        },
+      );
+
+      await client.autocomplete(
+        'Pola',
+        sessionToken: 'area-session',
+        areasOnly: true,
+        countryCode: 'MX',
+        biasLatitude: 19.4326,
+        biasLongitude: -99.1332,
+      );
+
+      expect(jsonDecode(request.body), {
+        'input': 'Pola',
+        'sessionToken': 'area-session',
+        'includedPrimaryTypes': areaPlaceTypes,
+        'includedRegionCodes': ['mx'],
+        'locationBias': {
+          'circle': {
+            'center': {'latitude': 19.4326, 'longitude': -99.1332},
+            'radius': 50000.0,
+          },
+        },
+      });
+    },
+  );
+
+  test(
+    'Area autocomplete omits location bias without valid coordinates',
+    () async {
+      late http.Request request;
+      final client = _client(
+        isWeb: true,
+        platform: TargetPlatform.iOS,
+        handler: (value) async {
+          request = value;
+          return http.Response('{"suggestions":[]}', 200);
+        },
+      );
+      await client.autocomplete(
+        'Roma',
+        sessionToken: 'area-session',
+        areasOnly: true,
+        countryCode: 'MX',
+      );
+      expect(jsonDecode(request.body), isNot(contains('locationBias')));
+    },
+  );
+
+  test('Area validation requires area, country, and city', () {
+    const scope = DiscoveryLocation(
+      country: 'Mexico',
+      countryCode: 'MX',
+      city: 'Mexico City',
+    );
+    MatchLocation candidate({
+      String area = 'Polanco',
+      String countryCode = 'MX',
+      String city = 'Mexico City',
+    }) => MatchLocation(
+      clubName: area,
+      countryCode: countryCode,
+      country: 'Mexico',
+      region: '',
+      city: city,
+      area: area,
+    );
+    expect(isAreaInDiscoveryLocation(candidate(), scope), true);
+    expect(isAreaInDiscoveryLocation(candidate(area: ''), scope), false);
+    expect(
+      isAreaInDiscoveryLocation(candidate(city: 'Guadalajara'), scope),
+      false,
+    );
+    expect(
+      isAreaInDiscoveryLocation(candidate(countryCode: 'US'), scope),
+      false,
+    );
+  });
+
   test(
     'iOS autocomplete sends native identity and preserves behavior',
     () async {

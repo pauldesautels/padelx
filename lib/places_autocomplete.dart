@@ -9,9 +9,14 @@ class PlacesAutocompleteField extends StatefulWidget {
   final String labelText;
   final String hintText;
   final bool citiesOnly;
+  final bool areasOnly;
   final bool enabled;
   final GooglePlacesClient? client;
   final String initialText;
+  final String countryCode;
+  final double? biasLatitude;
+  final double? biasLongitude;
+  final String? emptyMessage;
   final ValueChanged<MatchLocation> onSelected;
 
   const PlacesAutocompleteField({
@@ -20,9 +25,14 @@ class PlacesAutocompleteField extends StatefulWidget {
     required this.hintText,
     required this.onSelected,
     this.citiesOnly = false,
+    this.areasOnly = false,
     this.enabled = true,
     this.client,
     this.initialText = '',
+    this.countryCode = '',
+    this.biasLatitude,
+    this.biasLongitude,
+    this.emptyMessage,
   });
 
   @override
@@ -87,6 +97,10 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
           value,
           sessionToken: _sessionToken,
           citiesOnly: widget.citiesOnly,
+          areasOnly: widget.areasOnly,
+          countryCode: widget.countryCode,
+          biasLatitude: widget.biasLatitude,
+          biasLongitude: widget.biasLongitude,
         );
         if (!mounted || request != _requestNumber) return;
         setState(() => _predictions = results);
@@ -193,6 +207,18 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
                     ),
                   )
                   .toList(),
+            ),
+          ),
+        if (!_loading &&
+            _error == null &&
+            _predictions.isEmpty &&
+            _controller.text.trim().length >= 2 &&
+            widget.emptyMessage != null)
+          Semantics(
+            liveRegion: true,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(widget.emptyMessage!),
             ),
           ),
       ],

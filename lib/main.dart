@@ -9,6 +9,7 @@ import 'current_location.dart';
 import 'location.dart';
 import 'places.dart';
 import 'places_autocomplete.dart';
+import 'area_selector.dart';
 import 'played_with.dart';
 import 'played_with_repository.dart';
 import 'played_with_screen.dart';
@@ -3378,6 +3379,23 @@ class _HomeScreenState extends State<HomeScreen> {
           : PlayersScreen(
               repository: FirebasePlayerDiscoveryRepository(),
               friendsRepository: _friendsRepository,
+              discoveryLocation:
+                  widget.profile?.discoveryLocation ??
+                  const DiscoveryLocation(
+                    country: '',
+                    countryCode: '',
+                    city: '',
+                  ),
+              onEditProfileLocation: FirebaseAuth.instance.currentUser == null
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ProfileEditorScreen(
+                          user: FirebaseAuth.instance.currentUser!,
+                          profile: widget.profile,
+                        ),
+                      ),
+                    ),
               onProfileTap: (context, player) => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => PlayerProfileScreen(
@@ -5351,6 +5369,7 @@ class ProfileEditorScreen extends StatefulWidget {
   final String _testEmail;
   final String _testDisplayName;
   final VoidCallback? onSignOut;
+  final GooglePlacesClient? placesClient;
 
   const ProfileEditorScreen({
     super.key,
@@ -5358,6 +5377,7 @@ class ProfileEditorScreen extends StatefulWidget {
     this.profile,
     this.isRequired = false,
     this.onSignOut,
+    this.placesClient,
   }) : _testUid = '',
        _testEmail = '',
        _testDisplayName = '';
@@ -5371,6 +5391,7 @@ class ProfileEditorScreen extends StatefulWidget {
     this.profile,
     this.isRequired = false,
     this.onSignOut,
+    this.placesClient,
   }) : user = null,
        _testUid = uid,
        _testEmail = email,
@@ -5401,6 +5422,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   String? _level;
   String? _legacyLevel;
   String? _levelError;
+
+  bool get _placesConfigured =>
+      widget.placesClient?.isConfigured ?? googlePlacesApiKey.isNotEmpty;
 
   @override
   void initState() {
@@ -5703,75 +5727,109 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          PlacesAutocompleteField(
-            labelText: 'Search for your city',
-            hintText: 'Start typing a city',
-            citiesOnly: true,
-            enabled: !_isSaving,
-            onSelected: (location) => setState(() {
-              _discoveryCountryController.text = location.country;
-              _discoveryCountryCodeController.text = location.countryCode;
-              _discoveryCityController.text = location.city;
-              _discoveryAreaController.text = location.area;
-              _discoveryLatitude = location.latitude;
-              _discoveryLongitude = location.longitude;
-            }),
+          const Text(
+            'City',
+            key: Key('profile-city-heading'),
+            style: TextStyle(fontWeight: FontWeight.w600),
           ),
-          if (googlePlacesApiKey.isNotEmpty) const SizedBox(height: 12),
-          TextField(
-            controller: _discoveryCountryController,
-            enabled: !_isSaving,
-            onChanged: (_) {
-              _discoveryLatitude = null;
-              _discoveryLongitude = null;
-            },
-            decoration: const InputDecoration(
-              labelText: 'Country',
-              border: OutlineInputBorder(),
+          const SizedBox(height: 8),
+          if (_placesConfigured)
+            PlacesAutocompleteField(
+              key: const Key('profile-city-selector'),
+              labelText: _discoveryCityController.text.trim().isEmpty
+                  ? 'Choose city'
+                  : 'Change city',
+              hintText: 'Search cities only',
+              initialText: _discoveryCityController.text,
+              citiesOnly: true,
+              enabled: !_isSaving,
+              client: widget.placesClient,
+              onSelected: (location) => setState(() {
+                final sameCity =
+                    _discoveryCountryCodeController.text.trim().toUpperCase() ==
+                        location.countryCode.trim().toUpperCase() &&
+                    _discoveryCityController.text.trim().toLowerCase() ==
+                        location.city.trim().toLowerCase();
+                _discoveryCountryController.text = location.country;
+                _discoveryCountryCodeController.text = location.countryCode;
+                _discoveryCityController.text = location.city;
+                if (!sameCity) _discoveryAreaController.clear();
+                _discoveryLatitude = location.latitude;
+                _discoveryLongitude = location.longitude;
+              }),
+            )
+          else ...[
+            const Text(
+              'City suggestions are unavailable. Enter your city details below; Area can remain blank.',
+              key: Key('profile-city-fallback-message'),
             ),
-          ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _discoveryCountryController,
+              enabled: !_isSaving,
+              onChanged: (_) => setState(() {
+                _discoveryAreaController.clear();
+                _discoveryLatitude = null;
+                _discoveryLongitude = null;
+              }),
+              decoration: const InputDecoration(
+                labelText: 'Country',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _discoveryCountryCodeController,
+              enabled: !_isSaving,
+              onChanged: (_) => setState(() {
+                _discoveryAreaController.clear();
+                _discoveryLatitude = null;
+                _discoveryLongitude = null;
+              }),
+              textCapitalization: TextCapitalization.characters,
+              maxLength: 2,
+              decoration: const InputDecoration(
+                labelText: 'ISO country code',
+                hintText: 'ES',
+                counterText: '',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _discoveryCityController,
+              enabled: !_isSaving,
+              onChanged: (_) => setState(() {
+                _discoveryAreaController.clear();
+                _discoveryLatitude = null;
+                _discoveryLongitude = null;
+              }),
+              decoration: const InputDecoration(
+                labelText: 'City',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
-          TextField(
-            controller: _discoveryCountryCodeController,
-            enabled: !_isSaving,
-            onChanged: (_) {
-              _discoveryLatitude = null;
-              _discoveryLongitude = null;
-            },
-            textCapitalization: TextCapitalization.characters,
-            maxLength: 2,
-            decoration: const InputDecoration(
-              labelText: 'ISO country code',
-              hintText: 'ES',
-              counterText: '',
-              border: OutlineInputBorder(),
+          AreaSelectorField(
+            key: const Key('profile-area-field'),
+            value: _discoveryAreaController.text,
+            location: DiscoveryLocation(
+              country: _discoveryCountryController.text,
+              countryCode: _discoveryCountryCodeController.text,
+              city: _discoveryCityController.text,
+              area: _discoveryAreaController.text,
+              latitude: _discoveryLatitude,
+              longitude: _discoveryLongitude,
             ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _discoveryCityController,
+            placesClient: widget.placesClient,
             enabled: !_isSaving,
-            onChanged: (_) {
-              _discoveryLatitude = null;
-              _discoveryLongitude = null;
-            },
-            decoration: const InputDecoration(
-              labelText: 'City',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _discoveryAreaController,
-            enabled: !_isSaving,
-            onChanged: (_) {
-              _discoveryLatitude = null;
-              _discoveryLongitude = null;
-            },
-            decoration: const InputDecoration(
-              labelText: 'Area / Neighborhood (optional)',
-              border: OutlineInputBorder(),
-            ),
+            labelText: 'Area / Neighborhood (optional)',
+            helperText: _discoveryAreaController.text.trim().isEmpty
+                ? 'Optional neighborhood within your city'
+                : 'Current area; clear or replace it with a search result',
+            onChanged: (value) =>
+                setState(() => _discoveryAreaController.text = value),
           ),
           const SizedBox(height: 8),
           FilledButton(

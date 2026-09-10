@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/friends.dart';
 import 'package:padelx/friends_repository.dart';
 import 'package:padelx/level.dart';
+import 'package:padelx/location.dart';
 import 'package:padelx/player_discovery.dart';
 import 'package:padelx/player_discovery_repository.dart';
 import 'package:padelx/players_screen.dart';
@@ -23,6 +26,22 @@ class FakeDiscovery implements PlayerDiscoveryRepository {
     PlayerDiscoveryFilters filters, {
     Object? cursor,
   }) async => const PlayerDiscoveryPage();
+}
+
+class PendingDiscovery implements PlayerDiscoveryRepository {
+  final calls = <PlayerDiscoveryFilters>[];
+  final completions = <Completer<PlayerDiscoveryPage>>[];
+
+  @override
+  Future<PlayerDiscoveryPage> discover(
+    PlayerDiscoveryFilters filters, {
+    Object? cursor,
+  }) {
+    calls.add(filters);
+    final completion = Completer<PlayerDiscoveryPage>();
+    completions.add(completion);
+    return completion.future;
+  }
 }
 
 void main() {
@@ -56,6 +75,78 @@ void main() {
       'any',
       ...padelLevelValues,
     ]);
+  });
+  testWidgets('shows city scope and remains overflow-free at mobile width', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlayersScreen(
+            repository: FakeDiscovery(),
+            friendsRepository: FakeFriends(),
+            discoveryLocation: const DiscoveryLocation(
+              country: 'Mexico',
+              countryCode: 'MX',
+              city: 'Mexico City',
+            ),
+            onProfileTap: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Players in\nMexico City'), findsOneWidget);
+    expect(find.text('Any area'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('filter change during a request wins and resets pagination', (
+    tester,
+  ) async {
+    final repository = PendingDiscovery();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlayersScreen(
+            repository: repository,
+            friendsRepository: FakeFriends(),
+            discoveryLocation: const DiscoveryLocation(
+              country: 'Mexico',
+              countryCode: 'MX',
+              city: 'Mexico City',
+            ),
+            onProfileTap: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    expect(repository.calls, hasLength(1));
+    await tester.tap(find.byKey(const Key('players-level-filter')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Level 2').last);
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('players-side-filter')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Left').last);
+    await tester.pump();
+
+    repository.completions.first.complete(
+      const PlayerDiscoveryPage(players: [player], hasMore: true),
+    );
+    await tester.pump();
+    expect(find.text('Pat'), findsNothing);
+    await tester.pump(const Duration(milliseconds: 801));
+    expect(repository.calls, hasLength(2));
+    expect(repository.calls.last.level, '2');
+    expect(repository.calls.last.preferredSide, 'left');
+    repository.completions.last.complete(
+      const PlayerDiscoveryPage(players: [player]),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Pat'), findsOneWidget);
   });
   testWidgets('player card shows public context and safe actions without Message', (tester) async {
     var opened = false; var replayed = false;
