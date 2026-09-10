@@ -18,6 +18,10 @@ class FriendsPage {
 }
 
 abstract class FriendsRepository {
+  Future<BlockedPlayersPage> loadBlockedPlayers({
+    Object? cursor,
+    int pageSize = 20,
+  });
   Stream<void> watchFriendViews(String viewerUid);
   Future<FriendsPage> loadPage(
     String viewerUid, {
@@ -46,6 +50,29 @@ class FirebaseFriendsRepository implements FriendsRepository {
 
   Future<void> _call(String name, Map<String, Object> data) async {
     await functions.httpsCallable(name).call(data);
+  }
+
+  @override
+  Future<BlockedPlayersPage> loadBlockedPlayers({
+    Object? cursor,
+    int pageSize = 20,
+  }) async {
+    final response = await functions.httpsCallable('listBlockedPlayers').call({
+      'limit': pageSize,
+      if (cursor is String) 'cursor': cursor,
+    });
+    final data = Map<dynamic, dynamic>.from(response.data as Map);
+    return BlockedPlayersPage(
+      players: (data['players'] as List? ?? const [])
+          .map(
+            (item) =>
+                BlockedPlayer.fromMap(Map<dynamic, dynamic>.from(item as Map)),
+          )
+          .where((player) => player.uid.isNotEmpty)
+          .toList(),
+      cursor: data['cursor'],
+      hasMore: data['hasMore'] == true,
+    );
   }
 
   @override

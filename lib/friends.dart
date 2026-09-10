@@ -66,3 +66,46 @@ class FriendView {
         acceptedAt: friendDate(data['acceptedAt']),
       );
 }
+
+class BlockedPlayer {
+  final String uid;
+  final String displayName;
+  final String level;
+  final int avatarVersion;
+  final DateTime? blockedAt;
+  final bool unavailable;
+
+  const BlockedPlayer({
+    required this.uid,
+    required this.displayName,
+    this.level = '',
+    this.avatarVersion = 0,
+    this.blockedAt,
+    this.unavailable = false,
+  });
+
+  factory BlockedPlayer.fromMap(Map<dynamic, dynamic> data) => BlockedPlayer(
+    uid: data['blockedUid']?.toString() ?? '',
+    displayName: data['displayName']?.toString().trim().isNotEmpty == true
+        ? data['displayName'].toString().trim()
+        : 'Unavailable player',
+    level: data['level']?.toString().trim() ?? '',
+    avatarVersion: data['avatarVersion'] is num
+        ? (data['avatarVersion'] as num).toInt()
+        : 0,
+    blockedAt: friendDate(data['blockedAt']),
+    unavailable: data['unavailable'] == true,
+  );
+}
+
+class BlockedPlayersPage {
+  final List<BlockedPlayer> players;
+  final Object? cursor;
+  final bool hasMore;
+
+  const BlockedPlayersPage({
+    this.players = const [],
+    this.cursor,
+    this.hasMore = false,
+  });
+}

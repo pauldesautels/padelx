@@ -25,6 +25,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { encodeGeohash } from '../functions/aggregate_helpers.js';
 import { friendshipId, blockId } from '../functions/friendship_policy.js';
 import { directConversationId } from '../functions/messaging_policy.js';
+import { blockPlayerOperation, listBlockedPlayersOperation } from '../functions/blocks.js';
 import { ensureDirectConversationOperation, ensureMatchConversationOperation,
   listMessagesOperation, markConversationReadOperation, sendMessageOperation } from '../functions/messaging.js';
 
@@ -317,6 +318,24 @@ test('Auth emulator and shared active-account authorization', async () => {
   await assert.rejects(requireActiveAccount(getFirestore(), request), /deletion is in progress/);
   await assert.rejects(requireActiveAccount(getFirestore(), { auth: { uid: 'unverified', token: {} } }), /Verified email/);
   await getAuth().deleteUser(user.uid);
+});
+
+test('blocked-player callable operation returns only viewer-authored public identity', async () => {
+  const firestore = getFirestore();
+  for (const uid of ['block-owner', 'block-target', 'other-owner']) {
+    await seed(`users/${uid}`, profile(uid));
+    await seed(`publicProfiles/${uid}`, profile(uid, {
+      email: `${uid}@private.example`,
+      avatarVersion: 3,
+    }));
+  }
+  await blockPlayerOperation(firestore, callable('block-owner', { targetUid: 'block-target' }));
+  await blockPlayerOperation(firestore, callable('other-owner', { targetUid: 'block-owner' }));
+  const result = await listBlockedPlayersOperation(firestore, callable('block-owner', { limit: 20 }));
+  assert.equal(result.players.length, 1);
+  assert.equal(result.players[0].blockedUid, 'block-target');
+  assert.equal(result.players[0].avatarVersion, 3);
+  assert.equal(result.players[0].email, undefined);
 });
 
 test('rater barrier removes only its contribution and absent targets stay absent', async () => {

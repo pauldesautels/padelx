@@ -4,7 +4,7 @@ import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { requestFriendOperation, respondToFriendRequestOperation,
   cancelFriendRequestOperation, removeFriendOperation } from '../functions/friendship.js';
-import { blockPlayerOperation, unblockPlayerOperation } from '../functions/blocks.js';
+import { blockPlayerOperation, listBlockedPlayersOperation, unblockPlayerOperation } from '../functions/blocks.js';
 import { friendshipId, blockId, getRelationshipPoliciesOperation } from '../functions/friendship_policy.js';
 
 const projectId = 'demo-padelx-friends';
@@ -68,6 +68,40 @@ test('blocking removes relationships, is replay-safe, prevents both directions, 
   assert.equal((await unblockPlayerOperation(db, request('a', { targetUid: 'b' }))).changed, true);
   assert.equal(await data(`friendships/${friendshipId('a', 'b')}`), undefined);
   assert.equal((await unblockPlayerOperation(db, request('a', { targetUid: 'b' }))).changed, false);
+});
+
+test('blocked-player listing is owner-scoped, bounded, deterministic, and public-only', async () => {
+  await db.doc('publicProfiles/b').set({ uid: 'b', displayName: 'Bee', level: '4', avatarVersion: 2,
+    email: 'private@example.com' });
+  await blockPlayerOperation(db, request('a', { targetUid: 'b' }));
+  await blockPlayerOperation(db, request('a', { targetUid: 'c' }));
+  await blockPlayerOperation(db, request('b', { targetUid: 'c' }));
+
+  const first = await listBlockedPlayersOperation(db, request('a', { limit: 1 }));
+  assert.equal(first.players.length, 1); assert.equal(first.hasMore, true);
+  assert.ok(first.cursor); assert.deepEqual(Object.keys(first.players[0]).sort(),
+    ['avatarVersion', 'blockedAt', 'blockedUid', 'displayName', 'level', 'unavailable']);
+  assert.equal(first.players[0].email, undefined);
+  const second = await listBlockedPlayersOperation(db, request('a', { limit: 1, cursor: first.cursor }));
+  assert.equal(second.players.length, 1); assert.notEqual(second.players[0].blockedUid, first.players[0].blockedUid);
+  assert.equal(second.hasMore, false);
+  assert.deepEqual(new Set([...first.players, ...second.players].map((player) => player.blockedUid)), new Set(['b', 'c']));
+});
+
+test('blocked-player listing validates input and returns unavailable fallback', async () => {
+  await blockPlayerOperation(db, request('a', { targetUid: 'b' }));
+  await db.doc('publicProfiles/b').delete();
+  const page = await listBlockedPlayersOperation(db, request('a', {}));
+  assert.equal(page.players[0].displayName, 'Unavailable player');
+  assert.equal(page.players[0].unavailable, true);
+  await assert.rejects(listBlockedPlayersOperation(db, request('a', { cursor: 'bad' })));
+  await assert.rejects(listBlockedPlayersOperation(db, request('a', { limit: 21 })));
+  await assert.rejects(listBlockedPlayersOperation(db, { ...request('a', {}), auth: { uid: 'a', token: {} } }));
+  await db.doc('users/a').update({ active: false });
+  await assert.rejects(listBlockedPlayersOperation(db, request('a', {})));
+  await db.doc('users/a').update({ active: true });
+  await db.doc('accountDeletionBarriers/a').set({ uid: 'a', status: 'deleting' });
+  await assert.rejects(listBlockedPlayersOperation(db, request('a', {})));
 });
 
 test('self, unverified, inactive, and deleting accounts are rejected', async () => {

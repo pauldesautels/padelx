@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +56,109 @@ void main() {
     expect(find.text(deletionExplanation), findsOneWidget);
     expect(find.text('Permanently delete my account'), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
+  });
+
+  testWidgets('Back exits without submitting entered password', (tester) async {
+    var submissions = 0;
+    var cancelled = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeleteAccountScreen(
+          onFinished: (_) async {},
+          onCancel: () => cancelled++,
+          submitDeletion: (_) async => submissions++,
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'not-submitted');
+    await tester.tap(find.byKey(const Key('cancel-account-deletion')));
+
+    expect(cancelled, 1);
+    expect(submissions, 0);
+  });
+
+  testWidgets('system Back uses the safe cancellation path', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (routeContext) => DeleteAccountScreen(
+                  onFinished: (_) async {},
+                  onCancel: () => Navigator.pop(routeContext),
+                ),
+              ),
+            ),
+            child: const Text('Open deletion'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open deletion'));
+    await tester.pumpAndSettle();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open deletion'), findsOneWidget);
+    expect(find.text('Delete Account'), findsNothing);
+  });
+
+  testWidgets('Back is disabled while deletion submission is in progress', (
+    tester,
+  ) async {
+    final submission = Completer<void>();
+    var cancelled = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeleteAccountScreen(
+          onFinished: (_) async {},
+          onCancel: () => cancelled++,
+          submitDeletion: (_) => submission.future,
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'in-progress');
+    await tester.pump();
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('cancel-account-deletion')))
+          .onPressed,
+      isNull,
+    );
+    await tester.binding.handlePopRoute();
+    expect(cancelled, 0);
+
+    submission.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('Sign out action still completes without submitting deletion', (
+    tester,
+  ) async {
+    var submissions = 0;
+    String? finishedMessage;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeleteAccountScreen(
+          onFinished: (message) async => finishedMessage = message,
+          onCancel: () {},
+          submitDeletion: (_) async => submissions++,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Sign out'));
+    await tester.pump();
+
+    expect(finishedMessage, 'You are signed out.');
+    expect(submissions, 0);
   });
 
   testWidgets('empty password cannot submit deletion', (tester) async {

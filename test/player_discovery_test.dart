@@ -8,6 +8,7 @@ import 'package:padelx/player_discovery_repository.dart';
 import 'package:padelx/players_screen.dart';
 
 class FakeFriends implements FriendsRepository {
+  @override Future<BlockedPlayersPage> loadBlockedPlayers({Object? cursor, int pageSize = 20}) async => const BlockedPlayersPage();
   @override Future<void> block(String uid) async {} @override Future<void> cancel(String uid) async {}
   @override Future<FriendsPage> loadPage(String uid, {required String status, FriendDirection? direction, Object? cursor, int pageSize = 20}) async => const FriendsPage();
   @override Future<RelationshipPolicy> policy(String uid) async => const RelationshipPolicy();

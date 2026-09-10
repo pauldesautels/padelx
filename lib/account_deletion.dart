@@ -164,10 +164,12 @@ Future<void> runAccountDeletionFlow({
 class DeleteAccountScreen extends StatefulWidget {
   final Future<void> Function(String message) onFinished;
   final Future<void> Function(String password)? submitDeletion;
+  final VoidCallback? onCancel;
   const DeleteAccountScreen({
     super.key,
     required this.onFinished,
     this.submitDeletion,
+    this.onCancel,
   });
   @override
   State<DeleteAccountScreen> createState() => _DeleteAccountScreenState();
@@ -276,61 +278,76 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     );
   }
 
+  void _cancel() {
+    if (!_busy) widget.onCancel?.call();
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Delete Account'),
-      automaticallyImplyLeading: false,
-    ),
-    body: Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(deletionExplanation),
-              const SizedBox(height: 24),
-              TextField(
-                controller: _password,
-                obscureText: true,
-                enabled: !_busy,
-                autocorrect: false,
-                enableSuggestions: false,
-                autofillHints: const <String>[],
-                onChanged: (value) {
-                  setState(() {
-                    _freshPasswordEntered = value.isNotEmpty;
-                    if (value.isNotEmpty) _error = null;
-                  });
-                },
-                decoration: const InputDecoration(
-                  labelText: 'Confirm your password',
-                ),
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_busy,
+    child: Scaffold(
+      appBar: AppBar(
+        title: const Text('Delete Account'),
+        automaticallyImplyLeading: false,
+        leading: widget.onCancel == null
+            ? null
+            : IconButton(
+                key: const Key('cancel-account-deletion'),
+                tooltip: 'Back',
+                onPressed: _busy ? null : _cancel,
+                icon: const Icon(Icons.arrow_back),
               ),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Text(_error!, semanticsLabel: _error),
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(deletionExplanation),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _password,
+                  obscureText: true,
+                  enabled: !_busy,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  autofillHints: const <String>[],
+                  onChanged: (value) {
+                    setState(() {
+                      _freshPasswordEntered = value.isNotEmpty;
+                      if (value.isNotEmpty) _error = null;
+                    });
+                  },
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm your password',
+                  ),
                 ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _busy || !_freshPasswordEntered ? null : _delete,
-                child: Text(
-                  _busy
-                      ? 'Requesting deletion…'
-                      : 'Permanently delete my account',
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Text(_error!, semanticsLabel: _error),
+                  ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: _busy || !_freshPasswordEntered ? null : _delete,
+                  child: Text(
+                    _busy
+                        ? 'Requesting deletion…'
+                        : 'Permanently delete my account',
+                  ),
                 ),
-              ),
-              TextButton(
-                onPressed: _busy
-                    ? null
-                    : () => widget.onFinished('You are signed out.'),
-                child: const Text('Sign out'),
-              ),
-            ],
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => widget.onFinished('You are signed out.'),
+                  child: const Text('Sign out'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

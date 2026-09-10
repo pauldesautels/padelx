@@ -85,6 +85,103 @@ class _FriendActionState extends State<FriendAction> {
     }
   }
 
+  Future<bool> _confirmAction({
+    required String title,
+    required String message,
+    required String actionLabel,
+  }) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              key: const Key('cancel-social-confirmation'),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm-social-action'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(actionLabel),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  Future<void> _showRelationshipActions({required bool canUnfriend}) async {
+    if (_busy) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Relationship actions',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            if (canUnfriend)
+              ListTile(
+                key: const Key('unfriend-action'),
+                minVerticalPadding: 14,
+                leading: const Icon(Icons.person_remove_outlined),
+                title: const Text('Unfriend'),
+                subtitle: const Text(
+                  'End this friendship and direct social connection',
+                ),
+                onTap: () => Navigator.pop(sheetContext, 'unfriend'),
+              ),
+            ListTile(
+              key: const Key('block-player-action'),
+              minVerticalPadding: 14,
+              leading: Icon(
+                Icons.block_outlined,
+                color: Theme.of(sheetContext).colorScheme.error,
+              ),
+              title: const Text('Block player'),
+              subtitle: const Text(
+                'Prevent normal social discovery and contact',
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'block'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'unfriend') {
+      final confirmed = await _confirmAction(
+        title: 'Unfriend this player?',
+        message: 'Your friendship and direct social connection will end.',
+        actionLabel: 'Unfriend',
+      );
+      if (confirmed && mounted) {
+        await _run(
+          'removeFriend',
+          () => widget.repository.remove(widget.targetUid),
+        );
+      }
+      return;
+    }
+    final confirmed = await _confirmAction(
+      title: 'Block this player?',
+      message: canUnfriend
+          ? 'Your friendship will be removed and normal social discovery and contact will be prevented. Shared-match access still follows match membership.'
+          : 'Normal social discovery and contact with this player will be prevented. Shared-match access still follows match membership.',
+      actionLabel: 'Block player',
+    );
+    if (confirmed && mounted) {
+      await _run('block', () => widget.repository.block(widget.targetUid));
+    }
+  }
+
   Future<void> _run(
     String operation,
     Future<void> Function() action, {
@@ -130,7 +227,7 @@ class _FriendActionState extends State<FriendAction> {
         return const SizedBox.shrink();
       }
       if (policy.blockedByViewer) {
-        return OutlinedButton(
+        return OutlinedButton.icon(
           key: const Key('unblock-player'),
           onPressed: _busy
               ? null
@@ -138,23 +235,18 @@ class _FriendActionState extends State<FriendAction> {
                   'unblock',
                   () => widget.repository.unblock(widget.targetUid),
                 ),
-          child: const Text('Unblock'),
+          icon: const Icon(Icons.lock_open_outlined),
+          label: const Text('Unblock'),
         );
       }
       if (policy.status == 'accepted') {
-        return PopupMenuButton<String>(
+        return OutlinedButton.icon(
           key: const Key('friends-action'),
-          onSelected: (value) => _run(
-            value == 'block' ? 'block' : 'removeFriend',
-            value == 'block'
-                ? () => widget.repository.block(widget.targetUid)
-                : () => widget.repository.remove(widget.targetUid),
-          ),
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'unfriend', child: Text('Unfriend')),
-            PopupMenuItem(value: 'block', child: Text('Block')),
-          ],
-          child: const Chip(label: Text('Friends')),
+          onPressed: _busy
+              ? null
+              : () => _showRelationshipActions(canUnfriend: true),
+          icon: const Icon(Icons.people_outline),
+          label: const Text('Friends'),
         );
       }
       if (policy.direction == FriendDirection.incoming) {
@@ -211,12 +303,13 @@ class _FriendActionState extends State<FriendAction> {
             icon: const Icon(Icons.person_add_alt_1),
             label: const Text('Add Friend'),
           ),
-          PopupMenuButton<String>(
-            onSelected: (_) =>
-                _run('block', () => widget.repository.block(widget.targetUid)),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'block', child: Text('Block')),
-            ],
+          OutlinedButton.icon(
+            key: const Key('more-social-actions'),
+            onPressed: _busy
+                ? null
+                : () => _showRelationshipActions(canUnfriend: false),
+            icon: const Icon(Icons.more_horiz),
+            label: const Text('More actions'),
           ),
         ],
       );

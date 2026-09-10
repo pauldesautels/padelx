@@ -9,6 +9,7 @@ import {
 import {
   Timestamp,
   collection,
+  deleteField,
   deleteDoc,
   doc,
   getDoc,
@@ -379,6 +380,75 @@ describe('private and public profiles', () => {
       bio: 'Right-side player', discoverable: true,
     });
     await assertSucceeds(batch.commit());
+  });
+
+  test('modern profile save removes only known legacy location fields', async () => {
+    const uid = 'legacy-location';
+    const nestedLocation = discovery({ area: '' });
+    await seed(`users/${uid}`, privateProfile(uid, {
+      level: '3', playFrequency: 'occasionally', avatarVersion: 7,
+      discoveryLocation: nestedLocation,
+      countryCode: 'MX', city: 'Mexico City', area: '',
+    }));
+    await seed(`publicProfiles/${uid}`, {
+      ...publicProfile(uid, {
+        level: '3', playFrequency: 'occasionally', discoverable: false,
+        area: '', avatarVersion: 7,
+      }),
+      ratingCount: 2, ratingSum: 9, ratingAverage: 4.5,
+    });
+
+    const db = auth(uid);
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', uid), {
+      uid, displayName: `Player ${uid}`, level: '3', email: `${uid}@example.com`,
+      discoveryLocation: nestedLocation,
+      countryCode: deleteField(), city: deleteField(), area: deleteField(),
+      createdAt: Timestamp.fromMillis(now), updatedAt: serverTimestamp(),
+      preferredSide: 'either', playFrequency: 'occasional', bio: '',
+      discoverable: true,
+    }, { merge: true });
+    batch.set(doc(db, 'publicProfiles', uid), {
+      uid, displayName: `Player ${uid}`, level: '3', countryCode: 'MX',
+      city: 'Mexico City', area: '', preferredSide: 'either',
+      playFrequency: 'occasional', bio: '', discoverable: true,
+    }, { merge: true });
+    await assertSucceeds(batch.commit());
+
+    const savedPrivate = (await getDoc(doc(db, 'users', uid))).data();
+    const savedPublic = (await getDoc(doc(db, 'publicProfiles', uid))).data();
+    assert.equal('countryCode' in savedPrivate, false);
+    assert.equal('city' in savedPrivate, false);
+    assert.equal('area' in savedPrivate, false);
+    assert.deepEqual(savedPrivate.discoveryLocation, nestedLocation);
+    assert.equal(savedPrivate.discoverable, true);
+    assert.equal(savedPrivate.playFrequency, 'occasional');
+    assert.equal(savedPrivate.avatarVersion, 7);
+    for (const key of ['uid', 'displayName', 'level', 'preferredSide',
+      'playFrequency', 'bio', 'discoverable', 'avatarVersion']) {
+      assert.equal(savedPrivate[key], savedPublic[key]);
+    }
+    assert.equal(savedPublic.ratingCount, 2);
+    assert.equal(savedPublic.ratingSum, 9);
+    assert.equal(savedPublic.ratingAverage, 4.5);
+  });
+
+  test('modern clean profile still saves with legacy cleanup sentinels', async () => {
+    const uid = 'modern-clean';
+    await seed(`users/${uid}`, privateProfile(uid, { level: '3' }));
+    await seed(`publicProfiles/${uid}`, publicProfile(uid, { level: '3' }));
+    const db = auth(uid);
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', uid), {
+      countryCode: deleteField(), city: deleteField(), area: deleteField(),
+      discoverable: true, updatedAt: serverTimestamp(),
+    }, { merge: true });
+    batch.set(doc(db, 'publicProfiles', uid), {
+      discoverable: true,
+    }, { merge: true });
+    await assertSucceeds(batch.commit());
+    assert.equal((await getDoc(doc(db, 'users', uid))).data().discoverable, true);
+    assert.equal((await getDoc(doc(db, 'publicProfiles', uid))).data().discoverable, true);
   });
 });
 

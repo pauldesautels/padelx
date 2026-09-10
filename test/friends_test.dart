@@ -21,13 +21,34 @@ class FakeFriendsRepository implements FriendsRepository {
   int watchCalls = 0;
   int watchCancels = 0;
   final StreamController<void> friendViews = StreamController<void>.broadcast();
+  final List<BlockedPlayersPage> blockedPages;
+  final Object? blockedLoadFailure;
+  final Object? unblockFailure;
+  final Future<void>? mutationGate;
+  int blockedPageCalls = 0;
   FakeFriendsRepository({
     this.policies = const {},
     this.policyResponses = const [],
     this.requestFailure,
     this.pages = const {},
     this.loadPageHandler,
+    this.blockedPages = const [],
+    this.blockedLoadFailure,
+    this.unblockFailure,
+    this.mutationGate,
   });
+  @override
+  Future<BlockedPlayersPage> loadBlockedPlayers({
+    Object? cursor,
+    int pageSize = 20,
+  }) async {
+    if (blockedLoadFailure != null) throw blockedLoadFailure!;
+    final index = blockedPageCalls++;
+    return index < blockedPages.length
+        ? blockedPages[index]
+        : const BlockedPlayersPage();
+  }
+
   String key(String status, FriendDirection? direction) =>
       '$status-${direction?.name}';
   @override
@@ -77,8 +98,11 @@ class FakeFriendsRepository implements FriendsRepository {
     return pages[k]?[index] ?? const FriendsPage();
   }
 
-  Future<void> record(String name, String uid) async =>
-      actions.add('$name:$uid');
+  Future<void> record(String name, String uid) async {
+    actions.add('$name:$uid');
+    await mutationGate;
+  }
+
   @override
   Future<void> requestFriend(String uid) async {
     requestCalls++;
@@ -96,7 +120,10 @@ class FakeFriendsRepository implements FriendsRepository {
   @override
   Future<void> block(String uid) => record('block', uid);
   @override
-  Future<void> unblock(String uid) => record('unblock', uid);
+  Future<void> unblock(String uid) async {
+    actions.add('unblock:$uid');
+    if (unblockFailure != null) throw unblockFailure!;
+  }
 }
 
 PlayedWithPublicProfile profile(String uid) =>
@@ -215,6 +242,143 @@ void main() {
     await tester.tap(find.text('Requested'));
     await tester.pumpAndSettle();
     expect(repository.actions, ['accept:in', 'cancel:out']);
+  });
+
+  testWidgets('Friends action sheet shows Unfriend and Block player', (
+    tester,
+  ) async {
+    final repository = FakeFriendsRepository(policies: {'target': accepted});
+    await tester.pumpWidget(friendAction(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('friends-action')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('unfriend-action')), findsOneWidget);
+    expect(find.byKey(const Key('block-player-action')), findsOneWidget);
+    expect(
+      find.text('End this friendship and direct social connection'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Unfriend confirmation can cancel or execute', (tester) async {
+    final repository = FakeFriendsRepository(policies: {'target': accepted});
+    await tester.pumpWidget(friendAction(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('friends-action')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unfriend-action')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('cancel-social-confirmation')));
+    await tester.pumpAndSettle();
+    expect(repository.actions, isEmpty);
+
+    await tester.tap(find.byKey(const Key('friends-action')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unfriend-action')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-social-action')));
+    await tester.pumpAndSettle();
+    expect(repository.actions, ['remove:target']);
+  });
+
+  testWidgets('Block confirmation can cancel or execute', (tester) async {
+    final repository = FakeFriendsRepository(policies: {'target': accepted});
+    await tester.pumpWidget(friendAction(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('friends-action')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('block-player-action')));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Your friendship will be removed'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Shared-match access'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('cancel-social-confirmation')));
+    await tester.pumpAndSettle();
+    expect(repository.actions, isEmpty);
+
+    await tester.tap(find.byKey(const Key('friends-action')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('block-player-action')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-social-action')));
+    await tester.pumpAndSettle();
+    expect(repository.actions, ['block:target']);
+  });
+
+  testWidgets('non-friend More actions opens Block player flow', (
+    tester,
+  ) async {
+    final repository = FakeFriendsRepository(policies: {'target': none});
+    await tester.pumpWidget(friendAction(repository));
+    await tester.pumpAndSettle();
+    expect(find.text('Add Friend'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('more-social-actions')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('unfriend-action')), findsNothing);
+    expect(find.byKey(const Key('block-player-action')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('block-player-action')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('friendship will be removed'), findsNothing);
+    expect(
+      find.textContaining(
+        'Normal social discovery and contact with this player',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Shared-match access'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('confirm-social-action')));
+    await tester.pumpAndSettle();
+    expect(repository.actions, ['block:target']);
+  });
+
+  testWidgets('viewer-authored block exposes direct Unblock action', (
+    tester,
+  ) async {
+    final repository = FakeFriendsRepository(
+      policies: {
+        'target': const RelationshipPolicy(
+          interactionAllowed: false,
+          blockedByViewer: true,
+        ),
+      },
+    );
+    await tester.pumpWidget(friendAction(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unblock-player')));
+    await tester.pumpAndSettle();
+    expect(repository.actions, ['unblock:target']);
+  });
+
+  testWidgets('busy state prevents duplicate social mutation', (tester) async {
+    final gate = Completer<void>();
+    final repository = FakeFriendsRepository(
+      policies: {
+        'target': const RelationshipPolicy(
+          status: 'pending',
+          direction: FriendDirection.incoming,
+        ),
+      },
+      mutationGate: gate.future,
+    );
+    await tester.pumpWidget(friendAction(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('accept-friend')));
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('accept-friend')))
+          .onPressed,
+      isNull,
+    );
+    await tester.tap(
+      find.byKey(const Key('accept-friend')),
+      warnIfMissed: false,
+    );
+    expect(repository.actions, ['accept:target']);
+    gate.complete();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('successful Add Friend mutation renders Requested', (

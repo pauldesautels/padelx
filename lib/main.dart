@@ -33,6 +33,7 @@ import 'geohash.dart';
 import 'discovery_refresh.dart';
 import 'level.dart';
 import 'match_date_time_picker.dart';
+import 'settings_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -89,27 +90,23 @@ class _AuthGateState extends State<AuthGate> {
         _deleting = false;
         _deletionMessage = message;
       });
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
-  Widget _accountArea(Widget child) => Material(
-    child: Column(
-      children: [
-        SafeArea(
-          bottom: false,
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => setState(() => _deleting = true),
-              icon: const Icon(Icons.person_remove_outlined),
-              label: const Text('Delete Account'),
-            ),
-          ),
+  Future<void> _openDeletion() async {
+    if (_deleting) return;
+    setState(() => _deleting = true);
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (routeContext) => DeleteAccountScreen(
+          onFinished: _finishDeletion,
+          onCancel: () => Navigator.of(routeContext).pop(),
         ),
-        Expanded(child: child),
-      ],
-    ),
-  );
+      ),
+    );
+    if (mounted && _deleting) setState(() => _deleting = false);
+  }
 
   void _continueAfterVerification() {
     if (mounted) setState(() {});
@@ -117,9 +114,6 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (_deleting) {
-      return DeleteAccountScreen(onFinished: _finishDeletion);
-    }
     if (_deletionMessage != null) {
       return Scaffold(
         body: Center(
@@ -152,25 +146,24 @@ class _AuthGateState extends State<AuthGate> {
         // authStateChanges event, so prefer that refreshed instance here.
         final user = FirebaseAuth.instance.currentUser;
         if (user != null && !user.emailVerified) {
-          return _accountArea(
-            EmailVerificationScreen(
-              email: user.email ?? '',
-              onContinue: () async {
-                await user.reload();
-                final refreshedUser = FirebaseAuth.instance.currentUser;
-                if (refreshedUser?.emailVerified != true) return false;
-                await refreshedUser!.getIdToken(true);
-                _continueAfterVerification();
-                return true;
-              },
-              onResend: user.sendEmailVerification,
-              onSignOut: FirebaseAuth.instance.signOut,
-            ),
+          return EmailVerificationScreen(
+            email: user.email ?? '',
+            onContinue: () async {
+              await user.reload();
+              final refreshedUser = FirebaseAuth.instance.currentUser;
+              if (refreshedUser?.emailVerified != true) return false;
+              await refreshedUser!.getIdToken(true);
+              _continueAfterVerification();
+              return true;
+            },
+            onResend: user.sendEmailVerification,
+            onSignOut: FirebaseAuth.instance.signOut,
+            onDeleteAccount: _openDeletion,
           );
         }
 
         if (user != null) {
-          return _accountArea(ProfileGate(user: user));
+          return ProfileGate(user: user, onDeleteAccount: _openDeletion);
         }
 
         return const AuthScreen();
@@ -287,8 +280,9 @@ class PublicUserProfile {
 
 class ProfileGate extends StatefulWidget {
   final User user;
+  final VoidCallback? onDeleteAccount;
 
-  const ProfileGate({super.key, required this.user});
+  const ProfileGate({super.key, required this.user, this.onDeleteAccount});
 
   @override
   State<ProfileGate> createState() => _ProfileGateState();
@@ -336,7 +330,10 @@ class _ProfileGateState extends State<ProfileGate> {
           );
         }
 
-        return HomeScreen(profile: profile);
+        return HomeScreen(
+          profile: profile,
+          onDeleteAccount: widget.onDeleteAccount,
+        );
       },
     );
   }
@@ -392,6 +389,7 @@ class EmailVerificationScreen extends StatefulWidget {
   final Future<bool> Function() onContinue;
   final Future<void> Function() onResend;
   final Future<void> Function() onSignOut;
+  final VoidCallback? onDeleteAccount;
   final Duration resendCooldown;
 
   const EmailVerificationScreen({
@@ -400,6 +398,7 @@ class EmailVerificationScreen extends StatefulWidget {
     required this.onContinue,
     required this.onResend,
     required this.onSignOut,
+    this.onDeleteAccount,
     this.resendCooldown = const Duration(seconds: 30),
   });
 
@@ -615,6 +614,16 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                             : 'Resend verification email',
                       ),
                     ),
+                    if (widget.onDeleteAccount != null)
+                      TextButton(
+                        key: const Key('verification-delete-account'),
+                        onPressed: busy ? null : widget.onDeleteAccount,
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white60,
+                          textStyle: const TextStyle(fontSize: 13),
+                        ),
+                        child: const Text('Delete account'),
+                      ),
                     TextButton(
                       key: const Key('verification-sign-out'),
                       onPressed: busy ? null : _signOut,
@@ -2633,6 +2642,7 @@ class HomeScreen extends StatefulWidget {
   final int indexRetryAttempts;
   final PlayedWithRepository? playedWithRepository;
   final FriendsRepository? friendsRepository;
+  final VoidCallback? onDeleteAccount;
 
   const HomeScreen({
     super.key,
@@ -2645,6 +2655,7 @@ class HomeScreen extends StatefulWidget {
     this.indexRetryAttempts = 10,
     this.playedWithRepository,
     this.friendsRepository,
+    this.onDeleteAccount,
   });
 
   @override
@@ -2791,6 +2802,19 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  void _openSettings() {
+    final onDeleteAccount = widget.onDeleteAccount;
+    if (onDeleteAccount == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(
+          friendsRepository: _friendsRepository,
+          onDeleteAccount: onDeleteAccount,
         ),
       ),
     );
@@ -3423,6 +3447,7 @@ class _HomeScreenState extends State<HomeScreen> {
         email: currentEmail,
         onFriends: _openFriends,
         onMessages: _openMessages,
+        onSettings: widget.onDeleteAccount == null ? null : _openSettings,
       ),
     ];
 
@@ -4891,6 +4916,7 @@ class ProfileTab extends StatefulWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onFriends;
   final VoidCallback? onMessages;
+  final VoidCallback? onSettings;
 
   const ProfileTab({
     super.key,
@@ -4901,6 +4927,7 @@ class ProfileTab extends StatefulWidget {
     this.onEdit,
     this.onFriends,
     this.onMessages,
+    this.onSettings,
   });
 
   @override
@@ -4977,6 +5004,7 @@ class _ProfileTabState extends State<ProfileTab> {
             onEdit: edit,
             onFriends: widget.onFriends,
             onMessages: widget.onMessages,
+            onSettings: widget.onSettings,
             loadingStats: true,
           );
         }
@@ -4997,6 +5025,7 @@ class _ProfileTabState extends State<ProfileTab> {
           onEdit: edit,
           onFriends: widget.onFriends,
           onMessages: widget.onMessages,
+          onSettings: widget.onSettings,
         );
       },
     );
@@ -5011,6 +5040,7 @@ class _ProfileOverview extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onFriends;
   final VoidCallback? onMessages;
+  final VoidCallback? onSettings;
 
   const _ProfileOverview({
     required this.profile,
@@ -5020,6 +5050,7 @@ class _ProfileOverview extends StatelessWidget {
     this.onEdit,
     this.onFriends,
     this.onMessages,
+    this.onSettings,
   });
 
   @override
@@ -5201,6 +5232,15 @@ class _ProfileOverview extends StatelessWidget {
           icon: const Icon(Icons.edit_outlined),
           label: const Text('Edit Profile'),
         ),
+        if (onSettings != null) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            key: const Key('open-settings'),
+            onPressed: onSettings,
+            icon: const Icon(Icons.settings_outlined),
+            label: const Text('Settings'),
+          ),
+        ],
       ],
     );
   }
@@ -5457,6 +5497,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             ? widget.email
             : widget.profile?.email ?? '',
         'discoveryLocation': discovery.toMap(),
+        'countryCode': FieldValue.delete(),
+        'city': FieldValue.delete(),
+        'area': FieldValue.delete(),
         'createdAt': createdAt,
         'updatedAt': timestamp,
         ...sharedSocialData,

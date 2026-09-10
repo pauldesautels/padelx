@@ -11,7 +11,7 @@ import { reconcileRating } from './rating_contributions.js';
 import { reconcilePlayedWithMatch, recoverPlayedWithMatches } from './played_with_projection.js';
 import { requestFriendOperation, respondToFriendRequestOperation,
   cancelFriendRequestOperation, removeFriendOperation } from './friendship.js';
-import { blockPlayerOperation, unblockPlayerOperation } from './blocks.js';
+import { blockPlayerOperation, listBlockedPlayersOperation, unblockPlayerOperation } from './blocks.js';
 import { getRelationshipPoliciesOperation } from './friendship_policy.js';
 import { ensureDirectConversationOperation, ensureMatchConversationOperation,
   listConversationsOperation, listMessagesOperation, markConversationReadOperation,
@@ -92,6 +92,7 @@ export const cancelFriendRequest = socialCallable(cancelFriendRequestOperation);
 export const removeFriend = socialCallable(removeFriendOperation);
 export const blockPlayer = socialCallable(blockPlayerOperation);
 export const unblockPlayer = socialCallable(unblockPlayerOperation);
+export const listBlockedPlayers = socialCallable(listBlockedPlayersOperation);
 export const getRelationshipPolicies = socialCallable(getRelationshipPoliciesOperation);
 export const ensureDirectConversation = socialCallable(ensureDirectConversationOperation);
 export const ensureMatchConversation = socialCallable(ensureMatchConversationOperation);
