@@ -6,6 +6,29 @@ import 'package:padelx/main.dart';
 import 'package:padelx/account_deletion.dart';
 import 'package:padelx/settings_screen.dart';
 import 'package:padelx/social_profile.dart';
+import 'package:padelx/push_notifications.dart';
+
+class _SettingsPreferences implements NotificationPreferencesRepository {
+  @override
+  Future<NotificationPreferences> load(String uid) async =>
+      const NotificationPreferences();
+  @override
+  Future<void> save(String uid, NotificationPreferences preferences) async {}
+  @override
+  Stream<NotificationPreferences> watch(String uid) =>
+      Stream.value(const NotificationPreferences());
+}
+
+class _SettingsPush implements PushSettingsService {
+  @override
+  Future<void> disable(String uid) async {}
+  @override
+  Future<PushPermissionState> enable(String uid) async =>
+      PushPermissionState.allowed;
+  @override
+  Future<PushPermissionState> permissionState() async =>
+      PushPermissionState.notDetermined;
+}
 
 class _SettingsFriends implements FriendsRepository {
   @override
@@ -141,6 +164,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Blocked Players'), findsOneWidget);
     expect(find.text('You have not blocked any players.'), findsOneWidget);
+  });
+
+  testWidgets('Settings opens Notifications without requesting permission', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsScreen(
+          friendsRepository: _SettingsFriends(),
+          onDeleteAccount: () {},
+          currentUid: 'viewer',
+          notificationPreferencesRepository: _SettingsPreferences(),
+          pushSettingsService: _SettingsPush(),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('settings-notifications')));
+    await tester.pumpAndSettle();
+    expect(find.text('Push notifications'), findsOneWidget);
+    expect(find.text('Push notifications off'), findsOneWidget);
+    for (final category in [
+      'Match messages',
+      'Join requests',
+      'Friend requests',
+      'Friend accepted',
+      'Match updates',
+      'Play Again',
+    ]) {
+      expect(find.text(category), findsOneWidget);
+    }
   });
 
   testWidgets('Verify Email retains low-prominence account deletion access', (

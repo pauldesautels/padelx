@@ -34,12 +34,27 @@ import 'discovery_refresh.dart';
 import 'level.dart';
 import 'match_date_time_picker.dart';
 import 'settings_screen.dart';
+import 'push_notifications.dart';
+
+PushNotificationService? _pushNotificationService;
+
+Future<void> _signOutWithPushCleanup() async {
+  await signOutWithPushCleanup(
+    pushService: _pushNotificationService,
+    signOut: FirebaseAuth.instance.signOut,
+  );
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(options: firebaseOptionsForCurrentEnvironment());
   await activateAppCheckForCurrentEnvironment();
+
+  _pushNotificationService = PushNotificationService.firebase();
+  FirebaseAuth.instance.authStateChanges().listen(
+    (user) => unawaited(_pushNotificationService!.startForUser(user?.uid)),
+  );
 
   runApp(const PadelXApp());
 }
@@ -102,6 +117,9 @@ class _AuthGateState extends State<AuthGate> {
         builder: (routeContext) => DeleteAccountScreen(
           onFinished: _finishDeletion,
           onCancel: () => Navigator.of(routeContext).pop(),
+          onSignOutAttempt: () async {
+            await _pushNotificationService?.unregisterBeforeSignOut();
+          },
         ),
       ),
     );
@@ -157,7 +175,7 @@ class _AuthGateState extends State<AuthGate> {
               return true;
             },
             onResend: user.sendEmailVerification,
-            onSignOut: FirebaseAuth.instance.signOut,
+            onSignOut: _signOutWithPushCleanup,
             onDeleteAccount: _openDeletion,
           );
         }
@@ -327,6 +345,7 @@ class _ProfileGateState extends State<ProfileGate> {
             user: widget.user,
             profile: profile,
             isRequired: true,
+            onSignOut: _signOutWithPushCleanup,
           );
         }
 
@@ -373,7 +392,7 @@ class _ProfileLoadErrorState extends State<ProfileLoadError> {
                 child: const Text('Try Again'),
               ),
               TextButton(
-                onPressed: FirebaseAuth.instance.signOut,
+                onPressed: _signOutWithPushCleanup,
                 child: const Text('Log out'),
               ),
             ],
@@ -2815,6 +2834,10 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => SettingsScreen(
           friendsRepository: _friendsRepository,
           onDeleteAccount: onDeleteAccount,
+          currentUid: FirebaseAuth.instance.currentUser?.uid ?? '',
+          notificationPreferencesRepository:
+              FirebaseNotificationPreferencesRepository(),
+          pushSettingsService: _pushNotificationService,
         ),
       ),
     );
@@ -3133,7 +3156,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _logout() async {
-    await FirebaseAuth.instance.signOut();
+    await _signOutWithPushCleanup();
   }
 
   Future<void> _markNotificationRead(AppNotification notification) async {

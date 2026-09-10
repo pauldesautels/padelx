@@ -6,7 +6,7 @@ import 'firebase_environment.dart' show stagingFirebaseProjectId;
 
 enum AppCheckMode { debug, attested }
 
-enum AppCheckPlatform { web, ios }
+enum AppCheckPlatform { web, ios, android }
 
 class StagingAppCheckConfiguration {
   const StagingAppCheckConfiguration({
@@ -28,6 +28,7 @@ StagingAppCheckConfiguration? appCheckConfigurationForCurrentEnvironment() {
     projectId: const String.fromEnvironment('FIREBASE_PROJECT_ID'),
     isWeb: kIsWeb,
     isIos: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
+    isAndroid: !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
     isDebugBuild: kDebugMode,
     isDeviceTestBuild: const bool.fromEnvironment('PADELX_IOS_DEVICE_TEST'),
     mode: const String.fromEnvironment('FIREBASE_APP_CHECK_MODE'),
@@ -43,6 +44,7 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
   required String projectId,
   required bool isWeb,
   bool isIos = false,
+  bool isAndroid = false,
   bool isDebugBuild = false,
   bool isDeviceTestBuild = false,
   required String mode,
@@ -75,8 +77,10 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
     );
   }
 
-  if (!isWeb && !isIos) {
-    throw UnsupportedError('Staging App Check supports web and iOS only.');
+  if (!isWeb && !isIos && !isAndroid) {
+    throw UnsupportedError(
+      'Staging App Check supports web, iOS, and Android only.',
+    );
   }
 
   final selectedMode = switch (selectedModeName) {
@@ -97,6 +101,9 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
   if (isIos && selectedMode == AppCheckMode.attested && isDeviceTestBuild) {
     throw StateError('The iOS device-test build requires debug App Check.');
   }
+  if (isAndroid && selectedMode == AppCheckMode.debug && !isDebugBuild) {
+    throw StateError('Android debug App Check requires a debug build.');
+  }
 
   if (selectedMode == AppCheckMode.debug) {
     if (isWeb && selectedDebugToken.startsWith('replace-with-')) {
@@ -106,7 +113,11 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
     }
     return StagingAppCheckConfiguration(
       mode: AppCheckMode.debug,
-      platform: isIos ? AppCheckPlatform.ios : AppCheckPlatform.web,
+      platform: isIos
+          ? AppCheckPlatform.ios
+          : isAndroid
+          ? AppCheckPlatform.android
+          : AppCheckPlatform.web,
       debugToken: isWeb && selectedDebugToken.isNotEmpty
           ? selectedDebugToken
           : null,
@@ -117,6 +128,12 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
     return const StagingAppCheckConfiguration(
       mode: AppCheckMode.attested,
       platform: AppCheckPlatform.ios,
+    );
+  }
+  if (isAndroid) {
+    return const StagingAppCheckConfiguration(
+      mode: AppCheckMode.attested,
+      platform: AppCheckPlatform.android,
     );
   }
 
@@ -152,6 +169,10 @@ Future<void> activateAppCheckForCurrentEnvironment() async {
           await FirebaseAppCheck.instance.activate(
             providerApple: const AppleDebugProvider(),
           );
+        case AppCheckPlatform.android:
+          await FirebaseAppCheck.instance.activate(
+            providerAndroid: const AndroidDebugProvider(),
+          );
       }
     case AppCheckMode.attested:
       switch (configuration.platform) {
@@ -165,6 +186,10 @@ Future<void> activateAppCheckForCurrentEnvironment() async {
           await FirebaseAppCheck.instance.activate(
             providerApple:
                 const AppleAppAttestWithDeviceCheckFallbackProvider(),
+          );
+        case AppCheckPlatform.android:
+          await FirebaseAppCheck.instance.activate(
+            providerAndroid: const AndroidPlayIntegrityProvider(),
           );
       }
   }

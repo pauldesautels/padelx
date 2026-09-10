@@ -19,6 +19,7 @@ import { ensureDirectConversationOperation, ensureMatchConversationOperation,
 import { createPlayAgainInvitationOperation, dismissPlayAgainInvitationOperation,
   reconcilePlayAgainInvitesForMatch } from './play_again.js';
 import { discoverPlayersOperation } from './player_discovery.js';
+import { registerPushDeviceOperation, unregisterPushDeviceOperation } from './push_devices.js';
 
 function backendFirestore() {
   const environment = backendEnvironment();
@@ -103,6 +104,8 @@ export const markConversationRead = socialCallable(markConversationReadOperation
 export const createPlayAgainInvitation = socialCallable(createPlayAgainInvitationOperation);
 export const dismissPlayAgainInvitation = socialCallable(dismissPlayAgainInvitationOperation);
 export const discoverPlayers = socialCallable(discoverPlayersOperation);
+export const registerPushDevice = socialCallable(registerPushDeviceOperation);
+export const unregisterPushDevice = socialCallable(unregisterPushDeviceOperation);
 
 export const reconcilePlayAgainInvitations = onDocumentWritten({
   document: 'matches/{matchId}', retry: true, maxInstances: 4,

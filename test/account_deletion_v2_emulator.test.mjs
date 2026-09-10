@@ -55,9 +55,16 @@ test('schema-v2 social, messaging, storage, and verification remove identity', a
   await db.doc('blocks/block-v2').set({ blockerUid: other, blockedUid: uid });
   await db.doc('matches/match-v2/invites/deleting-v2').set({ inviterUid: other, inviteeUid: uid });
   await db.doc(`playAgainRateLimits/${uid}`).set({ inviterUid: uid });
+  await db.doc('pushDevices/device-v2-a').set({ uid, token: 'token-a', platform: 'ios' });
+  await db.doc('pushDevices/device-v2-b').set({ uid, token: 'token-b', platform: 'android' });
+  await db.doc('pushDevices/device-survivor').set({ uid: other, token: 'token-c' });
+  await db.doc(`users/${uid}/settings/notifications`).set({ pushEnabled: true });
   assert.equal(await acquireDeletionLease(db, uid, lease), true);
   for (let i = 0; i < 20; i++) { const result = await runSocialDeletionPhase(db, uid, lease); if (result.complete) break; }
   assert.equal((await db.doc(`accountDeletionJobs/${uid}`).get()).data().phase, 'messaging');
+  assert.equal((await db.collection('pushDevices').where('uid', '==', uid).get()).empty, true);
+  assert.equal((await db.doc('pushDevices/device-survivor').get()).exists, true);
+  assert.equal((await db.doc(`users/${uid}/settings/notifications`).get()).exists, false);
 
   await db.doc('conversations/direct_v2').set({ type: 'direct', memberUids: [uid, other],
     lastSenderUid: uid, lastMessagePreview: 'private text' });

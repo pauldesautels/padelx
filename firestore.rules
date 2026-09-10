@@ -766,6 +766,38 @@ service cloud.firestore {
       match /conversationViews/{conversationId} {
         allow read, write: if false;
       }
+
+      match /settings/{settingId} {
+        allow read: if verifiedUser()
+          && request.auth.uid == userId
+          && settingId == 'notifications';
+        allow create, update: if verifiedUser()
+          && request.auth.uid == userId
+          && settingId == 'notifications'
+          && request.resource.data.keys().hasAll([
+            'pushEnabled', 'matchMessages', 'joinRequests',
+            'friendRequests', 'friendAccepted', 'matchUpdates', 'playAgain',
+            'updatedAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'pushEnabled', 'matchMessages', 'joinRequests',
+            'friendRequests', 'friendAccepted', 'matchUpdates', 'playAgain',
+            'updatedAt'
+          ])
+          && request.resource.data.pushEnabled is bool
+          && request.resource.data.matchMessages is bool
+          && request.resource.data.joinRequests is bool
+          && request.resource.data.friendRequests is bool
+          && request.resource.data.friendAccepted is bool
+          && request.resource.data.matchUpdates is bool
+          && request.resource.data.playAgain is bool
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if false;
+      }
+    }
+
+    match /pushDevices/{tokenHash} {
+      allow read, write: if false;
     }
 
     match /conversations/{conversationId} {

@@ -6,6 +6,7 @@ const productionFirebaseProjectId = 'padelx-f168f';
 const stagingFirebaseProjectId = 'padelx-staging';
 const stagingIosBundleId = 'com.padelx.app.staging';
 const deviceTestIosBundleId = 'com.padelx.app.devicetest';
+const stagingAndroidPackageName = 'com.example.padelx';
 const stagingMessagingSenderId = '708585002488';
 const stagingStorageBucket = 'padelx-staging.firebasestorage.app';
 const _supportedFirebaseEnvironments = {'development', 'staging', 'production'};
@@ -103,6 +104,7 @@ FirebaseOptions firebaseOptionsForEnvironment({
   }
 
   final isIos = !isWeb && targetPlatform == TargetPlatform.iOS;
+  final isAndroid = !isWeb && targetPlatform == TargetPlatform.android;
   if (selectedEnvironment == 'staging' && isIos) {
     final selectedAppId = requiredValues['FIREBASE_APP_ID']!;
     final selectedBundleId = iosBundleId.trim();
@@ -138,6 +140,20 @@ FirebaseOptions firebaseOptionsForEnvironment({
     }
     if (selectedStorageBucket != stagingStorageBucket) {
       throw StateError('iOS staging has an unexpected storage bucket.');
+    }
+  }
+  if (selectedEnvironment == 'staging' && isAndroid) {
+    final selectedAppId = requiredValues['FIREBASE_APP_ID']!;
+    final selectedSenderId = requiredValues['FIREBASE_MESSAGING_SENDER_ID']!;
+    final selectedStorageBucket = storageBucket.trim();
+    if (selectedProjectId != stagingFirebaseProjectId ||
+        !selectedAppId.startsWith('1:$stagingMessagingSenderId:android:') ||
+        selectedSenderId != stagingMessagingSenderId ||
+        selectedStorageBucket != stagingStorageBucket) {
+      throw StateError(
+        'Android staging requires a native Android Firebase app owned by '
+        'padelx-staging with the expected sender and storage identities.',
+      );
     }
   }
 

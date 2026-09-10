@@ -164,11 +164,13 @@ Future<void> runAccountDeletionFlow({
 class DeleteAccountScreen extends StatefulWidget {
   final Future<void> Function(String message) onFinished;
   final Future<void> Function(String password)? submitDeletion;
+  final Future<void> Function()? onSignOutAttempt;
   final VoidCallback? onCancel;
   const DeleteAccountScreen({
     super.key,
     required this.onFinished,
     this.submitDeletion,
+    this.onSignOutAttempt,
     this.onCancel,
   });
   @override
@@ -282,6 +284,12 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     if (!_busy) widget.onCancel?.call();
   }
 
+  Future<void> _signOut() async {
+    if (_busy) return;
+    await widget.onSignOutAttempt?.call();
+    await widget.onFinished('You are signed out.');
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
@@ -341,9 +349,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                   ),
                 ),
                 TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => widget.onFinished('You are signed out.'),
+                  onPressed: _busy ? null : _signOut,
                   child: const Text('Sign out'),
                 ),
               ],

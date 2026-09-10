@@ -154,6 +154,31 @@ void main() {
       );
     });
 
+    test('Android staging accepts only a native staging Android app', () {
+      final options = firebaseOptionsForEnvironment(
+        environment: 'staging',
+        projectId: stagingFirebaseProjectId,
+        apiKey: _apiKey,
+        appId: '1:708585002488:android:abc',
+        messagingSenderId: stagingMessagingSenderId,
+        storageBucket: stagingStorageBucket,
+        targetPlatform: TargetPlatform.android,
+      );
+      expect(options.projectId, stagingFirebaseProjectId);
+      expect(
+        () => firebaseOptionsForEnvironment(
+          environment: 'staging',
+          projectId: stagingFirebaseProjectId,
+          apiKey: _apiKey,
+          appId: '1:425226080221:android:production',
+          messagingSenderId: stagingMessagingSenderId,
+          storageBucket: stagingStorageBucket,
+          targetPlatform: TargetPlatform.android,
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
     test('production requires explicit values', () {
       expect(
         () => firebaseOptionsForEnvironment(

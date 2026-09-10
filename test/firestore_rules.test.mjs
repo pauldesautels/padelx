@@ -83,6 +83,20 @@ function privateProfile(uid, overrides = {}) {
   };
 }
 
+function notificationSettings(overrides = {}) {
+  return {
+    pushEnabled: false,
+    matchMessages: true,
+    joinRequests: true,
+    friendRequests: true,
+    friendAccepted: true,
+    matchUpdates: true,
+    playAgain: true,
+    updatedAt: serverTimestamp(),
+    ...overrides,
+  };
+}
+
 function location(overrides = {}) {
   return {
     clubName: 'Roma Padel',
@@ -801,4 +815,36 @@ test('deletion barrier blocks creation of absent profiles using an old session',
     await assertFails(getDoc(doc(anonymous, `${name}/deleted-admission`)));
     await assertFails(setDoc(doc(anonymous, `${name}/deleted-admission`), { status: 'active' }));
   }
+});
+
+describe('notification preferences and push devices', () => {
+  test('owner can read and write only the exact notification preference schema', async () => {
+    const alice = auth('alice');
+    const own = doc(alice, 'users/alice/settings/notifications');
+    await assertSucceeds(setDoc(own, notificationSettings()));
+    await assertSucceeds(getDoc(own));
+    await assertSucceeds(setDoc(own, notificationSettings({ pushEnabled: true })));
+    await assertFails(getDoc(doc(auth('bob'), 'users/alice/settings/notifications')));
+    await assertFails(setDoc(
+      doc(auth('bob'), 'users/alice/settings/notifications'),
+      notificationSettings(),
+    ));
+    await assertFails(setDoc(own, notificationSettings({ token: 'secret' })));
+    await assertFails(setDoc(own, notificationSettings({ matchMessages: 'yes' })));
+    await assertFails(setDoc(own, {
+      ...notificationSettings(),
+      updatedAt: Timestamp.fromMillis(now),
+    }));
+    await assertFails(deleteDoc(own));
+  });
+
+  test('push device registrations are inaccessible to clients', async () => {
+    await seed('pushDevices/hash', { uid: 'alice', token: 'private-token' });
+    for (const db of [auth('alice'), auth('bob'), environment.unauthenticatedContext().firestore()]) {
+      await assertFails(getDoc(doc(db, 'pushDevices/hash')));
+      await assertFails(getDocs(collection(db, 'pushDevices')));
+      await assertFails(setDoc(doc(db, 'pushDevices/new'), { uid: 'alice', token: 'value' }));
+      await assertFails(deleteDoc(doc(db, 'pushDevices/hash')));
+    }
+  });
 });

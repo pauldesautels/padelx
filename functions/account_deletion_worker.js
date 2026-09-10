@@ -515,6 +515,7 @@ export async function runSocialDeletionPhase(db, uid, lease, { pageSize = 50 } =
     ['playedWith', () => db.collectionGroup('playedWith').where('otherUid', '==', uid)],
     ['inviterInvites', () => db.collectionGroup('invites').where('inviterUid', '==', uid)],
     ['inviteeInvites', () => db.collectionGroup('invites').where('inviteeUid', '==', uid)],
+    ['pushDevices', () => db.collection('pushDevices').where('uid', '==', uid)],
   ];
   const state = job.socialCheckpoint ?? Object.fromEntries(streams.map(([name]) => [name, false]));
   const current = streams.find(([name]) => state[name] !== true);
@@ -548,6 +549,7 @@ export async function runSocialDeletionPhase(db, uid, lease, { pageSize = 50 } =
     return { processed: page.size, stream: name };
   }
   await db.collection('playAgainRateLimits').doc(uid).delete();
+  await db.doc(`users/${uid}/settings/notifications`).delete();
   await checkpointDeletion(db, uid, lease, { phase: 'social', expectedCheckpoint: job.checkpoint,
     checkpoint: DELETION_PHASE_COMPLETE_CHECKPOINT });
   await transitionDeletionPhase(db, uid, lease, { expectedPhase: 'social', nextPhase: 'messaging' });
@@ -960,6 +962,7 @@ export async function runVerifyDeletionPhase(db, uid, lease) {
         db.collectionGroup('messages').where('senderUid', '==', uid),
         db.collectionGroup('invites').where('inviterUid', '==', uid),
         db.collectionGroup('invites').where('inviteeUid', '==', uid),
+        db.collection('pushDevices').where('uid', '==', uid),
       ];
       for (const query of probes) await absent(tx, query, 'verify-social-reference-remains');
       for (const path of [`users/${uid}/conversationViews`, `users/${uid}/friendViews`, `users/${uid}/playedWith`]) {
@@ -967,6 +970,9 @@ export async function runVerifyDeletionPhase(db, uid, lease) {
       }
       for (const path of [`messagingRateLimits/${uid}`, `playAgainRateLimits/${uid}`]) {
         if ((await tx.get(db.doc(path))).exists) failVerification('verify-rate-limit-remains');
+      }
+      if ((await tx.get(db.doc(`users/${uid}/settings/notifications`))).exists) {
+        failVerification('verify-notification-settings-remain');
       }
     }
   };

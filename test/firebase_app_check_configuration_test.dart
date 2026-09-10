@@ -190,6 +190,24 @@ void main() {
       expect(configuration.debugToken, isNull);
     });
 
+    test('Android staging supports debug and Play Integrity providers', () {
+      final debug = _configuration(
+        isWeb: false,
+        isAndroid: true,
+        isDebugBuild: true,
+        mode: 'debug',
+      );
+      final attested = _configuration(
+        isWeb: false,
+        isAndroid: true,
+        mode: 'attested',
+      );
+      expect(debug!.platform, AppCheckPlatform.android);
+      expect(debug.mode, AppCheckMode.debug);
+      expect(attested!.platform, AppCheckPlatform.android);
+      expect(attested.mode, AppCheckMode.attested);
+    });
+
     test('unsupported native staging platform fails closed', () {
       expect(
         () => _configuration(isWeb: false, mode: 'debug'),
@@ -204,6 +222,7 @@ StagingAppCheckConfiguration? _configuration({
   String projectId = stagingFirebaseProjectId,
   bool isWeb = true,
   bool isIos = false,
+  bool isAndroid = false,
   bool isDebugBuild = false,
   bool isDeviceTestBuild = false,
   required String mode,
@@ -215,6 +234,7 @@ StagingAppCheckConfiguration? _configuration({
     projectId: projectId,
     isWeb: isWeb,
     isIos: isIos,
+    isAndroid: isAndroid,
     isDebugBuild: isDebugBuild,
     isDeviceTestBuild: isDeviceTestBuild,
     mode: mode,
