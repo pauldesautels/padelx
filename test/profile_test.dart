@@ -30,6 +30,75 @@ void main() {
     expect(profileLevelLabel(''), 'Level not set');
   });
 
+  testWidgets('Complete and Edit Profile use the controlled numeric selector', (
+    tester,
+  ) async {
+    for (final required in [true, false]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ProfileEditorScreen.test(
+            key: UniqueKey(),
+            uid: 'player',
+            profile: profile,
+            isRequired: required,
+            onSignOut: () {},
+          ),
+        ),
+      );
+      expect(find.byKey(const Key('profile-level-field')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('profile-level-field')),
+          matching: find.text('Level 3.5'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.widgetWithText(TextField, 'Level'), findsNothing);
+      await tester.tap(find.byKey(const Key('profile-level-field')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('padel-level-options')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('padel-level-option-2')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('padel-level-options')), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('profile-level-field')),
+          matching: find.text('Level 2'),
+        ),
+        findsOneWidget,
+      );
+    }
+  });
+
+  testWidgets('legacy profile level is displayed safely and cannot save', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ProfileEditorScreen.test(
+          uid: 'player',
+          displayName: 'Player',
+          profile: UserProfile(
+            uid: 'player',
+            displayName: 'Player',
+            level: 'Intermediate',
+            email: '',
+          ),
+        ),
+      ),
+    );
+    expect(
+      find.textContaining('Current value "Intermediate" is legacy'),
+      findsOneWidget,
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -1200));
+    await tester.pump();
+    await tester.tap(find.text('Save Profile'));
+    await tester.pump();
+    expect(find.text('Choose a level from 1 to 7.'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('private profile shows identity and existing computed stats', (
     tester,
   ) async {

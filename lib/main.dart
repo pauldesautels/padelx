@@ -31,6 +31,8 @@ import 'firebase_app_check_configuration.dart';
 import 'firebase_environment.dart';
 import 'geohash.dart';
 import 'discovery_refresh.dart';
+import 'level.dart';
+import 'match_date_time_picker.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1645,8 +1647,9 @@ Map<String, dynamic> buildMatchEditUpdate({
   if (!location.isValid) {
     throw const MatchActionException('Please select a complete club location.');
   }
-  if (level.trim().isEmpty) {
-    throw const MatchActionException('Please enter a player level.');
+  final normalizedLevel = normalizePadelLevel(level);
+  if (normalizedLevel == null) {
+    throw const MatchActionException('Please choose a valid player level.');
   }
   return {
     'title': _friendlyDateTime(scheduledAt),
@@ -1655,7 +1658,7 @@ Map<String, dynamic> buildMatchEditUpdate({
     'club': location.clubName.trim(),
     'clubName': location.clubName.trim(),
     'location': location.toMap(),
-    'level': level.trim(),
+    'level': matchLevelStorageValue(normalizedLevel),
     'spotsLeft': totalCapacity - confirmedCount,
   };
 }
@@ -3793,7 +3796,7 @@ List<Match> filterDiscoveredMatches(
           sameLocationValue(match.location.country, country) &&
           sameLocationValue(match.location.city, city) &&
           sameLocationValue(match.location.area, area) &&
-          (level == null || match.level == level) &&
+          (level == null || normalizePadelLevel(match.level) == level) &&
           (!availableOnly || match.spotsLeft > 0) &&
           matchesDate(match),
     ),
@@ -3998,13 +4001,13 @@ class _MatchesTabState extends State<MatchesTab> {
       );
     }
 
-    final levels =
-        widget.matches
-            .map((match) => match.level)
-            .where((level) => level.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
+    final availableLevels = widget.matches
+        .map((match) => normalizePadelLevel(match.level))
+        .whereType<String>()
+        .toSet();
+    final levels = padelLevelValues
+        .where(availableLevels.contains)
+        .toList(growable: false);
     final center = _discoveryCenter;
     final matchesNearLocation = center == null
         ? widget.matches
@@ -4207,7 +4210,10 @@ class _MatchesTabState extends State<MatchesTab> {
                     .map(
                       (level) => DropdownMenuItem(
                         value: level,
-                        child: Text(level, overflow: TextOverflow.ellipsis),
+                        child: Text(
+                          'Level $level',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     )
                     .toList(),
@@ -4872,15 +4878,10 @@ class _MyMatchesEmptyState extends StatelessWidget {
 }
 
 String profileLevelLabel(String level) {
-  final value = level.trim();
-  if (value.isEmpty) return 'Level not set';
-  if (value.toLowerCase().startsWith('level ')) return value;
-  return 'Level $value';
+  return padelLevelLabel(level);
 }
 
-bool isValidProfileLevel(String value) => RegExp(
-  r'^(Level )?([1-6](\.5)?|7)$|^(Beginner|Intermediate|Advanced)$',
-).hasMatch(value.trim());
+bool isValidProfileLevel(String value) => isValidPadelLevel(value);
 
 class ProfileTab extends StatefulWidget {
   final UserProfile? profile;
@@ -5280,16 +5281,41 @@ class _ProfileMessageState extends StatelessWidget {
 }
 
 class ProfileEditorScreen extends StatefulWidget {
-  final User user;
+  final User? user;
   final UserProfile? profile;
   final bool isRequired;
+  final String _testUid;
+  final String _testEmail;
+  final String _testDisplayName;
+  final VoidCallback? onSignOut;
 
   const ProfileEditorScreen({
     super.key,
     required this.user,
     this.profile,
     this.isRequired = false,
-  });
+    this.onSignOut,
+  }) : _testUid = '',
+       _testEmail = '',
+       _testDisplayName = '';
+
+  @visibleForTesting
+  const ProfileEditorScreen.test({
+    super.key,
+    required String uid,
+    String email = '',
+    String displayName = '',
+    this.profile,
+    this.isRequired = false,
+    this.onSignOut,
+  }) : user = null,
+       _testUid = uid,
+       _testEmail = email,
+       _testDisplayName = displayName;
+
+  String get uid => user?.uid ?? _testUid;
+  String get email => user?.email ?? _testEmail;
+  String get displayName => user?.displayName ?? _testDisplayName;
 
   @override
   State<ProfileEditorScreen> createState() => _ProfileEditorScreenState();
@@ -5297,7 +5323,6 @@ class ProfileEditorScreen extends StatefulWidget {
 
 class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   late final TextEditingController _displayNameController;
-  late final TextEditingController _levelController;
   late final TextEditingController _discoveryCountryController;
   late final TextEditingController _discoveryCountryCodeController;
   late final TextEditingController _discoveryCityController;
@@ -5310,14 +5335,21 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   double? _discoveryLatitude;
   double? _discoveryLongitude;
   bool _isSaving = false;
+  String? _level;
+  String? _legacyLevel;
+  String? _levelError;
 
   @override
   void initState() {
     super.initState();
     _displayNameController = TextEditingController(
-      text: widget.profile?.displayName ?? widget.user.displayName ?? '',
+      text: widget.profile?.displayName ?? widget.displayName,
     );
-    _levelController = TextEditingController(text: widget.profile?.level ?? '');
+    final initialLevel = widget.profile?.level;
+    _level = normalizePadelLevel(initialLevel);
+    _legacyLevel = _level == null && (initialLevel?.trim().isNotEmpty ?? false)
+        ? initialLevel!.trim()
+        : null;
     _discoveryCountryController = TextEditingController(
       text: widget.profile?.discoveryLocation.country ?? '',
     );
@@ -5346,7 +5378,6 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   @override
   void dispose() {
     _displayNameController.dispose();
-    _levelController.dispose();
     _discoveryCountryController.dispose();
     _discoveryCountryCodeController.dispose();
     _discoveryCityController.dispose();
@@ -5358,7 +5389,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   Future<void> _save() async {
     if (_isSaving) return;
     final displayName = _displayNameController.text.trim();
-    final level = _levelController.text.trim();
+    final level = _level;
     final discovery = DiscoveryLocation(
       country: _discoveryCountryController.text,
       countryCode: _discoveryCountryCodeController.text,
@@ -5376,18 +5407,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       _showMessage('Display name must be 40 characters or fewer.');
       return;
     }
-    if (level.isEmpty) {
-      _showMessage('Please enter your level.');
-      return;
-    }
-    if (level.length > 30) {
-      _showMessage('Level must be 30 characters or fewer.');
-      return;
-    }
-    if (!isValidProfileLevel(level)) {
-      _showMessage(
-        'Use a level from 1 to 7 in 0.5 steps, or Beginner, Intermediate, or Advanced.',
-      );
+    if (level == null) {
+      setState(() => _levelError = 'Choose a level from 1 to 7.');
+      _showMessage('Choose a level from 1 to 7.');
       return;
     }
     if (bio.length > socialProfileBioMaxLength) {
@@ -5412,12 +5434,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
     setState(() => _isSaving = true);
     try {
       final firestore = FirebaseFirestore.instance;
-      final privateReference = firestore
-          .collection('users')
-          .doc(widget.user.uid);
+      final privateReference = firestore.collection('users').doc(widget.uid);
       final publicReference = firestore
           .collection('publicProfiles')
-          .doc(widget.user.uid);
+          .doc(widget.uid);
       final batch = firestore.batch();
       final timestamp = FieldValue.serverTimestamp();
       final createdAt = widget.profile?.createdAt ?? timestamp;
@@ -5430,19 +5450,21 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       final sharedSocialData = socialProfile.toMap();
       final publicLocation = coarsePublicLocation(discovery.toMap());
       batch.set(privateReference, {
-        'uid': widget.user.uid,
+        'uid': widget.uid,
         'displayName': displayName,
-        'level': level,
-        'email': widget.user.email ?? widget.profile?.email ?? '',
+        'level': profileLevelStorageValue(level),
+        'email': widget.email.isNotEmpty
+            ? widget.email
+            : widget.profile?.email ?? '',
         'discoveryLocation': discovery.toMap(),
         'createdAt': createdAt,
         'updatedAt': timestamp,
         ...sharedSocialData,
       }, SetOptions(merge: true));
       batch.set(publicReference, {
-        'uid': widget.user.uid,
+        'uid': widget.uid,
         'displayName': displayName,
-        'level': level,
+        'level': profileLevelStorageValue(level),
         ...publicLocation,
         ...sharedSocialData,
       }, SetOptions(merge: true));
@@ -5488,7 +5510,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             ? [
                 IconButton(
                   tooltip: 'Log out',
-                  onPressed: _isSaving ? null : FirebaseAuth.instance.signOut,
+                  onPressed: _isSaving
+                      ? null
+                      : widget.onSignOut ??
+                            () => unawaited(FirebaseAuth.instance.signOut()),
                   icon: const Icon(Icons.logout),
                 ),
               ]
@@ -5498,7 +5523,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           AvatarEditor(
-            uid: widget.user.uid,
+            uid: widget.uid,
             displayName: _displayNameController.text,
             avatarVersion: _avatarVersion,
             onChanged: (value) => setState(() => _avatarVersion = value),
@@ -5523,16 +5548,20 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          TextField(
-            controller: _levelController,
-            enabled: !_isSaving,
-            maxLength: 30,
-            decoration: const InputDecoration(
-              labelText: 'Level',
-              hintText: 'e.g. 3.5 or Intermediate',
-              prefixIcon: Icon(Icons.trending_up),
-              border: OutlineInputBorder(),
-            ),
+          PadelLevelSelector(
+            fieldKey: const Key('profile-level-field'),
+            value: _level,
+            legacyValue: _legacyLevel,
+            errorText: _levelError,
+            onChanged: _isSaving
+                ? null
+                : (value) => setState(() {
+                    _level = value;
+                    _legacyLevel = null;
+                    _levelError = null;
+                  }),
+            labelText: 'Level',
+            icon: Icons.trending_up,
           ),
           const SizedBox(height: 16),
           const Text(
@@ -5705,6 +5734,8 @@ class CreateMatchScreen extends StatefulWidget {
   final String? initialLevel;
   final PlayAgainTarget? playAgainTarget;
   final PlayAgainRepository? playAgainRepository;
+  final DateTime Function() nowProvider;
+  final MatchDateTimePicker dateTimePicker;
 
   const CreateMatchScreen({
     super.key,
@@ -5715,6 +5746,8 @@ class CreateMatchScreen extends StatefulWidget {
     this.initialLevel,
     this.playAgainTarget,
     this.playAgainRepository,
+    this.nowProvider = DateTime.now,
+    this.dateTimePicker = showAdaptiveMatchDateTimePicker,
   });
 
   @override
@@ -5765,7 +5798,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     if (_scheduledAt != null) {
       _dateTimeController.text = _friendlyDateTime(_scheduledAt!);
     }
-    _level = widget.initialLevel ?? widget.playAgainTarget?.safeLevel;
+    _level = normalizePadelLevel(
+      widget.initialLevel ?? widget.playAgainTarget?.safeLevel,
+    );
   }
 
   @override
@@ -5798,8 +5833,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     );
 
     final locationError = !location.isValid ? 'Select a padel club.' : null;
+    final now = widget.nowProvider();
     final dateTimeError = dateTime.isEmpty || _scheduledAt == null
         ? 'Choose a date and time.'
+        : !_scheduledAt!.isAfter(now)
+        ? 'Please choose a future date and time.'
         : null;
     final levelError = level == null ? 'Choose a player level.' : null;
     if (locationError != null || dateTimeError != null || levelError != null) {
@@ -5836,7 +5874,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         'location': location.toMap(),
         'dateTime': dateTime,
         'scheduledAt': Timestamp.fromDate(_scheduledAt!),
-        'level': level!,
+        'level': matchLevelStorageValue(level!),
         'spotsLeft': _totalPlayers - 1,
         'players': <Map<String, String>>[],
         'participantUids': <String>[if (user != null) user.uid],
@@ -5902,29 +5940,13 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   }
 
   Future<void> _selectDateTime() async {
-    final now = DateTime.now();
-    final initial = _scheduledAt ?? now.add(const Duration(hours: 1));
-    final date = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: DateTime(now.year + 5),
+    final now = widget.nowProvider();
+    final selected = await widget.dateTimePicker(
+      context,
+      now: now,
+      initialValue: _scheduledAt,
     );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
-    if (time == null || !mounted) return;
-
-    final selected = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
+    if (selected == null || !mounted) return;
     if (!selected.isAfter(now)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please choose a future date and time.')),
@@ -6137,6 +6159,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           _sectionTitle('When'),
           const SizedBox(height: 16),
           TextField(
+            key: const Key('create-date-time-field'),
             controller: _dateTimeController,
             readOnly: true,
             onTap: _selectDateTime,
@@ -6160,24 +6183,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           const SizedBox(height: 24),
           _sectionTitle('Match details'),
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            key: const Key('player-level-field'),
-            initialValue: _level,
-            decoration: const InputDecoration(
-              labelText: 'Player level',
-              hintText: 'Choose a level',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              for (var value = 1.0; value <= 7.0; value += .5)
-                DropdownMenuItem(
-                  value:
-                      'Level ${value == value.roundToDouble() ? value.toInt() : value}',
-                  child: Text(
-                    'Level ${value == value.roundToDouble() ? value.toInt() : value}',
-                  ),
-                ),
-            ],
+          PadelLevelSelector(
+            fieldKey: const Key('player-level-field'),
+            value: _level,
+            errorText: _levelError,
+            errorKey: const Key('level-error'),
             onChanged: _isCreating
                 ? null
                 : (value) => setState(() {
@@ -6185,15 +6195,6 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                     _levelError = null;
                   }),
           ),
-          if (_levelError != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                _levelError!,
-                key: const Key('level-error'),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ),
           const SizedBox(height: 16),
           DropdownButtonFormField<int>(
             key: const Key('total-players-field'),
@@ -6240,8 +6241,16 @@ typedef MatchEditSaver = Future<void> Function(Map<String, dynamic> update);
 class EditMatchScreen extends StatefulWidget {
   final Match match;
   final MatchEditSaver? saver;
+  final DateTime Function() nowProvider;
+  final MatchDateTimePicker dateTimePicker;
 
-  const EditMatchScreen({super.key, required this.match, this.saver});
+  const EditMatchScreen({
+    super.key,
+    required this.match,
+    this.saver,
+    this.nowProvider = DateTime.now,
+    this.dateTimePicker = showAdaptiveMatchDateTimePicker,
+  });
 
   @override
   State<EditMatchScreen> createState() => _EditMatchScreenState();
@@ -6250,11 +6259,13 @@ class EditMatchScreen extends StatefulWidget {
 class _EditMatchScreenState extends State<EditMatchScreen> {
   late final TextEditingController _clubController;
   late final TextEditingController _dateTimeController;
-  late final TextEditingController _levelController;
   late final TextEditingController _capacityController;
   late MatchLocation _location;
   DateTime? _scheduledAt;
   bool _isSaving = false;
+  String? _level;
+  String? _legacyLevel;
+  String? _levelError;
 
   @override
   void initState() {
@@ -6267,7 +6278,10 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
           ? widget.match.title
           : _friendlyDateTime(_scheduledAt!),
     );
-    _levelController = TextEditingController(text: widget.match.level);
+    _level = normalizePadelLevel(widget.match.level);
+    _legacyLevel = _level == null && widget.match.level.trim().isNotEmpty
+        ? widget.match.level.trim()
+        : null;
     _capacityController = TextEditingController(
       text: matchTotalCapacity(widget.match).toString(),
     );
@@ -6277,35 +6291,18 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
   void dispose() {
     _clubController.dispose();
     _dateTimeController.dispose();
-    _levelController.dispose();
     _capacityController.dispose();
     super.dispose();
   }
 
   Future<void> _selectDateTime() async {
-    final now = DateTime.now();
-    final initial = _scheduledAt != null && _scheduledAt!.isAfter(now)
-        ? _scheduledAt!
-        : now.add(const Duration(hours: 1));
-    final date = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: DateTime(now.year + 5),
+    final now = widget.nowProvider();
+    final selected = await widget.dateTimePicker(
+      context,
+      now: now,
+      initialValue: _scheduledAt,
     );
-    if (date == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
-    if (time == null || !mounted) return;
-    final selected = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
+    if (selected == null || !mounted) return;
     if (!selected.isAfter(now)) {
       _showMessage('Please choose a future date and time.');
       return;
@@ -6323,6 +6320,16 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
       if (scheduledAt == null) {
         throw const MatchActionException('Please choose a date and time.');
       }
+      if (!scheduledAt.isAfter(widget.nowProvider())) {
+        throw const MatchActionException(
+          'Please choose a future date and time.',
+        );
+      }
+      final level = _level;
+      if (level == null) {
+        setState(() => _levelError = 'Choose a level from 1 to 7.');
+        throw const MatchActionException('Choose a level from 1 to 7.');
+      }
       final capacity = int.tryParse(_capacityController.text.trim());
       if (capacity == null) {
         throw const MatchActionException(
@@ -6333,7 +6340,7 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
         match: widget.match,
         location: _location,
         scheduledAt: scheduledAt,
-        level: _levelController.text,
+        level: level,
         totalCapacity: capacity,
       );
       setState(() => _isSaving = true);
@@ -6392,7 +6399,7 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
         match: latest,
         location: _location,
         scheduledAt: _scheduledAt!,
-        level: _levelController.text,
+        level: _level!,
         totalCapacity: capacity,
       );
       transaction.update(reference, safeUpdate);
@@ -6466,15 +6473,19 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          TextField(
-            key: const Key('edit-level-field'),
-            controller: _levelController,
-            enabled: !_isSaving,
-            decoration: const InputDecoration(
-              labelText: 'Level',
-              prefixIcon: Icon(Icons.leaderboard),
-              border: OutlineInputBorder(),
-            ),
+          PadelLevelSelector(
+            fieldKey: const Key('edit-level-field'),
+            value: _level,
+            legacyValue: _legacyLevel,
+            errorText: _levelError,
+            onChanged: _isSaving
+                ? null
+                : (value) => setState(() {
+                    _level = value;
+                    _legacyLevel = null;
+                    _levelError = null;
+                  }),
+            labelText: 'Level',
           ),
           const SizedBox(height: 16),
           TextField(

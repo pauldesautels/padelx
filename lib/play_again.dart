@@ -1,4 +1,5 @@
 import 'location.dart';
+import 'level.dart';
 
 class PlayAgainTarget {
   final String uid;
@@ -17,6 +18,8 @@ class PlayAgainTarget {
 
   MatchLocation? get safeLocation =>
       location?.isValid == true ? location : null;
-  String? get safeLevel =>
-      RegExp(r'^Level ([1-6](\.5)?|7)$').hasMatch(level ?? '') ? level : null;
+  String? get safeLevel {
+    final normalized = normalizePadelLevel(level);
+    return normalized == null ? null : matchLevelStorageValue(normalized);
+  }
 }

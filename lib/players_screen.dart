@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'level.dart';
 import 'profile_avatar.dart';
 import 'friends_repository.dart';
 import 'friends_screen.dart';
@@ -161,37 +162,18 @@ class _Filters extends StatelessWidget {
       ),
       DropdownButton<String>(
         value: filters.level.isEmpty ? 'any' : filters.level,
-        items:
-            const [
-                  'any',
-                  '1',
-                  '1.5',
-                  '2',
-                  '2.5',
-                  '3',
-                  '3.5',
-                  '4',
-                  '4.5',
-                  '5',
-                  '5.5',
-                  '6',
-                  '6.5',
-                  '7',
-                  'Beginner',
-                  'Intermediate',
-                  'Advanced',
-                ]
-                .map(
-                  (v) => DropdownMenuItem(
-                    value: v,
-                    child: Text(
-                      v == 'any'
-                          ? 'Any level'
-                          : (RegExp(r'^[0-9]').hasMatch(v) ? 'Level $v' : v),
-                    ),
-                  ),
-                )
-                .toList(),
+        items: ['any', ...padelLevelValues]
+            .map(
+              (v) => DropdownMenuItem(
+                value: v,
+                child: Text(
+                  v == 'any'
+                      ? 'Any level'
+                      : (RegExp(r'^[0-9]').hasMatch(v) ? 'Level $v' : v),
+                ),
+              ),
+            )
+            .toList(),
         onChanged: (v) => onChanged(
           PlayerDiscoveryFilters(
             area: filters.area,

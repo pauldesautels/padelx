@@ -491,6 +491,18 @@ void main() {
       );
 
       expect(find.text('Level 2.5'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('player-level-field')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('player-level-field')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('padel-level-options')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('padel-level-option-2')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('padel-level-options')), findsNothing);
+      expect(find.text('Level 2'), findsOneWidget);
       final dateField = tester.widget<TextField>(
         find.widgetWithText(TextField, 'Date and time'),
       );
@@ -505,11 +517,80 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(saved?['spotsLeft'], 3);
-      expect(saved?['level'], 'Level 2.5');
+      expect(saved?['level'], 'Level 2');
       expect((saved?['location'] as Map)['countryCode'], 'MX');
       expect(saved, isNot(contains('creatorEmail')));
     },
   );
+
+  testWidgets('create uses shared picker and preserves cancellation', (
+    tester,
+  ) async {
+    final initial = DateTime(2030, 1, 2, 15, 30);
+    DateTime? receivedInitial;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CreateMatchScreen(
+          initialScheduledAt: initial,
+          dateTimePicker: (context, {required now, initialValue}) async {
+            receivedInitial = initialValue;
+            return null;
+          },
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('create-date-time-field')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final before = tester
+        .widget<TextField>(find.byKey(const Key('create-date-time-field')))
+        .controller!
+        .text;
+    await tester.tap(find.byKey(const Key('create-date-time-field')));
+    await tester.pump();
+    expect(receivedInitial, initial);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('create-date-time-field')))
+          .controller!
+          .text,
+      before,
+    );
+  });
+
+  testWidgets('create rejects a selected time that became past', (
+    tester,
+  ) async {
+    final selected = DateTime(2030, 1, 2, 10);
+    var now = DateTime(2030, 1, 2, 9);
+    var submissions = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CreateMatchScreen(
+          initialLocation: _testLocation,
+          initialScheduledAt: selected,
+          initialLevel: '3.5',
+          nowProvider: () => now,
+          creator: (_) async {
+            submissions++;
+            return 'match';
+          },
+        ),
+      ),
+    );
+    now = DateTime(2030, 1, 2, 11);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('create-match-submit')),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('create-match-submit')));
+    await tester.pump();
+    expect(submissions, 0);
+    expect(find.text('Please choose a future date and time.'), findsWidgets);
+  });
 
   testWidgets('create prevents double submit and shows loading', (
     WidgetTester tester,
@@ -750,23 +831,95 @@ void main() {
     expect(find.text('3'), findsOneWidget);
     expect(find.textContaining('Mexico City'), findsOneWidget);
 
-    await tester.enterText(
-      find.byKey(const Key('edit-level-field')),
-      'Level 4',
-    );
+    await tester.tap(find.byKey(const Key('edit-level-field')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('padel-level-option-2')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('padel-level-options')), findsNothing);
     await tester.drag(find.byType(ListView), const Offset(0, -700));
     await tester.pump();
     await tester.tap(find.byKey(const Key('edit-match-submit')));
     await tester.pumpAndSettle();
 
     expect(saved, isNotNull);
-    expect(saved!['level'], 'Level 4');
+    expect(saved!['level'], 'Level 2');
     expect(saved!['spotsLeft'], 1);
     expect(saved!['location'], containsPair('placeId', 'old-place'));
     expect(saved!['location'], containsPair('latitude', 19.419));
     expect(saved!['location'], containsPair('longitude', -99.162));
     expect(saved!.containsKey('players'), isFalse);
     expect(saved!.containsKey('creatorUid'), isFalse);
+  });
+
+  testWidgets('edit uses shared picker and rejects a time that became past', (
+    tester,
+  ) async {
+    final selected = DateTime(2030, 1, 2, 10);
+    var now = DateTime(2030, 1, 2, 9);
+    DateTime? receivedInitial;
+    var saves = 0;
+    final match = _match(
+      id: 'editable-time',
+      club: 'Club',
+      level: 'Level 3.5',
+      scheduledAt: selected,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EditMatchScreen(
+          match: match,
+          nowProvider: () => now,
+          dateTimePicker: (context, {required now, initialValue}) async {
+            receivedInitial = initialValue;
+            return null;
+          },
+          saver: (_) async => saves++,
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('edit-date-time-field')));
+    await tester.pump();
+    expect(receivedInitial, selected);
+
+    now = DateTime(2030, 1, 2, 11);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('edit-match-submit')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('edit-match-submit')));
+    await tester.pump();
+    expect(saves, 0);
+    expect(find.text('Please choose a future date and time.'), findsOneWidget);
+  });
+
+  testWidgets('edit legacy level is safe and must be replaced', (tester) async {
+    var saves = 0;
+    final match = _match(
+      id: 'legacy-level',
+      club: 'Club',
+      level: 'Intermediate',
+      scheduledAt: DateTime(2030, 1, 2, 10),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EditMatchScreen(
+          match: match,
+          nowProvider: () => DateTime(2030, 1, 1),
+          saver: (_) async => saves++,
+        ),
+      ),
+    );
+    expect(
+      find.textContaining('Current value "Intermediate" is legacy'),
+      findsOneWidget,
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -700));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('edit-match-submit')));
+    await tester.pump();
+    expect(saves, 0);
+    expect(find.text('Choose a level from 1 to 7.'), findsWidgets);
   });
 
   test('structured location and schedule edits produce discovery fields', () {

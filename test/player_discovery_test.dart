@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/friends.dart';
 import 'package:padelx/friends_repository.dart';
+import 'package:padelx/level.dart';
 import 'package:padelx/player_discovery.dart';
+import 'package:padelx/player_discovery_repository.dart';
 import 'package:padelx/players_screen.dart';
 
 class FakeFriends implements FriendsRepository {
@@ -14,6 +16,14 @@ class FakeFriends implements FriendsRepository {
   @override Stream<void> watchFriendViews(String viewerUid) => const Stream.empty();
 }
 
+class FakeDiscovery implements PlayerDiscoveryRepository {
+  @override
+  Future<PlayerDiscoveryPage> discover(
+    PlayerDiscoveryFilters filters, {
+    Object? cursor,
+  }) async => const PlayerDiscoveryPage();
+}
+
 void main() {
   const player = DiscoveredPlayer(uid: 'p', displayName: 'Pat', level: '4', preferredSide: 'either',
     countryCode: 'MX', city: 'Mexico City', area: 'Roma', ratingCount: 2, ratingAverage: 4.5,
@@ -22,6 +32,29 @@ void main() {
   test('filter payload is coarse and bounded', () {
     final map = const PlayerDiscoveryFilters(area: 'Roma', level: '4', preferredSide: 'left').toMap();
     expect(map, containsPair('limit', 20)); expect(map, isNot(contains('latitude'))); expect(map, isNot(contains('city')));
+  });
+  testWidgets('level filter derives only canonical numeric options', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlayersScreen(
+            repository: FakeDiscovery(),
+            friendsRepository: FakeFriends(),
+            onProfileTap: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dropdown = tester.widget<DropdownButton<String>>(
+      find.byType(DropdownButton<String>).first,
+    );
+    expect(dropdown.items!.map((item) => item.value), [
+      'any',
+      ...padelLevelValues,
+    ]);
   });
   testWidgets('player card shows public context and safe actions without Message', (tester) async {
     var opened = false; var replayed = false;
