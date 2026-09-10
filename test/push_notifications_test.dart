@@ -37,6 +37,7 @@ class _Messaging implements PushMessagingGateway {
   PushPermissionState permission;
   String? currentToken = 'fcm-token-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
   int requests = 0;
+  int tokenReads = 0;
   final StreamController<String> refresh = StreamController<String>.broadcast();
   _Messaging({this.permission = PushPermissionState.notDetermined});
   @override
@@ -48,7 +49,11 @@ class _Messaging implements PushMessagingGateway {
   }
 
   @override
-  Future<String?> token() async => currentToken;
+  Future<String?> token() async {
+    tokenReads++;
+    return currentToken;
+  }
+
   @override
   Stream<String> get tokenRefreshes => refresh.stream;
 }
@@ -66,8 +71,31 @@ class _Devices implements PushDeviceRepository {
   }
 }
 
+class _UnsupportedMessaging implements PushMessagingGateway {
+  int requests = 0;
+  int tokenReads = 0;
+
+  @override
+  Future<PushPermissionState> permissionState() async =>
+      PushPermissionState.unsupported;
+  @override
+  Future<PushPermissionState> requestPermission() async {
+    requests++;
+    return PushPermissionState.unsupported;
+  }
+
+  @override
+  Future<String?> token() async {
+    tokenReads++;
+    return null;
+  }
+
+  @override
+  Stream<String> get tokenRefreshes => const Stream.empty();
+}
+
 PushNotificationService _service(
-  _Messaging messaging,
+  PushMessagingGateway messaging,
   _Devices devices,
   _Preferences preferences,
 ) => PushNotificationService(
@@ -77,6 +105,36 @@ PushNotificationService _service(
 );
 
 void main() {
+  test(
+    'build capability keeps default device-test off and staging available',
+    () {
+      expect(
+        pushCapabilityAvailable(
+          isWeb: false,
+          platform: TargetPlatform.iOS,
+          iosDeviceTest: true,
+        ),
+        false,
+      );
+      expect(
+        pushCapabilityAvailable(
+          isWeb: false,
+          platform: TargetPlatform.iOS,
+          iosDeviceTest: false,
+        ),
+        true,
+      );
+      expect(
+        pushCapabilityAvailable(
+          isWeb: false,
+          platform: TargetPlatform.android,
+          iosDeviceTest: false,
+        ),
+        true,
+      );
+    },
+  );
+
   test('missing preference document uses opt-out with enabled categories', () {
     final value = NotificationPreferences.fromMap(null);
     expect(value.pushEnabled, false);
@@ -256,4 +314,33 @@ void main() {
     expect(preferences.value.matchMessages, false);
     expect(preferences.value.pushEnabled, false);
   });
+
+  testWidgets(
+    'unsupported build disables push without requesting or tokenizing',
+    (tester) async {
+      final messaging = _UnsupportedMessaging();
+      final preferences = _Preferences();
+      final service = _service(messaging, _Devices(), preferences);
+      await service.startForUser('alice');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotificationSettingsScreen(
+            uid: 'alice',
+            repository: preferences,
+            pushService: service,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unavailable in this build'), findsOneWidget);
+      expect(find.byKey(const Key('push-build-unavailable')), findsOneWidget);
+      final toggle = tester.widget<SwitchListTile>(
+        find.byKey(const Key('push-notifications-toggle')),
+      );
+      expect(toggle.onChanged, isNull);
+      expect(messaging.requests, 0);
+      expect(messaging.tokenReads, 0);
+    },
+  );
 }

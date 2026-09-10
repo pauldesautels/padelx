@@ -200,7 +200,7 @@ class _NotificationSettingsScreenState
             : 'Push notifications off',
       PushPermissionState.denied => 'Notifications blocked in device settings',
       PushPermissionState.notDetermined => 'Push notifications off',
-      PushPermissionState.unsupported => 'Unavailable on this device',
+      PushPermissionState.unsupported => 'Unavailable in this build',
       null =>
         preferences.pushEnabled
             ? 'Checking device permission…'
@@ -223,11 +223,25 @@ class _NotificationSettingsScreenState
               secondary: const Icon(Icons.notifications_active_outlined),
               title: const Text('Push notifications'),
               subtitle: Text(_permissionLabel(preferences)),
-              value: preferences.pushEnabled,
-              onChanged: _busy
+              value:
+                  _permission != PushPermissionState.unsupported &&
+                  preferences.pushEnabled,
+              onChanged:
+                  _busy ||
+                      _permission == null ||
+                      _permission == PushPermissionState.unsupported
                   ? null
                   : (value) => _togglePush(preferences, value),
             ),
+            if (_permission == PushPermissionState.unsupported)
+              const Padding(
+                key: Key('push-build-unavailable'),
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Text(
+                  'Push notifications are not configured for this build. '
+                  'Notification categories can still be prepared below.',
+                ),
+              ),
             if (_permission == PushPermissionState.denied)
               const Padding(
                 padding: EdgeInsets.fromLTRB(16, 0, 16, 12),

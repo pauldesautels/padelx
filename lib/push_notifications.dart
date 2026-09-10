@@ -9,6 +9,20 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 enum PushPermissionState { notDetermined, allowed, denied, unsupported }
 
+const isIosDeviceTestBuild = bool.fromEnvironment('PADELX_IOS_DEVICE_TEST');
+
+bool pushCapabilityAvailable({
+  required bool isWeb,
+  required TargetPlatform platform,
+  required bool iosDeviceTest,
+}) {
+  if (isWeb ||
+      !{TargetPlatform.iOS, TargetPlatform.android}.contains(platform)) {
+    return false;
+  }
+  return platform != TargetPlatform.iOS || !iosDeviceTest;
+}
+
 class NotificationPreferences {
   final bool pushEnabled;
   final bool matchMessages;
@@ -116,6 +130,12 @@ class FirebasePushMessagingGateway implements PushMessagingGateway {
   FirebasePushMessagingGateway({FirebaseMessaging? messaging})
     : messaging = messaging ?? FirebaseMessaging.instance;
 
+  bool get _isSupported => pushCapabilityAvailable(
+    isWeb: kIsWeb,
+    platform: defaultTargetPlatform,
+    iosDeviceTest: isIosDeviceTestBuild,
+  );
+
   PushPermissionState _map(AuthorizationStatus status) => switch (status) {
     AuthorizationStatus.authorized ||
     AuthorizationStatus.provisional => PushPermissionState.allowed,
@@ -126,11 +146,7 @@ class FirebasePushMessagingGateway implements PushMessagingGateway {
 
   @override
   Future<PushPermissionState> permissionState() async {
-    if (kIsWeb ||
-        !{
-          TargetPlatform.iOS,
-          TargetPlatform.android,
-        }.contains(defaultTargetPlatform)) {
+    if (!_isSupported) {
       return PushPermissionState.unsupported;
     }
     return _map(
@@ -140,11 +156,7 @@ class FirebasePushMessagingGateway implements PushMessagingGateway {
 
   @override
   Future<PushPermissionState> requestPermission() async {
-    if (kIsWeb ||
-        !{
-          TargetPlatform.iOS,
-          TargetPlatform.android,
-        }.contains(defaultTargetPlatform)) {
+    if (!_isSupported) {
       return PushPermissionState.unsupported;
     }
     return _map(
@@ -161,10 +173,12 @@ class FirebasePushMessagingGateway implements PushMessagingGateway {
   }
 
   @override
-  Future<String?> token() => messaging.getToken();
+  Future<String?> token() =>
+      _isSupported ? messaging.getToken() : Future<String?>.value(null);
 
   @override
-  Stream<String> get tokenRefreshes => messaging.onTokenRefresh;
+  Stream<String> get tokenRefreshes =>
+      _isSupported ? messaging.onTokenRefresh : const Stream.empty();
 }
 
 abstract class PushDeviceRepository {

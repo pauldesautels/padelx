@@ -13,9 +13,9 @@ test('staging entitlements preserve App Attest and add environment-scoped APNs',
   assert.match(project, /Release-staging[\s\S]*?APS_ENVIRONMENT = production;/);
 });
 
-test('device-test uses a push-only entitlement without weakening App Attest staging', async () => {
+test('default device-test requires neither APNs nor App Attest entitlements', async () => {
   const entitlements = await read('ios/Runner/RunnerDeviceTest.entitlements');
-  assert.match(entitlements, /<key>aps-environment<\/key>\s*<string>development<\/string>/);
+  assert.doesNotMatch(entitlements, /aps-environment/);
   assert.doesNotMatch(entitlements, /appattest/);
   const project = await read('ios/Runner.xcodeproj/project.pbxproj');
   assert.match(project, /Debug-device-test[\s\S]*?CODE_SIGN_ENTITLEMENTS = Runner\/RunnerDeviceTest\.entitlements;/);
