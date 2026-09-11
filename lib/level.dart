@@ -151,7 +151,9 @@ class PadelLevelSelector extends StatelessWidget {
         onTap: enabled ? () => _openSelector(context) : null,
         borderRadius: BorderRadius.circular(4),
         child: InputDecorator(
-          isEmpty: value == null,
+          // The child always renders either a selected value or a prompt, so the
+          // label must float in both states instead of overlapping that text.
+          isEmpty: false,
           isFocused: false,
           decoration: InputDecoration(
             labelText: labelText,

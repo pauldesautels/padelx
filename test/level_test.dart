@@ -96,4 +96,66 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('unset selector floats one label above its prompt at 320pt', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(320, 640),
+            textScaler: TextScaler.linear(1.6),
+          ),
+          child: Scaffold(
+            body: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                PadelLevelSelector(value: null, onChanged: (_) {}),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  initialValue: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Total players',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 4, child: Text('4 players')),
+                  ],
+                  onChanged: (_) {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Player level'), findsOneWidget);
+    expect(find.text('Choose a level'), findsOneWidget);
+    expect(find.text('Total players'), findsOneWidget);
+    final label = tester.getRect(find.text('Player level'));
+    final prompt = tester.getRect(find.text('Choose a level'));
+    expect(label.bottom, lessThanOrEqualTo(prompt.top));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('selected selector keeps one label and one selected value', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PadelLevelSelector(value: '3.5', onChanged: (_) {}),
+        ),
+      ),
+    );
+    expect(find.text('Player level'), findsOneWidget);
+    expect(find.text('Level 3.5'), findsOneWidget);
+    expect(find.text('Choose a level'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
