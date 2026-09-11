@@ -166,6 +166,30 @@ void main() {
     expect(find.text('You have not blocked any players.'), findsOneWidget);
   });
 
+  testWidgets('Help & Safety contains working guidance and Blocked Players', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsScreen(
+          friendsRepository: _SettingsFriends(),
+          onDeleteAccount: () {},
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('settings-help-safety')));
+    await tester.pumpAndSettle();
+    expect(find.text('How to report a player'), findsOneWidget);
+    expect(find.text('How to report a message'), findsOneWidget);
+    expect(find.text('How to report a match'), findsOneWidget);
+    expect(find.text('PadelX is for adults 18 and older.'), findsOneWidget);
+    expect(find.text('Terms'), findsNothing);
+    expect(find.text('Privacy Policy'), findsNothing);
+    await tester.tap(find.byKey(const Key('help-safety-blocked-players')));
+    await tester.pumpAndSettle();
+    expect(find.text('Blocked Players'), findsOneWidget);
+  });
+
   testWidgets('Settings opens Notifications without requesting permission', (
     tester,
   ) async {

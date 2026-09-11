@@ -42,6 +42,9 @@ import 'auth_landing.dart';
 import 'branding.dart';
 import 'startup.dart';
 import 'eligibility.dart';
+import 'report_flow.dart';
+import 'report_repository.dart';
+import 'reporting.dart';
 
 PushNotificationService? _pushNotificationService;
 StreamSubscription<User?>? _pushAuthSubscription;
@@ -6949,6 +6952,7 @@ class PlayerProfileScreen extends StatefulWidget {
   final FriendsRepository? friendsRepository;
   final MessagingRepository? messagingRepository;
   final ValueChanged<PlayAgainTarget>? onPlayAgain;
+  final ReportRepository? reportRepository;
 
   const PlayerProfileScreen({
     super.key,
@@ -6962,6 +6966,7 @@ class PlayerProfileScreen extends StatefulWidget {
     this.friendsRepository,
     this.messagingRepository,
     this.onPlayAgain,
+    this.reportRepository,
   });
 
   @override
@@ -6978,6 +6983,20 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
       Firebase.apps.isEmpty ? null : FirebaseAuth.instance.currentUser;
 
   String get _viewerUid => widget.viewerUid ?? _firebaseUser?.uid ?? '';
+
+  Future<void> _reportPlayer(String name, bool isAcceptedFriend) =>
+      showReportFlow(
+        context: context,
+        repository: widget.reportRepository ?? FirebaseReportRepository(),
+        subjectType: ReportSubjectType.player,
+        subjectId: widget.uid,
+        subjectLabel: name.isEmpty ? 'Player' : name,
+        onBlockPlayer: () =>
+            (widget.friendsRepository ?? FirebaseFriendsRepository()).block(
+              widget.uid,
+            ),
+        friendshipWillBeRemoved: isAcceptedFriend,
+      );
 
   Future<void> _message(String name, int avatarVersion) async {
     final repository =
@@ -7182,6 +7201,8 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                   repository:
                       widget.friendsRepository ?? FirebaseFriendsRepository(),
                   onChanged: _retry,
+                  onReport: (isAcceptedFriend) =>
+                      _reportPlayer(name, isAcceptedFriend),
                 ),
                 FutureBuilder<RelationshipPolicy>(
                   future:
@@ -7839,12 +7860,14 @@ class MatchDetailsScreen extends StatefulWidget {
   final Match match;
   final Future<void> Function(MatchMutationResult)? onMatchUpdated;
   final ValueChanged<String>? onMatchDeleted;
+  final ReportRepository? reportRepository;
 
   const MatchDetailsScreen({
     super.key,
     required this.match,
     this.onMatchUpdated,
     this.onMatchDeleted,
+    this.reportRepository,
   });
 
   @override
@@ -7856,6 +7879,14 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   bool _isLeaving = false;
   bool _isCancelling = false;
   final Set<String> _processingRequestIds = {};
+
+  Future<void> _reportMatch(Match match) => showReportFlow(
+    context: context,
+    repository: widget.reportRepository ?? FirebaseReportRepository(),
+    subjectType: ReportSubjectType.match,
+    subjectId: match.id,
+    subjectLabel: match.club.isEmpty ? 'Padel match' : match.club,
+  );
 
   Future<void> _playAgain(Match match, String uid, String name) async {
     final result = await Navigator.of(context).push<MatchMutationResult>(
@@ -8441,6 +8472,26 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                             },
                       icon: const Icon(Icons.edit_outlined),
                       label: const Text('Edit Match'),
+                    ),
+                  if (!isOrganizer)
+                    PopupMenuButton<String>(
+                      key: const Key('match-safety-actions'),
+                      tooltip: 'More safety actions',
+                      onSelected: (value) {
+                        if (value == 'report') _reportMatch(match);
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'report',
+                          child: Row(
+                            children: [
+                              Icon(Icons.flag_outlined),
+                              SizedBox(width: 12),
+                              Text('Report match'),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                 ],
               ),

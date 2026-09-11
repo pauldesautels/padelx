@@ -64,6 +64,22 @@ class SettingsScreen extends StatelessWidget {
                 ),
         ),
         const Divider(),
+        const _SettingsHeader('Help & Safety'),
+        ListTile(
+          key: const Key('settings-help-safety'),
+          leading: const Icon(Icons.health_and_safety_outlined),
+          title: const Text('Help & Safety'),
+          subtitle: const Text('Reporting, blocking, and age eligibility'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  HelpSafetyScreen(friendsRepository: friendsRepository),
+            ),
+          ),
+        ),
+        const Divider(),
         const _SettingsHeader('Privacy'),
         ListTile(
           key: const Key('settings-blocked-players'),
@@ -79,6 +95,73 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
         ),
+      ],
+    ),
+  );
+}
+
+class HelpSafetyScreen extends StatelessWidget {
+  final FriendsRepository friendsRepository;
+  const HelpSafetyScreen({super.key, required this.friendsRepository});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Help & Safety')),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      children: [
+        Semantics(
+          header: true,
+          child: const Text(
+            'Safety',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+        ),
+        const SizedBox(height: 12),
+        const ListTile(
+          leading: Icon(Icons.person_outline),
+          title: Text('How to report a player'),
+          subtitle: Text(
+            'Open the player’s profile, tap More actions, then Report player.',
+          ),
+        ),
+        const ListTile(
+          leading: Icon(Icons.chat_bubble_outline),
+          title: Text('How to report a message'),
+          subtitle: Text(
+            'Press and hold a message from another player, then choose Report message.',
+          ),
+        ),
+        const ListTile(
+          leading: Icon(Icons.sports_tennis_outlined),
+          title: Text('How to report a match'),
+          subtitle: Text(
+            'Open Match Details, then choose Report match from the safety actions.',
+          ),
+        ),
+        ListTile(
+          key: const Key('help-safety-blocked-players'),
+          leading: const Icon(Icons.block_outlined),
+          title: const Text('Blocked Players'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  BlockedPlayersScreen(repository: friendsRepository),
+            ),
+          ),
+        ),
+        const Divider(height: 36),
+        Semantics(
+          header: true,
+          child: const Text(
+            '18+ eligibility',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Text('PadelX is for adults 18 and older.'),
       ],
     ),
   );

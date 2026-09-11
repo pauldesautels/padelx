@@ -3,10 +3,15 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'firebase_diagnostics.dart';
 import 'messaging.dart';
 import 'messaging_repository.dart';
 import 'profile_avatar.dart';
+import 'friends_repository.dart';
+import 'report_flow.dart';
+import 'report_repository.dart';
+import 'reporting.dart';
 
 typedef ConversationNotificationStream =
     Stream<Map<String, dynamic>?> Function(
@@ -23,6 +28,8 @@ class ConversationScreen extends StatefulWidget {
   final int avatarVersion;
   final String? conversationType;
   final ConversationNotificationStream? notificationStream;
+  final ReportRepository? reportRepository;
+  final FriendsRepository? friendsRepository;
   const ConversationScreen({
     super.key,
     required this.conversationId,
@@ -33,6 +40,8 @@ class ConversationScreen extends StatefulWidget {
     this.avatarVersion = 0,
     this.conversationType,
     this.notificationStream,
+    this.reportRepository,
+    this.friendsRepository,
   });
   @override
   State<ConversationScreen> createState() => _ConversationScreenState();
@@ -304,6 +313,34 @@ class _ConversationScreenState extends State<ConversationScreen> {
       widget.conversationType == 'match' ||
       (widget.conversationType == null && widget.otherUid == null);
 
+  Future<void> _reportMessage(
+    ChatMessage message,
+    MessagingIdentity identity,
+  ) async {
+    final friends = widget.friendsRepository ?? FirebaseFriendsRepository();
+    var acceptedFriend = false;
+    if (!_isMatch) {
+      try {
+        acceptedFriend =
+            (await friends.policy(message.senderUid)).status == 'accepted';
+      } catch (_) {
+        // Reporting remains available if relationship copy cannot be enriched.
+      }
+    }
+    if (!mounted) return;
+    await showReportFlow(
+      context: context,
+      repository: widget.reportRepository ?? FirebaseReportRepository(),
+      subjectType: ReportSubjectType.message,
+      subjectId: message.id,
+      conversationId: widget.conversationId,
+      subjectLabel: 'Message from ${identity.displayName}',
+      onBlockPlayer: () => friends.block(message.senderUid),
+      sharedMatchBlockCopy: _isMatch,
+      friendshipWillBeRemoved: acceptedFriend,
+    );
+  }
+
   void _retry() {
     setState(() {
       _loading = true;
@@ -460,6 +497,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           showSenderName: !mine && startsGroup && _isMatch,
                           showTimestamp: endsGroup,
                           grouped: !startsGroup,
+                          onReport: mine
+                              ? null
+                              : () => _reportMessage(message, identity),
                         ),
                       ],
                     );
@@ -555,6 +595,7 @@ class MessageBubble extends StatelessWidget {
   final bool showSenderName;
   final bool showTimestamp;
   final bool grouped;
+  final VoidCallback? onReport;
 
   const MessageBubble({
     super.key,
@@ -565,92 +606,120 @@ class MessageBubble extends StatelessWidget {
     required this.showSenderName,
     required this.showTimestamp,
     required this.grouped,
+    this.onReport,
   });
 
   @override
   Widget build(BuildContext context) {
     final time = messagingTime(message.createdAt);
     final sender = mine ? 'You' : identity.displayName;
+    final reportAction = CustomSemanticsAction(label: 'Report message');
     return Semantics(
       label: [sender, message.text, if (time.isNotEmpty) time].join(', '),
       container: true,
       excludeSemantics: true,
-      child: Padding(
-        padding: EdgeInsets.only(top: grouped ? 3 : 10),
-        child: Row(
-          mainAxisAlignment: mine
-              ? MainAxisAlignment.end
-              : MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (!mine) ...[
-              SizedBox(
-                width: 36,
-                child: showIdentity
-                    ? ProfileAvatar(
-                        uid: identity.uid,
-                        displayName: identity.displayName,
-                        avatarVersion: identity.avatarVersion,
-                        radius: 15,
-                      )
-                    : null,
-              ),
-              const SizedBox(width: 7),
-            ],
-            Flexible(
-              child: FractionallySizedBox(
-                key: Key('message-content-${message.id}'),
-                widthFactor: 0.78,
-                alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-                child: Column(
-                  crossAxisAlignment: mine
-                      ? CrossAxisAlignment.end
-                      : CrossAxisAlignment.start,
-                  children: [
-                    if (showSenderName) ...[
-                      Text(
-                        identity.displayName,
-                        key: Key('message-sender-${message.id}'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF9FE7B1),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                    ],
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 13,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: mine
-                            ? const Color(0xFF164B3B)
-                            : const Color(0xFF1A2420),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white10),
-                      ),
-                      child: Text(message.text),
+      customSemanticsActions: onReport == null
+          ? const {}
+          : {reportAction: onReport!},
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPress: onReport == null
+            ? null
+            : () async {
+                final selected = await showModalBottomSheet<bool>(
+                  context: context,
+                  useSafeArea: true,
+                  builder: (sheetContext) => SafeArea(
+                    child: ListTile(
+                      key: const Key('report-message-action'),
+                      minVerticalPadding: 16,
+                      leading: const Icon(Icons.flag_outlined),
+                      title: const Text('Report message'),
+                      onTap: () => Navigator.pop(sheetContext, true),
                     ),
-                    if (showTimestamp && time.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        time,
-                        key: Key('message-time-${message.id}'),
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.white60,
+                  ),
+                );
+                if (selected == true) onReport!();
+              },
+        child: Padding(
+          padding: EdgeInsets.only(top: grouped ? 3 : 10),
+          child: Row(
+            mainAxisAlignment: mine
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!mine) ...[
+                SizedBox(
+                  width: 36,
+                  child: showIdentity
+                      ? ProfileAvatar(
+                          uid: identity.uid,
+                          displayName: identity.displayName,
+                          avatarVersion: identity.avatarVersion,
+                          radius: 15,
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 7),
+              ],
+              Flexible(
+                child: FractionallySizedBox(
+                  key: Key('message-content-${message.id}'),
+                  widthFactor: 0.78,
+                  alignment: mine
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: Column(
+                    crossAxisAlignment: mine
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
+                    children: [
+                      if (showSenderName) ...[
+                        Text(
+                          identity.displayName,
+                          key: Key('message-sender-${message.id}'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF9FE7B1),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
+                        const SizedBox(height: 4),
+                      ],
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 13,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: mine
+                              ? const Color(0xFF164B3B)
+                              : const Color(0xFF1A2420),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white10),
+                        ),
+                        child: Text(message.text),
                       ),
+                      if (showTimestamp && time.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          time,
+                          key: Key('message-time-${message.id}'),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.white60,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

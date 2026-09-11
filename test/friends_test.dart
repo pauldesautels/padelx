@@ -260,6 +260,31 @@ void main() {
     );
   });
 
+  testWidgets('player action sheet exposes one separate report action', (
+    tester,
+  ) async {
+    final repository = FakeFriendsRepository(policies: {'target': accepted});
+    var reports = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FriendAction(
+            targetUid: 'target',
+            repository: repository,
+            onReport: (_) async => reports++,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('friends-action')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('report-player-action')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('report-player-action')));
+    await tester.pumpAndSettle();
+    expect(reports, 1);
+  });
+
   testWidgets('Unfriend confirmation can cancel or execute', (tester) async {
     final repository = FakeFriendsRepository(policies: {'target': accepted});
     await tester.pumpWidget(friendAction(repository));

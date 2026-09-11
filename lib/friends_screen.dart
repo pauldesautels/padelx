@@ -12,11 +12,13 @@ class FriendAction extends StatefulWidget {
   final String targetUid;
   final FriendsRepository repository;
   final VoidCallback? onChanged;
+  final Future<void> Function(bool isAcceptedFriend)? onReport;
   const FriendAction({
     super.key,
     required this.targetUid,
     required this.repository,
     this.onChanged,
+    this.onReport,
   });
   @override
   State<FriendAction> createState() => _FriendActionState();
@@ -150,12 +152,25 @@ class _FriendActionState extends State<FriendAction> {
               ),
               onTap: () => Navigator.pop(sheetContext, 'block'),
             ),
+            if (widget.onReport != null)
+              ListTile(
+                key: const Key('report-player-action'),
+                minVerticalPadding: 14,
+                leading: const Icon(Icons.flag_outlined),
+                title: const Text('Report player'),
+                subtitle: const Text('Send a private safety report'),
+                onTap: () => Navigator.pop(sheetContext, 'report'),
+              ),
             const SizedBox(height: 8),
           ],
         ),
       ),
     );
     if (!mounted || action == null) return;
+    if (action == 'report') {
+      await widget.onReport?.call(canUnfriend);
+      return;
+    }
     if (action == 'unfriend') {
       final confirmed = await _confirmAction(
         title: 'Unfriend this player?',
@@ -252,6 +267,7 @@ class _FriendActionState extends State<FriendAction> {
       if (policy.direction == FriendDirection.incoming) {
         return Wrap(
           spacing: 8,
+          runSpacing: 8,
           children: [
             FilledButton(
               key: const Key('accept-friend'),
@@ -273,19 +289,43 @@ class _FriendActionState extends State<FriendAction> {
                     ),
               child: const Text('Decline'),
             ),
+            if (widget.onReport != null)
+              OutlinedButton.icon(
+                key: const Key('more-social-actions'),
+                onPressed: _busy
+                    ? null
+                    : () => _showRelationshipActions(canUnfriend: false),
+                icon: const Icon(Icons.more_horiz),
+                label: const Text('More actions'),
+              ),
           ],
         );
       }
       if (policy.direction == FriendDirection.outgoing) {
-        return OutlinedButton(
-          key: const Key('cancel-friend-request'),
-          onPressed: _busy
-              ? null
-              : () => _run(
-                  'cancelFriendRequest',
-                  () => widget.repository.cancel(widget.targetUid),
-                ),
-          child: const Text('Requested'),
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton(
+              key: const Key('cancel-friend-request'),
+              onPressed: _busy
+                  ? null
+                  : () => _run(
+                      'cancelFriendRequest',
+                      () => widget.repository.cancel(widget.targetUid),
+                    ),
+              child: const Text('Requested'),
+            ),
+            if (widget.onReport != null)
+              OutlinedButton.icon(
+                key: const Key('more-social-actions'),
+                onPressed: _busy
+                    ? null
+                    : () => _showRelationshipActions(canUnfriend: false),
+                icon: const Icon(Icons.more_horiz),
+                label: const Text('More actions'),
+              ),
+          ],
         );
       }
       return Wrap(
