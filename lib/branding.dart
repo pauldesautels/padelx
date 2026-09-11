@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 const padelXBackground = Color(0xFF021812);
 const padelXSurface = Color(0xFF0B211B);
 const padelXAccent = Color(0xFF72F58B);
+const padelXAuthFieldFill = Color(0xFF071A15);
+const padelXAuthBorder = Color(0xFF29463B);
+const padelXAuthAccent = Color(0xFF74E8A0);
+const padelXAuthPrimary = Color(0xFF237A4F);
+const padelXAuthPrimaryDisabled = Color(0xFF29483A);
 const padelXMarkAsset = 'assets/branding/padelx-mark.png';
 
 class PadelXBrandMark extends StatelessWidget {

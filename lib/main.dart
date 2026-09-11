@@ -887,7 +887,7 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF050605),
+      backgroundColor: padelXBackground,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -921,21 +921,24 @@ class _AuthScreenState extends State<AuthScreen> {
                   Container(
                     padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0B0D0C),
-                      border: Border.all(color: const Color(0xFF343735)),
+                      color: padelXSurface,
+                      border: Border.all(color: padelXAuthBorder),
                       borderRadius: BorderRadius.circular(24),
                     ),
                     child: Theme(
+                      key: const Key('auth-form-theme'),
                       data: Theme.of(context).copyWith(
                         inputDecorationTheme: InputDecorationTheme(
                           filled: true,
-                          fillColor: const Color(0xFF0A0B0A),
+                          fillColor: padelXAuthFieldFill,
                           labelStyle: const TextStyle(color: Colors.white70),
                           floatingLabelStyle: const TextStyle(
-                            color: Color(0xFFB8F20D),
+                            color: padelXAuthAccent,
                           ),
                           prefixIconColor: Colors.white70,
-                          suffixIconColor: Colors.white70,
+                          suffixIconColor: padelXAuthAccent,
+                          hintStyle: const TextStyle(color: Colors.white54),
+                          errorStyle: const TextStyle(color: Color(0xFFFFA59C)),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 18,
@@ -946,15 +949,35 @@ class _AuthScreenState extends State<AuthScreen> {
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: const BorderSide(
-                              color: Color(0xFF484C49),
+                              color: padelXAuthBorder,
                             ),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: const BorderSide(
-                              color: Color(0xFFB8F20D),
+                              color: padelXAuthAccent,
                               width: 1.5,
                             ),
+                          ),
+                          errorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFFFA59C),
+                            ),
+                          ),
+                          focusedErrorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFFFA59C),
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                        textButtonTheme: TextButtonThemeData(
+                          style: TextButton.styleFrom(
+                            foregroundColor: padelXAuthAccent,
+                            disabledForegroundColor: Colors.white38,
+                            minimumSize: const Size(48, 48),
                           ),
                         ),
                       ),
@@ -1061,11 +1084,11 @@ class _AuthScreenState extends State<AuthScreen> {
                               key: const Key('auth-submit'),
                               onPressed: _isLoading ? null : _submit,
                               style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFFB8F20D),
-                                foregroundColor: Colors.black,
-                                disabledBackgroundColor: const Color(
-                                  0xFF6B850E,
-                                ),
+                                backgroundColor: padelXAuthPrimary,
+                                foregroundColor: Colors.white,
+                                disabledBackgroundColor:
+                                    padelXAuthPrimaryDisabled,
+                                disabledForegroundColor: Colors.white60,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14),
                                 ),
@@ -1087,9 +1110,6 @@ class _AuthScreenState extends State<AuthScreen> {
                           TextButton(
                             key: const Key('auth-switch-mode'),
                             onPressed: _isLoading ? null : _switchMode,
-                            style: TextButton.styleFrom(
-                              foregroundColor: const Color(0xFFB8F20D),
-                            ),
                             child: Text(
                               _isLogin
                                   ? 'Don’t have an account? Sign Up'

@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:padelx/current_location.dart';
+import 'package:padelx/branding.dart';
 import 'package:padelx/location.dart';
 import 'package:padelx/main.dart';
 import 'package:padelx/social_profile.dart';
@@ -24,6 +25,63 @@ void main() {
     expect(find.byKey(const Key('auth-email')), findsOneWidget);
     expect(find.byKey(const Key('auth-password')), findsOneWidget);
     expect(find.text('Log In'), findsWidgets);
+
+    final authTheme = tester.widget<Theme>(
+      find.byKey(const Key('auth-form-theme')),
+    );
+    final inputTheme = authTheme.data.inputDecorationTheme;
+    expect(inputTheme.fillColor, padelXAuthFieldFill);
+    expect(inputTheme.floatingLabelStyle?.color, padelXAuthAccent);
+    expect(
+      authTheme.data.textButtonTheme.style?.foregroundColor?.resolve(
+        <WidgetState>{},
+      ),
+      padelXAuthAccent,
+    );
+    expect(
+      (inputTheme.focusedBorder! as OutlineInputBorder).borderSide.color,
+      padelXAuthAccent,
+    );
+
+    final submit = tester.widget<FilledButton>(
+      find.byKey(const Key('auth-submit')),
+    );
+    expect(
+      submit.style?.backgroundColor?.resolve(<WidgetState>{}),
+      padelXAuthPrimary,
+    );
+    expect(
+      submit.style?.foregroundColor?.resolve(<WidgetState>{}),
+      Colors.white,
+    );
+  });
+
+  testWidgets('sign up keeps the restrained email authentication palette', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(home: AuthScreen(signUpHandler: (_, _) async {})),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('auth-switch-mode')));
+    await tester.tap(find.byKey(const Key('auth-switch-mode')));
+    await tester.pump();
+
+    expect(find.text('Sign Up'), findsOneWidget);
+    final authTheme = tester.widget<Theme>(
+      find.byKey(const Key('auth-form-theme')),
+    );
+    expect(
+      authTheme.data.inputDecorationTheme.floatingLabelStyle?.color,
+      padelXAuthAccent,
+    );
+    final submit = tester.widget<FilledButton>(
+      find.byKey(const Key('auth-submit')),
+    );
+    expect(
+      submit.style?.backgroundColor?.resolve(<WidgetState>{}),
+      padelXAuthPrimary,
+    );
   });
 
   testWidgets('password starts obscured and can be revealed', (
@@ -86,6 +144,21 @@ void main() {
     await tester.tap(find.byKey(const Key('auth-submit')));
     await tester.pump();
     expect(find.text('Logging in...'), findsOneWidget);
+    final submit = tester.widget<FilledButton>(
+      find.byKey(const Key('auth-submit')),
+    );
+    expect(
+      submit.style?.backgroundColor?.resolve(<WidgetState>{
+        WidgetState.disabled,
+      }),
+      padelXAuthPrimaryDisabled,
+    );
+    expect(
+      submit.style?.foregroundColor?.resolve(<WidgetState>{
+        WidgetState.disabled,
+      }),
+      Colors.white60,
+    );
     await tester.tap(find.byKey(const Key('auth-submit')));
     expect(submissions, 1);
     completion.complete();
@@ -380,6 +453,33 @@ void main() {
     tester.view.physicalSize = const Size(1200, 900);
     await tester.pump();
     expect(tester.getSize(find.byKey(const Key('auth-content'))).width, 440);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('auth remains usable with large Dynamic Type on narrow iPhone', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: AuthScreen(loginHandler: (_, _) async {}),
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+    expect(find.byKey(const Key('auth-email')), findsOneWidget);
+    expect(find.byKey(const Key('auth-password')), findsOneWidget);
+    expect(find.byKey(const Key('auth-submit')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
