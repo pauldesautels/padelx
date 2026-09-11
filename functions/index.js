@@ -21,6 +21,7 @@ import { createPlayAgainInvitationOperation, dismissPlayAgainInvitationOperation
 import { discoverPlayersOperation } from './player_discovery.js';
 import { registerPushDeviceOperation, unregisterPushDeviceOperation } from './push_devices.js';
 import { getAgeEligibilityOperation, recordAgeEligibilityOperation } from './eligibility.js';
+import { submitReportOperation } from './reports.js';
 
 function backendFirestore() {
   const environment = backendEnvironment();
@@ -116,6 +117,7 @@ export const registerPushDevice = socialCallable(registerPushDeviceOperation);
 export const unregisterPushDevice = socialCallable(unregisterPushDeviceOperation);
 export const getAgeEligibility = accountCallable(getAgeEligibilityOperation);
 export const recordAgeEligibility = accountCallable(recordAgeEligibilityOperation);
+export const submitReport = accountCallable(submitReportOperation);
 
 export const reconcilePlayAgainInvitations = onDocumentWritten({
   document: 'matches/{matchId}', retry: true, maxInstances: 4,

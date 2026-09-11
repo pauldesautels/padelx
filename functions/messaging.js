@@ -19,7 +19,7 @@ const cursorDate = (value) => {
 const boundedLimit = (value, fallback, maximum) =>
   Number.isInteger(value) && value > 0 ? Math.min(value, maximum) : fallback;
 
-async function requireMessagingActor(firestore, request) {
+export async function requireMessagingActor(firestore, request) {
   assertSafeFirestore(firestore);
   const uid = await requireActiveAccount(firestore, request);
   const [user, profile] = await firestore.getAll(
@@ -118,7 +118,7 @@ export async function ensureMatchConversationOperation(firestore, request) {
   return { conversationId: id, canSend: state.canSend, disabledReason: state.reason };
 }
 
-async function conversationAccess(firestore, uid, conversation, now, { sending = false } = {}) {
+export async function conversationAccess(firestore, uid, conversation, now, { sending = false } = {}) {
   if (!conversation?.memberUids?.includes(uid)) return { allowed: false };
   if (conversation.type === 'direct') {
     const other = conversation.memberUids.find((member) => member !== uid);

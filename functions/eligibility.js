@@ -6,7 +6,7 @@ export const ACCOUNT_ELIGIBILITY = 'accountEligibility';
 export const AGE_ELIGIBILITY_VERSION = '18-plus-v1';
 export const AGE_ELIGIBILITY_SCHEMA_VERSION = 1;
 
-function validEligibility(data, uid) {
+export function validEligibility(data, uid) {
   return data?.uid === uid
     && data.age18Confirmed === true
     && data.ageEligibilityVersion === AGE_ELIGIBILITY_VERSION

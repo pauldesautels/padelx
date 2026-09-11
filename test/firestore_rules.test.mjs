@@ -641,6 +641,22 @@ describe('join requests, notifications, and ratings', () => {
 });
 
 describe('account deletion foundation', () => {
+  test('reports and report rate limits are inaccessible to every client', async () => {
+    await seed('reports/report-1', { reporterUid: 'alice', subjectOwnerUid: 'bob', status: 'open' });
+    await seed('reportRateLimits/rate-1', { submittedAt: [past()] });
+    const clients = [environment.unauthenticatedContext().firestore(), auth('alice'), auth('bob'), auth('charlie')];
+    for (const db of clients) {
+      for (const collectionName of ['reports', 'reportRateLimits']) {
+        const reference = doc(db, `${collectionName}/${collectionName === 'reports' ? 'report-1' : 'rate-1'}`);
+        await assertFails(getDoc(reference));
+        await assertFails(getDocs(collection(db, collectionName)));
+        await assertFails(setDoc(doc(db, `${collectionName}/new`), { status: 'open' }));
+        await assertFails(updateDoc(reference, { status: 'changed' }));
+        await assertFails(deleteDoc(reference));
+      }
+    }
+  });
+
   test('eligibility evidence is inaccessible to every client', async () => {
     await seed('accountEligibility/alice', {
       uid: 'alice', age18Confirmed: true, ageEligibilityVersion: '18-plus-v1',

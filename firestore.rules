@@ -872,6 +872,12 @@ service cloud.firestore {
     match /accountEligibility/{uid} {
       allow read, create, update, delete: if false;
     }
+    match /reports/{reportId} {
+      allow read, create, update, delete: if false;
+    }
+    match /reportRateLimits/{document=**} {
+      allow read, create, update, delete: if false;
+    }
     match /ratingContributions/{contributionId} {
       allow read, write: if false;
     }

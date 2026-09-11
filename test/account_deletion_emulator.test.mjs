@@ -35,6 +35,7 @@ test('concurrent admission atomically removes profiles and preserves one cutoff 
   await db.doc(`users/${uid}`).set({ email: 'private' });
   await db.doc(`publicProfiles/${uid}`).set({ displayName: 'Private' });
   await db.doc(`accountEligibility/${uid}`).set({ uid, age18Confirmed: true });
+  await db.doc(`reports/retained-${uid}`).set({ reporterUid: uid, status: 'open' });
   const receipts = await Promise.all([
     acceptAccountDeletion(db, request(uid), now),
     acceptAccountDeletion(db, request(uid), new Date(now.getTime() + 1000)),
@@ -48,6 +49,7 @@ test('concurrent admission atomically removes profiles and preserves one cutoff 
   assert.equal(await read(`users/${uid}`), undefined);
   assert.equal(await read(`publicProfiles/${uid}`), undefined);
   assert.equal(await read(`accountEligibility/${uid}`), undefined);
+  assert.ok(await read(`reports/retained-${uid}`));
 });
 
 test('transaction abort leaves both profiles intact and no partial acceptance', async () => {
