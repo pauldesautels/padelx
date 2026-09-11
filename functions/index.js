@@ -20,6 +20,7 @@ import { createPlayAgainInvitationOperation, dismissPlayAgainInvitationOperation
   reconcilePlayAgainInvitesForMatch } from './play_again.js';
 import { discoverPlayersOperation } from './player_discovery.js';
 import { registerPushDeviceOperation, unregisterPushDeviceOperation } from './push_devices.js';
+import { getAgeEligibilityOperation, recordAgeEligibilityOperation } from './eligibility.js';
 
 function backendFirestore() {
   const environment = backendEnvironment();
@@ -87,6 +88,13 @@ const socialCallable = (operation) => onCall({
   return operation(firestore, request);
 });
 
+const accountCallable = (operation) => onCall({
+  enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== 'true',
+}, async (request) => {
+  const { firestore } = backendFirestore();
+  return operation(firestore, request);
+});
+
 export const requestFriend = socialCallable(requestFriendOperation);
 export const respondToFriendRequest = socialCallable(respondToFriendRequestOperation);
 export const cancelFriendRequest = socialCallable(cancelFriendRequestOperation);
@@ -106,6 +114,8 @@ export const dismissPlayAgainInvitation = socialCallable(dismissPlayAgainInvitat
 export const discoverPlayers = socialCallable(discoverPlayersOperation);
 export const registerPushDevice = socialCallable(registerPushDeviceOperation);
 export const unregisterPushDevice = socialCallable(unregisterPushDeviceOperation);
+export const getAgeEligibility = accountCallable(getAgeEligibilityOperation);
+export const recordAgeEligibility = accountCallable(recordAgeEligibilityOperation);
 
 export const reconcilePlayAgainInvitations = onDocumentWritten({
   document: 'matches/{matchId}', retry: true, maxInstances: 4,

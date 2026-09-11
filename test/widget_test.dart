@@ -249,6 +249,7 @@ void main() {
             submittedEmail = email;
             submittedPassword = password;
           },
+          ageEligibilityRecorder: (_) async {},
           emailVerificationSender: () async => verificationEmails++,
         ),
       ),
@@ -259,11 +260,15 @@ void main() {
     await tester.pump();
     expect(find.text('Sign Up'), findsOneWidget);
     expect(find.text('Create Account'), findsOneWidget);
+    expect(find.byKey(const Key('signup-age-checkbox')), findsOneWidget);
     await tester.enterText(
       find.byKey(const Key('auth-email')),
       'new@example.com',
     );
     await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
+    await tester.ensureVisible(find.byKey(const Key('signup-age-checkbox')));
+    await tester.tap(find.byKey(const Key('signup-age-checkbox')));
+    await tester.pump();
     await tester.ensureVisible(find.byKey(const Key('auth-submit')));
     await tester.tap(find.byKey(const Key('auth-submit')));
     await tester.pumpAndSettle();
@@ -315,6 +320,7 @@ void main() {
                   message: 'sensitive backend detail',
                 );
               },
+              ageEligibilityRecorder: (_) async {},
             ),
           ),
         );
@@ -329,6 +335,11 @@ void main() {
           find.byKey(const Key('auth-password')),
           'secret12',
         );
+        await tester.ensureVisible(
+          find.byKey(const Key('signup-age-checkbox')),
+        );
+        await tester.tap(find.byKey(const Key('signup-age-checkbox')));
+        await tester.pump();
         await tester.ensureVisible(find.byKey(const Key('auth-submit')));
         await tester.tap(find.byKey(const Key('auth-submit')));
         await tester.pump();

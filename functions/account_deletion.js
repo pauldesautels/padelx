@@ -52,6 +52,7 @@ export async function acceptAccountDeletion(db, request, now = new Date()) {
     // Reassert absence on retries; never recreate a private/public profile.
     tx.delete(db.collection('users').doc(uid));
     tx.delete(db.collection('publicProfiles').doc(uid));
+    tx.delete(db.collection('accountEligibility').doc(uid));
     return { status: 'accepted' };
   });
 }

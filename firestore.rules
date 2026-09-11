@@ -869,6 +869,9 @@ service cloud.firestore {
     match /accountDeletionOutbox/{uid} {
       allow read, write: if false;
     }
+    match /accountEligibility/{uid} {
+      allow read, create, update, delete: if false;
+    }
     match /ratingContributions/{contributionId} {
       allow read, write: if false;
     }

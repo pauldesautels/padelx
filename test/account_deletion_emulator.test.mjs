@@ -34,6 +34,7 @@ test('concurrent admission atomically removes profiles and preserves one cutoff 
   const uid = 'accepted';
   await db.doc(`users/${uid}`).set({ email: 'private' });
   await db.doc(`publicProfiles/${uid}`).set({ displayName: 'Private' });
+  await db.doc(`accountEligibility/${uid}`).set({ uid, age18Confirmed: true });
   const receipts = await Promise.all([
     acceptAccountDeletion(db, request(uid), now),
     acceptAccountDeletion(db, request(uid), new Date(now.getTime() + 1000)),
@@ -46,12 +47,14 @@ test('concurrent admission atomically removes profiles and preserves one cutoff 
   assert.equal((await read(`accountDeletionJobs/${uid}`)).deletionRequestedAt.toMillis(), records[0].deletionRequestedAt.toMillis());
   assert.equal(await read(`users/${uid}`), undefined);
   assert.equal(await read(`publicProfiles/${uid}`), undefined);
+  assert.equal(await read(`accountEligibility/${uid}`), undefined);
 });
 
 test('transaction abort leaves both profiles intact and no partial acceptance', async () => {
   const uid = 'aborted';
   await db.doc(`users/${uid}`).set({ email: 'private' });
   await db.doc(`publicProfiles/${uid}`).set({ displayName: 'Private' });
+  await db.doc(`accountEligibility/${uid}`).set({ uid, age18Confirmed: true });
   const failingDb = {
     projectId: db.projectId, collection: db.collection.bind(db),
     runTransaction: (callback) => db.runTransaction(async (tx) => {
@@ -62,6 +65,7 @@ test('transaction abort leaves both profiles intact and no partial acceptance', 
   await assert.rejects(acceptAccountDeletion(failingDb, request(uid), now), /injected-before-commit/);
   for (const path of refs(uid)) assert.equal(await read(path), undefined);
   assert.ok(await read(`users/${uid}`)); assert.ok(await read(`publicProfiles/${uid}`));
+  assert.ok(await read(`accountEligibility/${uid}`));
 });
 
 test('durable acceptance precedes Auth; lockdown disables, revokes and never deletes', async () => {

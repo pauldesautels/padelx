@@ -641,8 +641,23 @@ describe('join requests, notifications, and ratings', () => {
 });
 
 describe('account deletion foundation', () => {
+  test('eligibility evidence is inaccessible to every client', async () => {
+    await seed('accountEligibility/alice', {
+      uid: 'alice', age18Confirmed: true, ageEligibilityVersion: '18-plus-v1',
+      confirmedAt: past(), schemaVersion: 1,
+    });
+    const clients = [environment.unauthenticatedContext().firestore(), auth('alice'), auth('bob')];
+    for (const db of clients) {
+      await assertFails(getDoc(doc(db, 'accountEligibility/alice')));
+      await assertFails(setDoc(doc(db, 'accountEligibility/new'), { age18Confirmed: true }));
+      await assertFails(updateDoc(doc(db, 'accountEligibility/alice'), { age18Confirmed: false }));
+      await assertFails(deleteDoc(doc(db, 'accountEligibility/alice')));
+    }
+  });
+
   test('barriers, jobs, and contributions are server-owned for all users', async () => {
     for (const collectionName of ['accountDeletionBarriers', 'accountDeletionJobs', 'accountDeletionOutbox',
+      'accountEligibility',
       'ratingContributions', 'playedWithMatchContributions', 'playedWithContributions',
       'playedWithPairs', 'socialProjectionState']) {
       await seed(`${collectionName}/alice`, { status: 'deleting', schemaVersion: 1 });

@@ -41,6 +41,7 @@ import 'push_notifications.dart';
 import 'auth_landing.dart';
 import 'branding.dart';
 import 'startup.dart';
+import 'eligibility.dart';
 
 PushNotificationService? _pushNotificationService;
 StreamSubscription<User?>? _pushAuthSubscription;
@@ -144,6 +145,12 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
+  int _eligibilityGeneration = 0;
+
+  void _eligibilityRecorded() {
+    if (mounted) setState(() => _eligibilityGeneration++);
+  }
+
   bool _deleting = false;
   String? _deletionMessage;
   Future<void> _finishDeletion(String message) async {
@@ -212,30 +219,42 @@ class _AuthGateState extends State<AuthGate> {
         // authStateChanges event, so prefer that refreshed instance here.
         final user = FirebaseAuth.instance.currentUser;
         if (user != null && !user.emailVerified) {
-          return EmailVerificationScreen(
-            email: user.email ?? '',
-            onContinue: () async {
-              await user.reload();
-              final refreshedUser = FirebaseAuth.instance.currentUser;
-              if (refreshedUser?.emailVerified != true) return false;
-              await refreshedUser!.getIdToken(true);
-              _continueAfterVerification();
-              return true;
-            },
-            onResend: user.sendEmailVerification,
+          return AgeEligibilityGate(
+            key: ValueKey('eligibility-${user.uid}-$_eligibilityGeneration'),
+            repository: EligibilityRepository.firebase(),
             onSignOut: _signOutWithPushCleanup,
-            onDeleteAccount: _openDeletion,
+            eligibleBuilder: (_) => EmailVerificationScreen(
+              email: user.email ?? '',
+              onContinue: () async {
+                await user.reload();
+                final refreshedUser = FirebaseAuth.instance.currentUser;
+                if (refreshedUser?.emailVerified != true) return false;
+                await refreshedUser!.getIdToken(true);
+                _continueAfterVerification();
+                return true;
+              },
+              onResend: user.sendEmailVerification,
+              onSignOut: _signOutWithPushCleanup,
+              onDeleteAccount: _openDeletion,
+            ),
           );
         }
 
         if (user != null) {
-          return ProfileGate(user: user, onDeleteAccount: _openDeletion);
+          return AgeEligibilityGate(
+            key: ValueKey('eligibility-${user.uid}-$_eligibilityGeneration'),
+            repository: EligibilityRepository.firebase(),
+            onSignOut: _signOutWithPushCleanup,
+            eligibleBuilder: (_) =>
+                ProfileGate(user: user, onDeleteAccount: _openDeletion),
+          );
         }
 
         return AuthLandingScreen(
           onEmail: () => Navigator.of(context).push(
             MaterialPageRoute(
               builder: (routeContext) => AuthScreen(
+                onEligibilityRecorded: _eligibilityRecorded,
                 onAuthenticationSucceeded: () =>
                     Navigator.of(routeContext).pop(),
               ),
@@ -723,6 +742,8 @@ class AuthScreen extends StatefulWidget {
   final Future<void> Function(String email, String password)? loginHandler;
   final Future<void> Function(String email, String password)? signUpHandler;
   final Future<void> Function()? emailVerificationSender;
+  final Future<void> Function(String requestId)? ageEligibilityRecorder;
+  final VoidCallback? onEligibilityRecorded;
   final VoidCallback? onAuthenticationSucceeded;
 
   const AuthScreen({
@@ -731,6 +752,8 @@ class AuthScreen extends StatefulWidget {
     this.loginHandler,
     this.signUpHandler,
     this.emailVerificationSender,
+    this.ageEligibilityRecorder,
+    this.onEligibilityRecorded,
     this.onAuthenticationSucceeded,
   });
 
@@ -747,6 +770,10 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _obscurePassword = true;
   String? _emailError;
   String? _passwordError;
+  bool _ageConfirmed = false;
+  bool _eligibilitySetupPending = false;
+  String? _eligibilityError;
+  String? _eligibilityRequestId;
 
   @override
   void dispose() {
@@ -757,6 +784,13 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _submit() async {
     if (_isLoading) return;
+    if (!_isLogin && !_ageConfirmed) {
+      setState(() {
+        _eligibilityError =
+            'Confirm that you are 18 years of age or older to continue.';
+      });
+      return;
+    }
 
     final email = _emailController.text.trim();
     final password = _passwordController.text;
@@ -784,17 +818,45 @@ class _AuthScreenState extends State<AuthScreen> {
                 password: password,
               ));
       } else {
-        if (widget.signUpHandler != null) {
-          await widget.signUpHandler!(email, password);
-          await widget.emailVerificationSender?.call();
-        } else {
-          final credential = await FirebaseAuth.instance
-              .createUserWithEmailAndPassword(email: email, password: password);
-          final user = credential.user;
-          if (user == null) {
-            throw FirebaseAuthException(code: 'missing-user');
+        if (!_eligibilitySetupPending) {
+          if (widget.signUpHandler != null) {
+            await widget.signUpHandler!(email, password);
+          } else {
+            final credential = await FirebaseAuth.instance
+                .createUserWithEmailAndPassword(
+                  email: email,
+                  password: password,
+                );
+            if (credential.user == null) {
+              throw FirebaseAuthException(code: 'missing-user');
+            }
           }
-          await user.sendEmailVerification();
+          _eligibilitySetupPending = true;
+          _eligibilityRequestId ??= newEligibilityRequestId();
+        }
+        try {
+          await (widget.ageEligibilityRecorder != null
+              ? widget.ageEligibilityRecorder!(_eligibilityRequestId!)
+              : EligibilityRepository.firebase().recordEligibility(
+                  requestId: _eligibilityRequestId!,
+                ));
+        } catch (_) {
+          if (mounted) {
+            setState(() {
+              _eligibilityError =
+                  'Your account was created, but age eligibility could not be confirmed. Try again to continue.';
+            });
+          }
+          return;
+        }
+        widget.onEligibilityRecorded?.call();
+        if (widget.emailVerificationSender != null) {
+          await widget.emailVerificationSender!.call();
+        } else {
+          final currentUser = FirebaseAuth.instance.currentUser;
+          if (currentUser != null && !currentUser.emailVerified) {
+            await currentUser.sendEmailVerification();
+          }
         }
       }
       if (mounted) widget.onAuthenticationSucceeded?.call();
@@ -876,6 +938,8 @@ class _AuthScreenState extends State<AuthScreen> {
       _emailError = null;
       _passwordError = null;
       _obscurePassword = true;
+      _ageConfirmed = false;
+      _eligibilityError = null;
     });
   }
 
@@ -1005,7 +1069,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           TextField(
                             key: const Key('auth-email'),
                             controller: _emailController,
-                            enabled: !_isLoading,
+                            enabled: !_isLoading && !_eligibilitySetupPending,
                             keyboardType: TextInputType.emailAddress,
                             textInputAction: TextInputAction.next,
                             autofillHints: const [AutofillHints.email],
@@ -1026,7 +1090,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           TextField(
                             key: const Key('auth-password'),
                             controller: _passwordController,
-                            enabled: !_isLoading,
+                            enabled: !_isLoading && !_eligibilitySetupPending,
                             obscureText: _obscurePassword,
                             textInputAction: TextInputAction.done,
                             autofillHints: _isLogin
@@ -1038,9 +1102,11 @@ class _AuthScreenState extends State<AuthScreen> {
                               }
                             },
                             onSubmitted: (_) {
-                              if (!_isLoading) {
-                                _submit();
+                              if (_isLoading) return;
+                              if (!_isLogin && !_ageConfirmed) {
+                                FocusScope.of(context).unfocus();
                               }
+                              _submit();
                             },
                             decoration: InputDecoration(
                               labelText: 'Password',
@@ -1077,12 +1143,49 @@ class _AuthScreenState extends State<AuthScreen> {
                                 child: const Text('Forgot password?'),
                               ),
                             ),
+                          if (!_isLogin) ...[
+                            const SizedBox(height: 8),
+                            Material(
+                              type: MaterialType.transparency,
+                              child: CheckboxListTile(
+                                key: const Key('signup-age-checkbox'),
+                                value: _ageConfirmed,
+                                onChanged:
+                                    _isLoading || _eligibilitySetupPending
+                                    ? null
+                                    : (value) => setState(() {
+                                        _ageConfirmed = value == true;
+                                        _eligibilityError = null;
+                                      }),
+                                contentPadding: EdgeInsets.zero,
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                title: const Text(
+                                  'I confirm that I am 18 years of age or older.',
+                                ),
+                              ),
+                            ),
+                            if (_eligibilityError != null)
+                              Semantics(
+                                liveRegion: true,
+                                child: Text(
+                                  _eligibilityError!,
+                                  key: const Key('signup-eligibility-error'),
+                                  style: const TextStyle(
+                                    color: Color(0xFFFFA59C),
+                                  ),
+                                ),
+                              ),
+                          ],
                           const SizedBox(height: 20),
                           SizedBox(
                             height: 54,
                             child: FilledButton(
                               key: const Key('auth-submit'),
-                              onPressed: _isLoading ? null : _submit,
+                              onPressed:
+                                  _isLoading || (!_isLogin && !_ageConfirmed)
+                                  ? null
+                                  : _submit,
                               style: FilledButton.styleFrom(
                                 backgroundColor: padelXAuthPrimary,
                                 foregroundColor: Colors.white,
@@ -1102,14 +1205,20 @@ class _AuthScreenState extends State<AuthScreen> {
                                     ? (_isLogin
                                           ? 'Logging in...'
                                           : 'Creating account...')
-                                    : (_isLogin ? 'Log In' : 'Create Account'),
+                                    : (_isLogin
+                                          ? 'Log In'
+                                          : (_eligibilitySetupPending
+                                                ? 'Retry age confirmation'
+                                                : 'Create Account')),
                               ),
                             ),
                           ),
                           const SizedBox(height: 12),
                           TextButton(
                             key: const Key('auth-switch-mode'),
-                            onPressed: _isLoading ? null : _switchMode,
+                            onPressed: _isLoading || _eligibilitySetupPending
+                                ? null
+                                : _switchMode,
                             child: Text(
                               _isLogin
                                   ? 'Don’t have an account? Sign Up'
