@@ -2,6 +2,7 @@ import 'dart:async';
 import 'account_deletion.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -36,8 +37,24 @@ import 'level.dart';
 import 'match_date_time_picker.dart';
 import 'settings_screen.dart';
 import 'push_notifications.dart';
+import 'auth_landing.dart';
+import 'branding.dart';
+import 'startup.dart';
 
 PushNotificationService? _pushNotificationService;
+StreamSubscription<User?>? _pushAuthSubscription;
+final Stopwatch _startupClock = Stopwatch();
+const bool _startupTimingEnabled = bool.fromEnvironment(
+  'PADELX_STARTUP_TIMING',
+);
+
+void _logStartupTiming(String milestone) {
+  if (kDebugMode || _startupTimingEnabled) {
+    debugPrint(
+      '[StartupTiming +${_startupClock.elapsedMilliseconds}ms dart] $milestone',
+    );
+  }
+}
 
 Future<void> _signOutWithPushCleanup() async {
   await signOutWithPushCleanup(
@@ -47,17 +64,43 @@ Future<void> _signOutWithPushCleanup() async {
 }
 
 Future<void> main() async {
+  _startupClock.start();
+  _logStartupTiming('main entered');
   WidgetsFlutterBinding.ensureInitialized();
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _logStartupTiming('first Flutter frame');
+  });
+  runApp(const PadelXApp());
+  _logStartupTiming('runApp returned');
+}
 
-  await Firebase.initializeApp(options: firebaseOptionsForCurrentEnvironment());
+Future<void> initializePadelX(ValueChanged<double> reportProgress) async {
+  _logStartupTiming('initialization entered');
+  reportProgress(0.15);
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(
+      options: firebaseOptionsForCurrentEnvironment(),
+    );
+  }
+  _logStartupTiming('Firebase initialized');
+  reportProgress(0.5);
   await activateAppCheckForCurrentEnvironment();
-
-  _pushNotificationService = PushNotificationService.firebase();
-  FirebaseAuth.instance.authStateChanges().listen(
+  _logStartupTiming('App Check activation completed');
+  reportProgress(0.7);
+  _pushNotificationService ??= PushNotificationService.firebase();
+  _pushAuthSubscription ??= FirebaseAuth.instance.authStateChanges().listen(
     (user) => unawaited(_pushNotificationService!.startForUser(user?.uid)),
   );
-
-  runApp(const PadelXApp());
+  reportProgress(0.82);
+  final user = await FirebaseAuth.instance.authStateChanges().first;
+  _logStartupTiming('initial auth state resolved');
+  reportProgress(0.9);
+  if (user != null && user.emailVerified) {
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    _logStartupTiming('profile readiness completed');
+  }
+  reportProgress(0.95);
+  _logStartupTiming('initialization completed');
 }
 
 class PadelXApp extends StatelessWidget {
@@ -84,7 +127,10 @@ class PadelXApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const AuthGate(),
+      home: StartupCoordinator(
+        initialize: initializePadelX,
+        destinationBuilder: (_) => const AuthGate(),
+      ),
     );
   }
 }
@@ -185,7 +231,16 @@ class _AuthGateState extends State<AuthGate> {
           return ProfileGate(user: user, onDeleteAccount: _openDeletion);
         }
 
-        return const AuthScreen();
+        return AuthLandingScreen(
+          onEmail: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (routeContext) => AuthScreen(
+                onAuthenticationSucceeded: () =>
+                    Navigator.of(routeContext).pop(),
+              ),
+            ),
+          ),
+        );
       },
     );
   }
@@ -667,6 +722,7 @@ class AuthScreen extends StatefulWidget {
   final Future<void> Function(String email, String password)? loginHandler;
   final Future<void> Function(String email, String password)? signUpHandler;
   final Future<void> Function()? emailVerificationSender;
+  final VoidCallback? onAuthenticationSucceeded;
 
   const AuthScreen({
     super.key,
@@ -674,6 +730,7 @@ class AuthScreen extends StatefulWidget {
     this.loginHandler,
     this.signUpHandler,
     this.emailVerificationSender,
+    this.onAuthenticationSucceeded,
   });
 
   @override
@@ -739,6 +796,7 @@ class _AuthScreenState extends State<AuthScreen> {
           await user.sendEmailVerification();
         }
       }
+      if (mounted) widget.onAuthenticationSucceeded?.call();
     } on FirebaseAuthException catch (error) {
       String message;
 
@@ -840,40 +898,19 @@ class _AuthScreenState extends State<AuthScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Semantics(
-                    label: 'PadelX',
-                    image: true,
-                    child: SizedBox(
-                      key: const Key('padelx-wordmark'),
-                      height: 154,
-                      child: ClipRect(
-                        child: OverflowBox(
-                          maxHeight: 570,
-                          maxWidth: 456,
-                          child: Image.asset(
-                            'assets/branding/padelx-wordmark.png',
-                            height: 570,
-                            width: 456,
-                            fit: BoxFit.contain,
-                            excludeFromSemantics: true,
-                          ),
-                        ),
-                      ),
-                    ),
+                  const Column(
+                    key: Key('padelx-wordmark'),
+                    children: [
+                      PadelXBrandMark(size: 96),
+                      SizedBox(height: 6),
+                      PadelXWordmark(),
+                    ],
                   ),
                   const SizedBox(height: 4),
-                  Text.rich(
-                    const TextSpan(
-                      text: 'Find padel matches ',
-                      children: [
-                        TextSpan(
-                          text: 'near you.',
-                          style: TextStyle(color: Color(0xFFB8F20D)),
-                        ),
-                      ],
-                    ),
+                  const Text(
+                    'Sign in or create your account.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w500,
                       color: Colors.white,

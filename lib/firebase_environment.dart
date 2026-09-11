@@ -122,11 +122,6 @@ FirebaseOptions firebaseOptionsForEnvironment({
         'padelx-staging; web and production App IDs are not accepted.',
       );
     }
-    if (isDeviceTestBuild && !isDebugBuild) {
-      throw StateError(
-        'PADELX_IOS_DEVICE_TEST is allowed only in debug builds.',
-      );
-    }
     final expectedBundleId = isDeviceTestBuild
         ? deviceTestIosBundleId
         : stagingIosBundleId;

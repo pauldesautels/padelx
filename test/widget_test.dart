@@ -20,7 +20,7 @@ void main() {
     );
 
     expect(find.byKey(const Key('padelx-wordmark')), findsOneWidget);
-    expect(find.text('Find padel matches near you.'), findsOneWidget);
+    expect(find.text('Sign in or create your account.'), findsOneWidget);
     expect(find.byKey(const Key('auth-email')), findsOneWidget);
     expect(find.byKey(const Key('auth-password')), findsOneWidget);
     expect(find.text('Log In'), findsWidgets);
@@ -90,6 +90,77 @@ void main() {
     expect(submissions, 1);
     completion.complete();
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('successful email login dismisses the form route', (
+    WidgetTester tester,
+  ) async {
+    var authenticated = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            key: const Key('open-email-auth'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (routeContext) => AuthScreen(
+                  loginHandler: (_, _) async => authenticated = true,
+                  onAuthenticationSucceeded: () =>
+                      Navigator.of(routeContext).pop(),
+                ),
+              ),
+            ),
+            child: const Text('SIGNED OUT LANDING'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('open-email-auth')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('auth-email')),
+      'player@example.com',
+    );
+    await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
+    await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pumpAndSettle();
+
+    expect(authenticated, isTrue);
+    expect(find.byType(AuthScreen), findsNothing);
+    expect(find.text('SIGNED OUT LANDING'), findsOneWidget);
+  });
+
+  testWidgets('failed email login remains visible and shows a safe error', (
+    WidgetTester tester,
+  ) async {
+    var successCallbacks = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AuthScreen(
+          loginHandler: (_, _) async => throw FirebaseAuthException(
+            code: 'invalid-credential',
+            message: 'backend detail',
+          ),
+          onAuthenticationSucceeded: () => successCallbacks++,
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('auth-email')),
+      'player@example.com',
+    );
+    await tester.enterText(find.byKey(const Key('auth-password')), 'wrong12');
+    await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pump();
+
+    expect(find.byType(AuthScreen), findsOneWidget);
+    expect(find.text('Incorrect email or password.'), findsOneWidget);
+    expect(successCallbacks, 0);
+    expect(find.textContaining('backend detail'), findsNothing);
   });
 
   testWidgets('sign up switches modes and submits existing fields', (

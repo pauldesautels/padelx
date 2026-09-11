@@ -138,20 +138,18 @@ void main() {
       );
     });
 
-    test('iOS device test requires its bundle ID and a debug build', () {
+    test('iOS device test requires its bundle ID and remains staging-only', () {
       final options = _iosOptions(
         bundleId: deviceTestIosBundleId,
         isDebugBuild: true,
         isDeviceTestBuild: true,
       );
       expect(options.iosBundleId, deviceTestIosBundleId);
-      expect(
-        () => _iosOptions(
-          bundleId: deviceTestIosBundleId,
-          isDeviceTestBuild: true,
-        ),
-        throwsA(isA<StateError>()),
+      final standaloneOptions = _iosOptions(
+        bundleId: deviceTestIosBundleId,
+        isDeviceTestBuild: true,
       );
+      expect(standaloneOptions.projectId, stagingFirebaseProjectId);
     });
 
     test('Android staging accepts only a native staging Android app', () {

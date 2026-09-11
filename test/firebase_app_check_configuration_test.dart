@@ -146,22 +146,37 @@ void main() {
       );
     });
 
-    test('non-debug staging rejects iOS debug App Check', () {
+    test('profile device-test iOS requires a stable debug token', () {
       expect(
         () => _configuration(
           isWeb: false,
           isIos: true,
           mode: 'debug',
+          isProfileBuild: true,
           isDeviceTestBuild: true,
         ),
         throwsA(
           isA<StateError>().having(
             (error) => error.message,
             'message',
-            contains('in a debug build'),
+            contains('explicit staging App Check debug token'),
           ),
         ),
       );
+    });
+
+    test('profile device-test iOS uses its explicit debug token', () {
+      final configuration = _configuration(
+        isWeb: false,
+        isIos: true,
+        mode: 'debug',
+        isProfileBuild: true,
+        isDeviceTestBuild: true,
+        debugToken: 'registered-staging-token',
+      );
+      expect(configuration!.platform, AppCheckPlatform.ios);
+      expect(configuration.mode, AppCheckMode.debug);
+      expect(configuration.debugToken, 'registered-staging-token');
     });
 
     test('debug device-test iOS selects Apple debug provider', () {
@@ -177,17 +192,37 @@ void main() {
       expect(configuration.debugToken, isNull);
     });
 
-    test('iOS device-test ignores the web debug token define', () {
+    test('iOS device-test passes an explicit debug token to Apple', () {
       final configuration = _configuration(
         isWeb: false,
         isIos: true,
         mode: 'debug',
         isDebugBuild: true,
         isDeviceTestBuild: true,
-        debugToken: 'web-only-token',
+        debugToken: 'registered-staging-token',
       );
       expect(configuration!.platform, AppCheckPlatform.ios);
-      expect(configuration.debugToken, isNull);
+      expect(configuration.debugToken, 'registered-staging-token');
+    });
+
+    test('release device-test iOS rejects the debug provider', () {
+      expect(
+        () => _configuration(
+          isWeb: false,
+          isIos: true,
+          mode: 'debug',
+          isReleaseBuild: true,
+          isDeviceTestBuild: true,
+          debugToken: 'registered-staging-token',
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('cannot use the App Check debug provider'),
+          ),
+        ),
+      );
     });
 
     test('Android staging supports debug and Play Integrity providers', () {
@@ -224,6 +259,8 @@ StagingAppCheckConfiguration? _configuration({
   bool isIos = false,
   bool isAndroid = false,
   bool isDebugBuild = false,
+  bool isProfileBuild = false,
+  bool isReleaseBuild = false,
   bool isDeviceTestBuild = false,
   required String mode,
   String siteKey = '',
@@ -236,6 +273,8 @@ StagingAppCheckConfiguration? _configuration({
     isIos: isIos,
     isAndroid: isAndroid,
     isDebugBuild: isDebugBuild,
+    isProfileBuild: isProfileBuild,
+    isReleaseBuild: isReleaseBuild,
     isDeviceTestBuild: isDeviceTestBuild,
     mode: mode,
     enterpriseSiteKey: siteKey,

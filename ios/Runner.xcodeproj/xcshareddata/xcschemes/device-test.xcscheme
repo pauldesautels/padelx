@@ -20,7 +20,7 @@
          </ExecutionAction>
       </PreActions>
     <BuildActionEntries>
-      <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES">
+      <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="97C146ED1CF9000F007C117D" BuildableName="Runner.app" BlueprintName="Runner" ReferencedContainer="container:Runner.xcodeproj"/>
       </BuildActionEntry>
     </BuildActionEntries>
@@ -29,7 +29,7 @@
   <LaunchAction buildConfiguration="Debug-device-test" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" customLLDBInitFile="$(SRCROOT)/Flutter/ephemeral/flutter_lldbinit" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" allowLocationSimulation="YES">
     <BuildableProductRunnable runnableDebuggingMode="0"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="97C146ED1CF9000F007C117D" BuildableName="Runner.app" BlueprintName="Runner" ReferencedContainer="container:Runner.xcodeproj"/></BuildableProductRunnable>
   </LaunchAction>
-  <ProfileAction buildConfiguration="Release-staging" shouldUseLaunchSchemeArgsEnv="YES"/>
+  <ProfileAction buildConfiguration="Profile-device-test" shouldUseLaunchSchemeArgsEnv="YES"/>
   <AnalyzeAction buildConfiguration="Debug-device-test"/>
-  <ArchiveAction buildConfiguration="Release-staging" revealArchiveInOrganizer="YES"/>
+  <ArchiveAction buildConfiguration="Release-device-test" revealArchiveInOrganizer="YES"/>
 </Scheme>

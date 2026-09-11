@@ -4,9 +4,9 @@ set -eu
 destination="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleService-Info.plist"
 
 case "${CONFIGURATION}" in
-  Debug-device-test)
-    # Firebase is initialized from explicit Dart options for this one debug-only
-    # configuration. Removing the destination prevents any production plist from
+  *-device-test)
+    # Firebase is initialized from explicit Dart options for device-test builds.
+    # Removing the destination prevents any production plist from
     # being selected implicitly by a native Firebase SDK.
     /bin/rm -f "${destination}"
     exit 0

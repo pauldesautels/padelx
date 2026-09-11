@@ -19,6 +19,8 @@ test('default device-test requires neither APNs nor App Attest entitlements', as
   assert.doesNotMatch(entitlements, /appattest/);
   const project = await read('ios/Runner.xcodeproj/project.pbxproj');
   assert.match(project, /Debug-device-test[\s\S]*?CODE_SIGN_ENTITLEMENTS = Runner\/RunnerDeviceTest\.entitlements;/);
+  assert.match(project, /Profile-device-test[\s\S]*?CODE_SIGN_ENTITLEMENTS = Runner\/RunnerDeviceTest\.entitlements;/);
+  assert.match(project, /Release-device-test[\s\S]*?CODE_SIGN_ENTITLEMENTS = Runner\/RunnerDeviceTest\.entitlements;/);
 });
 
 test('iOS source config enables remote notifications and UIScene registration', async () => {

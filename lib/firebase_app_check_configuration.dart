@@ -1,6 +1,12 @@
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kDebugMode, kIsWeb;
+    show
+        TargetPlatform,
+        defaultTargetPlatform,
+        kDebugMode,
+        kIsWeb,
+        kProfileMode,
+        kReleaseMode;
 
 import 'firebase_environment.dart' show stagingFirebaseProjectId;
 
@@ -30,6 +36,8 @@ StagingAppCheckConfiguration? appCheckConfigurationForCurrentEnvironment() {
     isIos: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
     isAndroid: !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
     isDebugBuild: kDebugMode,
+    isProfileBuild: kProfileMode,
+    isReleaseBuild: kReleaseMode,
     isDeviceTestBuild: const bool.fromEnvironment('PADELX_IOS_DEVICE_TEST'),
     mode: const String.fromEnvironment('FIREBASE_APP_CHECK_MODE'),
     enterpriseSiteKey: const String.fromEnvironment(
@@ -46,6 +54,8 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
   bool isIos = false,
   bool isAndroid = false,
   bool isDebugBuild = false,
+  bool isProfileBuild = false,
+  bool isReleaseBuild = false,
   bool isDeviceTestBuild = false,
   required String mode,
   String enterpriseSiteKey = '',
@@ -91,11 +101,22 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
     ),
   };
 
+  if (isIos && selectedMode == AppCheckMode.debug && !isDeviceTestBuild) {
+    throw StateError(
+      'iOS debug App Check requires PADELX_IOS_DEVICE_TEST=true.',
+    );
+  }
+  if (isIos && selectedMode == AppCheckMode.debug && isReleaseBuild) {
+    throw StateError(
+      'Release device-test builds cannot use the App Check debug provider.',
+    );
+  }
   if (isIos &&
       selectedMode == AppCheckMode.debug &&
-      (!isDeviceTestBuild || !isDebugBuild)) {
+      isProfileBuild &&
+      selectedDebugToken.isEmpty) {
     throw StateError(
-      'iOS debug App Check requires PADELX_IOS_DEVICE_TEST=true in a debug build.',
+      'Profile device-test requires an explicit staging App Check debug token.',
     );
   }
   if (isIos && selectedMode == AppCheckMode.attested && isDeviceTestBuild) {
@@ -106,7 +127,7 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
   }
 
   if (selectedMode == AppCheckMode.debug) {
-    if (isWeb && selectedDebugToken.startsWith('replace-with-')) {
+    if (selectedDebugToken.startsWith('replace-with-')) {
       throw StateError(
         'FIREBASE_APP_CHECK_DEBUG_TOKEN still contains an example placeholder.',
       );
@@ -118,7 +139,7 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
           : isAndroid
           ? AppCheckPlatform.android
           : AppCheckPlatform.web,
-      debugToken: isWeb && selectedDebugToken.isNotEmpty
+      debugToken: (isWeb || isIos) && selectedDebugToken.isNotEmpty
           ? selectedDebugToken
           : null,
     );
@@ -167,7 +188,9 @@ Future<void> activateAppCheckForCurrentEnvironment() async {
           );
         case AppCheckPlatform.ios:
           await FirebaseAppCheck.instance.activate(
-            providerApple: const AppleDebugProvider(),
+            providerApple: AppleDebugProvider(
+              debugToken: configuration.debugToken,
+            ),
           );
         case AppCheckPlatform.android:
           await FirebaseAppCheck.instance.activate(
