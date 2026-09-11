@@ -20,6 +20,7 @@ import 'friends_screen.dart';
 import 'friends.dart';
 import 'relationship_policy.dart';
 import 'messaging_repository.dart';
+import 'messaging.dart';
 import 'messages_screen.dart';
 import 'conversation_screen.dart';
 import 'play_again.dart';
@@ -1568,6 +1569,21 @@ bool canRatePlayerForMatch({
 typedef PublicPlayerProfileLoader =
     Future<PublicPlayerProfile> Function(String uid);
 
+Future<PublicPlayerProfile> loadPublicPlayerIdentity(String uid) async {
+  final document = await FirebaseFirestore.instance
+      .collection('publicProfiles')
+      .doc(uid)
+      .get();
+  final data = document.data() ?? const <String, dynamic>{};
+  return PublicPlayerProfile(
+    uid: uid,
+    displayName: data['displayName']?.toString() ?? '',
+    level: data['level']?.toString() ?? '',
+    matches: const [],
+    avatarVersion: avatarVersionFromMap(data),
+  );
+}
+
 bool matchIncludesPlayer(Map<dynamic, dynamic> data, String uid) {
   if (uid.isEmpty) return false;
   if (matchCreatorUid(data) == uid) return true;
@@ -1796,6 +1812,7 @@ class JoinRequest {
 }
 
 enum AppNotificationType {
+  unknown,
   joinRequest,
   joinApproved,
   joinDeclined,
@@ -1808,6 +1825,7 @@ enum AppNotificationType {
 
 extension AppNotificationTypeStorage on AppNotificationType {
   String get storageValue => switch (this) {
+    AppNotificationType.unknown => 'unknown',
     AppNotificationType.joinRequest => 'join_request',
     AppNotificationType.joinApproved => 'join_approved',
     AppNotificationType.joinDeclined => 'join_declined',
@@ -1828,7 +1846,8 @@ extension AppNotificationTypeStorage on AppNotificationType {
     'friend_accepted' || 'friendAccepted' => AppNotificationType.friendAccepted,
     'play_again_invite' ||
     'playAgainInvite' => AppNotificationType.playAgainInvite,
-    _ => AppNotificationType.joinRequest,
+    'join_request' || 'joinRequest' => AppNotificationType.joinRequest,
+    _ => AppNotificationType.unknown,
   };
 }
 
@@ -1963,15 +1982,7 @@ List<AppNotification> sortedNotifications(
 
 String relativeNotificationTime(DateTime? createdAt, DateTime now) {
   if (createdAt == null) return 'Time unavailable';
-  final difference = now.difference(createdAt);
-  if (difference.isNegative || difference.inMinutes < 1) return 'Just now';
-  if (difference.inMinutes < 60) return '${difference.inMinutes} min ago';
-  if (difference.inHours < 24) {
-    return '${difference.inHours} hr${difference.inHours == 1 ? '' : 's'} ago';
-  }
-  if (difference.inHours < 48) return 'Yesterday';
-  if (difference.inDays < 7) return '${difference.inDays} days ago';
-  return '${createdAt.month}/${createdAt.day}/${createdAt.year}';
+  return messagingInboxTime(createdAt, now: now);
 }
 
 String? joinRequestNotificationStatus(
@@ -2035,7 +2046,7 @@ class NotificationsTab extends StatefulWidget {
   final List<AppNotification> notifications;
   final bool isLoading;
   final bool error;
-  final ValueChanged<AppNotification> onMarkRead;
+  final FutureOr<void> Function(AppNotification) onMarkRead;
   final ValueChanged<AppNotification> onOpen;
   final Future<void> Function()? onMarkAllRead;
   final VoidCallback? onRetry;
@@ -2068,20 +2079,56 @@ class NotificationsTab extends StatefulWidget {
 
 class _NotificationsTabState extends State<NotificationsTab> {
   bool _markingAllRead = false;
+  List<AppNotification> _lastNotifications = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.error) _lastNotifications = widget.notifications;
+  }
+
+  @override
+  void didUpdateWidget(NotificationsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.error) _lastNotifications = widget.notifications;
+  }
 
   Future<void> _markAllRead() async {
     if (_markingAllRead || widget.onMarkAllRead == null) return;
     setState(() => _markingAllRead = true);
     try {
       await widget.onMarkAllRead!();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not mark notifications as read.'),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _markingAllRead = false);
     }
   }
 
+  Future<void> _markRead(AppNotification notification) async {
+    try {
+      await widget.onMarkRead(notification);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not mark notification as read.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final ordered = sortedNotifications(widget.notifications);
+    final visibleNotifications = widget.error && widget.notifications.isEmpty
+        ? _lastNotifications
+        : widget.notifications;
+    final ordered = sortedNotifications(visibleNotifications);
     final hasUnread = unreadNotificationCount(ordered) > 0;
     return SafeArea(
       bottom: false,
@@ -2094,6 +2141,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
               builder: (context, constraints) {
                 final action = hasUnread && widget.onMarkAllRead != null
                     ? TextButton(
+                        key: const Key('mark-all-notifications-read'),
                         onPressed: _markingAllRead ? null : _markAllRead,
                         child: _markingAllRead
                             ? const SizedBox.square(
@@ -2158,7 +2206,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
         ),
       );
     }
-    if (widget.error) {
+    if (widget.error && ordered.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -2172,7 +2220,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
               ),
               const SizedBox(height: 14),
               const Text(
-                'Notifications unavailable',
+                'Notifications are unavailable right now.',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 6),
@@ -2209,7 +2257,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
               ),
               SizedBox(height: 6),
               Text(
-                'Match updates and join requests will appear here.',
+                'Match, message, and social updates will appear here.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white60),
               ),
@@ -2236,7 +2284,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
         return NotificationCard(
           notification: notification,
           now: widget.now ?? DateTime.now(),
-          onMarkRead: widget.onMarkRead,
+          onMarkRead: _markRead,
           onOpen: widget.onOpen,
           requestStream: widget.joinRequestStream?.call(notification),
           onDismiss: widget.onDismiss,
@@ -2249,7 +2297,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
 class NotificationCard extends StatelessWidget {
   final AppNotification notification;
   final DateTime now;
-  final ValueChanged<AppNotification> onMarkRead;
+  final FutureOr<void> Function(AppNotification) onMarkRead;
   final ValueChanged<AppNotification> onOpen;
   final Stream<Map<String, dynamic>?>? requestStream;
   final ValueChanged<AppNotification>? onDismiss;
@@ -2283,6 +2331,7 @@ class NotificationCard extends StatelessWidget {
   Widget _buildCard(String? status) {
     final unread = !notification.read;
     final icon = switch (notification.type) {
+      AppNotificationType.unknown => Icons.notifications_none,
       AppNotificationType.joinRequest => Icons.person_add_alt_1,
       AppNotificationType.joinApproved => Icons.check_circle_outline,
       AppNotificationType.joinDeclined => Icons.cancel_outlined,
@@ -2292,141 +2341,198 @@ class NotificationCard extends StatelessWidget {
       AppNotificationType.friendAccepted => Icons.people_outline,
       AppNotificationType.playAgainInvite => Icons.replay,
     };
-    final accent = notification.type == AppNotificationType.joinDeclined
+    final category = switch (notification.type) {
+      AppNotificationType.joinApproved ||
+      AppNotificationType.friendAccepted ||
+      AppNotificationType.playAgainInvite => 1,
+      AppNotificationType.joinDeclined => -1,
+      _ => 0,
+    };
+    final accent = category < 0
         ? const Color(0xFFFFA59C)
-        : const Color(0xFF74E8A0);
-    return Card(
+        : category > 0
+        ? const Color(0xFF74E8A0)
+        : const Color(0xFF8EB9A1);
+    final timestamp = relativeNotificationTime(notification.createdAt, now);
+    final semanticsLabel = [
+      unread ? 'Unread' : 'Read',
+      notification.title,
+      notification.message,
+      status ?? '',
+      timestamp,
+    ].where((value) => value.isNotEmpty).join(', ');
+    return Semantics(
       key: ValueKey('notification-${notification.id}'),
-      color: unread ? const Color(0xFF1D3027) : const Color(0xFF18211D),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(
-          color: unread ? accent.withValues(alpha: 0.24) : Colors.white10,
+      label: semanticsLabel,
+      button: true,
+      excludeSemantics: true,
+      child: Card(
+        color: unread ? const Color(0xFF1D3027) : const Color(0xFF18211D),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: unread ? accent.withValues(alpha: 0.24) : Colors.white10,
+          ),
         ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => onOpen(notification),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: unread ? 0.16 : 0.09),
-                  borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => onOpen(notification),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  key: ValueKey('notification-type-${notification.type.name}'),
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: unread ? 0.16 : 0.09),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ExcludeSemantics(
+                    child: Icon(
+                      icon,
+                      size: 21,
+                      color: unread ? accent : Colors.white60,
+                    ),
+                  ),
                 ),
-                child: Icon(
-                  icon,
-                  size: 21,
-                  color: unread ? accent : Colors.white60,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            notification.title,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: unread
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        if (unread) ...[
-                          const SizedBox(width: 8),
-                          Semantics(
-                            label: 'Unread notification',
-                            child: Container(
-                              key: const ValueKey('unread-indicator'),
-                              width: 8,
-                              height: 8,
-                              margin: const EdgeInsets.only(top: 6),
-                              decoration: BoxDecoration(
-                                color: accent,
-                                shape: BoxShape.circle,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              notification.title,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: unread
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
                               ),
                             ),
                           ),
+                          if (unread) ...[
+                            const SizedBox(width: 8),
+                            Semantics(
+                              label: 'Unread notification',
+                              child: Container(
+                                key: const ValueKey('unread-indicator'),
+                                width: 8,
+                                height: 8,
+                                margin: const EdgeInsets.only(top: 6),
+                                decoration: BoxDecoration(
+                                  color: accent,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      notification.message,
-                      style: TextStyle(
-                        height: 1.35,
-                        color: unread ? Colors.white : Colors.white70,
                       ),
-                    ),
-                    const SizedBox(height: 9),
-                    Text(
-                      relativeNotificationTime(notification.createdAt, now),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white54,
-                      ),
-                    ),
-                    if (status != null) ...[
-                      const SizedBox(height: 7),
+                      const SizedBox(height: 5),
                       Text(
-                        'Current request status: $status',
+                        notification.message,
                         style: TextStyle(
-                          fontSize: 12,
-                          color: accent,
-                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                          color: unread ? Colors.white : Colors.white70,
+                          fontWeight: unread
+                              ? FontWeight.w500
+                              : FontWeight.w400,
                         ),
                       ),
-                    ],
-                    if (notification.type ==
-                        AppNotificationType.playAgainInvite) ...[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
+                      const SizedBox(height: 9),
+                      Row(
                         children: [
-                          TextButton(
-                            key: const Key('view-play-again-match'),
-                            onPressed: () => onOpen(notification),
-                            child: const Text('View Match'),
+                          Expanded(
+                            child: Text(
+                              timestamp,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white54,
+                              ),
+                            ),
                           ),
-                          TextButton(
-                            key: const Key('dismiss-play-again-invite'),
-                            onPressed: onDismiss == null
-                                ? null
-                                : () => onDismiss!(notification),
-                            child: const Text('Dismiss'),
-                          ),
+                          if (unread)
+                            Tooltip(
+                              message: 'Mark as read',
+                              child: TextButton(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white60,
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                ),
+                                onPressed: () => unawaited(
+                                  Future.sync(() => onMarkRead(notification)),
+                                ),
+                                child: const Text('Mark read'),
+                              ),
+                            ),
                         ],
                       ),
+                      if (status != null) ...[
+                        const SizedBox(height: 7),
+                        Container(
+                          key: ValueKey('notification-status-$status'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: 0.11),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: accent.withValues(alpha: 0.28),
+                            ),
+                          ),
+                          child: Text(
+                            status,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: accent,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (notification.type ==
+                          AppNotificationType.playAgainInvite) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            TextButton(
+                              key: const Key('view-play-again-match'),
+                              onPressed: () => onOpen(notification),
+                              child: const Text('View Match'),
+                            ),
+                            TextButton(
+                              key: const Key('dismiss-play-again-invite'),
+                              onPressed: onDismiss == null
+                                  ? null
+                                  : () => onDismiss!(notification),
+                              child: const Text('Dismiss'),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 4),
-              if (unread)
-                IconButton(
-                  tooltip: 'Mark as read',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => onMarkRead(notification),
-                  icon: const Icon(Icons.mark_email_read_outlined, size: 20),
-                )
-              else
+                const SizedBox(width: 6),
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Icon(Icons.chevron_right, color: Colors.white54),
+                  child: Icon(Icons.chevron_right, color: Colors.white38),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -3200,10 +3306,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _markNotificationRead(AppNotification notification) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || notification.read) return;
-    await FirebaseFirestore.instance
-        .collection('notifications')
-        .doc(notification.id)
-        .update(notificationReadUpdate());
+    try {
+      await FirebaseFirestore.instance
+          .collection('notifications')
+          .doc(notification.id)
+          .update(notificationReadUpdate());
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not mark notification as read.')),
+        );
+      }
+    }
   }
 
   Future<void> _markAllNotificationsRead(
@@ -3465,7 +3579,15 @@ class _HomeScreenState extends State<HomeScreen> {
         joinRequestStream: _joinRequestForNotification,
         onDismiss: _dismissPlayAgain,
         onOpen: (notification) async {
-          _markNotificationRead(notification);
+          unawaited(_markNotificationRead(notification));
+          if (notification.type == AppNotificationType.unknown) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('This notification is unavailable.'),
+              ),
+            );
+            return;
+          }
           if (notification.type == AppNotificationType.friendRequest ||
               notification.type == AppNotificationType.friendAccepted) {
             _openFriends();
@@ -7060,7 +7182,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                       ),
                       trailing: existing != null
                           ? Text(
-                              '${existing.rating} ★',
+                              'Submitted · ${existing.rating} stars',
                               key: Key('existing-rating-${match.id}'),
                             )
                           : eligible
@@ -7170,6 +7292,7 @@ class RatePlayersSection extends StatefulWidget {
   final MatchRatingsLoader ratingsLoader;
   final MatchRatingSubmitter ratingSubmitter;
   final PublicPlayerProfileLoader profileLoader;
+  final PublicPlayerProfileLoader identityLoader;
 
   const RatePlayersSection({
     super.key,
@@ -7179,6 +7302,7 @@ class RatePlayersSection extends StatefulWidget {
     this.ratingsLoader = loadMatchRatings,
     this.ratingSubmitter = submitMatchRating,
     this.profileLoader = loadPublicPlayerProfile,
+    this.identityLoader = loadPublicPlayerIdentity,
   });
 
   @override
@@ -7186,15 +7310,51 @@ class RatePlayersSection extends StatefulWidget {
 }
 
 class _RatePlayersSectionState extends State<RatePlayersSection> {
-  late Future<List<PlayerRating>> _ratings = widget.ratingsLoader(
-    widget.match.id,
-    widget.currentUid,
-  );
   final Set<String> _submitting = {};
+  final Map<String, Future<PublicPlayerProfile>> _profiles = {};
+  List<PlayerRating>? _loadedRatings;
+  Object? _ratingLoadError;
+  bool _loadingRatings = true;
 
-  void _retry() => setState(() {
-    _ratings = widget.ratingsLoader(widget.match.id, widget.currentUid);
-  });
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadRatings());
+  }
+
+  Future<void> _loadRatings() async {
+    if (_loadedRatings == null && mounted) {
+      setState(() {
+        _loadingRatings = true;
+        _ratingLoadError = null;
+      });
+    }
+    try {
+      final ratings = await widget.ratingsLoader(
+        widget.match.id,
+        widget.currentUid,
+      );
+      if (!mounted) return;
+      setState(() {
+        final byPlayer = {
+          for (final rating in _loadedRatings ?? const <PlayerRating>[])
+            rating.ratedUid: rating,
+          for (final rating in ratings) rating.ratedUid: rating,
+        };
+        _loadedRatings = byPlayer.values.toList();
+        _ratingLoadError = null;
+        _loadingRatings = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _ratingLoadError = error;
+        _loadingRatings = false;
+      });
+    }
+  }
+
+  void _retry() => unawaited(_loadRatings());
 
   Future<void> _rate(MatchPlayer player) async {
     var selected = 0;
@@ -7205,20 +7365,38 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
           title: Text(
             'Rate ${player.displayName.isEmpty ? 'player' : player.displayName}',
           ),
-          content: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(5, (index) {
-              final value = index + 1;
-              return IconButton(
-                key: Key('match-rating-star-$value'),
-                tooltip: '$value star${value == 1 ? '' : 's'}',
-                onPressed: () => setDialogState(() => selected = value),
-                icon: Icon(
-                  value <= selected ? Icons.star : Icons.star_border,
-                  color: Colors.amber,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Wrap(
+                alignment: WrapAlignment.center,
+                children: List.generate(5, (index) {
+                  final value = index + 1;
+                  return IconButton(
+                    key: Key('match-rating-star-$value'),
+                    tooltip: '$value star${value == 1 ? '' : 's'}',
+                    constraints: const BoxConstraints.tightFor(
+                      width: 48,
+                      height: 48,
+                    ),
+                    onPressed: () => setDialogState(() => selected = value),
+                    icon: Icon(
+                      value <= selected ? Icons.star : Icons.star_border,
+                      color: selected == 0 ? Colors.white54 : Colors.amber,
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 8),
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  selected == 0 ? 'Select a rating' : '$selected of 5',
+                  key: const Key('rating-selection-label'),
+                  style: const TextStyle(color: Colors.white70),
                 ),
-              );
-            }),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -7247,8 +7425,17 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
       if (!mounted) return;
       setState(() {
         _submitting.remove(player.uid);
-        _ratings = widget.ratingsLoader(widget.match.id, widget.currentUid);
+        _loadedRatings = [
+          ...?_loadedRatings,
+          PlayerRating(
+            matchId: widget.match.id,
+            raterUid: widget.currentUid,
+            ratedUid: player.uid,
+            rating: rating,
+          ),
+        ];
       });
+      unawaited(_loadRatings());
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Rating submitted.')));
@@ -7264,6 +7451,12 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
           ),
         ),
       );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _submitting.remove(player.uid));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not submit rating.')));
     }
   }
 
@@ -7281,104 +7474,204 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
         const SizedBox(height: 12),
         if (candidates.isEmpty)
           const Text(
-            'No other confirmed players to rate.',
+            'No other players from this match to rate.',
             style: TextStyle(color: Colors.white70),
           )
-        else
-          FutureBuilder<List<PlayerRating>>(
-            future: _ratings,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return _InlineLoadError(
-                  message: 'Could not load submitted ratings.',
-                  onRetry: _retry,
-                );
-              }
-              final existing = {
-                for (final rating in snapshot.data ?? const <PlayerRating>[])
-                  rating.ratedUid: rating,
-              };
-              return Column(
-                children: candidates.map((player) {
-                  final prior = existing[player.uid];
-                  final name = player.displayName.isNotEmpty
-                      ? player.displayName
-                      : 'Player';
-                  return Card(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final action = prior == null
-                            ? TextButton(
-                                key: Key('rate-match-player-${player.uid}'),
-                                onPressed:
-                                    snapshot.connectionState ==
-                                            ConnectionState.waiting ||
-                                        _submitting.contains(player.uid)
-                                    ? null
-                                    : () => _rate(player),
-                                child: const Text('Rate player'),
-                              )
-                            : Text(
-                                'Submitted · ${prior.rating} ★',
-                                key: Key('rated-match-player-${player.uid}'),
-                              );
-                        final narrow = constraints.maxWidth < 360;
-                        return ListTile(
-                          key: Key('rating-player-${player.uid}'),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => PlayerProfileScreen(
-                                uid: player.uid,
-                                fallbackName: name,
-                                fallbackLevel: player.level,
-                                loader: widget.profileLoader,
-                                viewerUid: widget.currentUid,
-                                viewerEmail: widget.currentEmail,
-                              ),
-                            ),
-                          ),
-                          leading: CircleAvatar(
-                            child: Text(name.substring(0, 1).toUpperCase()),
-                          ),
-                          title: Text(name),
-                          subtitle: narrow
-                              ? Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _playerSubtitle(
-                                        player.uid == widget.match.creatorUid
-                                            ? 'Organizer'
-                                            : 'Confirmed',
-                                        player.level,
-                                      ),
-                                    ),
-                                    action,
-                                  ],
-                                )
-                              : Text(
-                                  _playerSubtitle(
-                                    player.uid == widget.match.creatorUid
-                                        ? 'Organizer'
-                                        : 'Confirmed',
-                                    player.level,
-                                  ),
-                                ),
-                          trailing: narrow ? null : action,
-                          isThreeLine: narrow,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 4,
-                          ),
+        else if (_loadedRatings == null && _loadingRatings)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Center(
+              child: Semantics(
+                label: 'Loading submitted ratings',
+                child: CircularProgressIndicator(),
+              ),
+            ),
+          )
+        else if (_loadedRatings == null && _ratingLoadError != null)
+          _InlineLoadError(
+            message: 'Could not load submitted ratings.',
+            onRetry: _retry,
+          )
+        else ...[
+          ...candidates.map((player) {
+            final prior = _loadedRatings
+                ?.where((rating) => rating.ratedUid == player.uid)
+                .firstOrNull;
+            return _RatingPlayerCard(
+              player: player,
+              role: player.uid == widget.match.creatorUid
+                  ? 'Organizer'
+                  : 'Confirmed',
+              prior: prior,
+              submitting: _submitting.contains(player.uid),
+              profile: _profiles.putIfAbsent(
+                player.uid,
+                () => widget.identityLoader(player.uid),
+              ),
+              onOpenProfile: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => PlayerProfileScreen(
+                    uid: player.uid,
+                    fallbackName: player.displayName,
+                    fallbackLevel: player.level,
+                    loader: widget.profileLoader,
+                    viewerUid: widget.currentUid,
+                    viewerEmail: widget.currentEmail,
+                  ),
+                ),
+              ),
+              onRate: () => _rate(player),
+            );
+          }),
+          if (_loadedRatings != null &&
+              candidates.every(
+                (player) => _loadedRatings!.any(
+                  (rating) => rating.ratedUid == player.uid,
+                ),
+              ))
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                'All players rated.',
+                key: Key('all-players-rated'),
+                style: TextStyle(color: Colors.white60),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _RatingPlayerCard extends StatelessWidget {
+  final MatchPlayer player;
+  final String role;
+  final PlayerRating? prior;
+  final bool submitting;
+  final Future<PublicPlayerProfile> profile;
+  final VoidCallback onOpenProfile;
+  final VoidCallback onRate;
+
+  const _RatingPlayerCard({
+    required this.player,
+    required this.role,
+    required this.prior,
+    required this.submitting,
+    required this.profile,
+    required this.onOpenProfile,
+    required this.onRate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = player.displayName.isEmpty ? 'Player' : player.displayName;
+    final metadata = _playerSubtitle(role, player.level);
+    final resolved = prior != null;
+    return Semantics(
+      label: resolved
+          ? '$name, $metadata, rating submitted, ${prior!.rating} stars'
+          : '$name, $metadata, rating available',
+      container: true,
+      child: Card(
+        key: Key('rating-card-${player.uid}'),
+        color: resolved ? const Color(0xFF18211D) : const Color(0xFF1B2B24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: resolved ? Colors.white10 : const Color(0x3374E8A0),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InkWell(
+                key: Key('rating-player-${player.uid}'),
+                onTap: onOpenProfile,
+                borderRadius: BorderRadius.circular(12),
+                child: Row(
+                  children: [
+                    FutureBuilder<PublicPlayerProfile>(
+                      future: profile,
+                      builder: (context, snapshot) {
+                        final profile = snapshot.data;
+                        return ProfileAvatar(
+                          key: Key('rating-avatar-${player.uid}'),
+                          uid: player.uid,
+                          displayName: profile?.displayName ?? name,
+                          avatarVersion: profile?.avatarVersion ?? 0,
+                          radius: 22,
                         );
                       },
                     ),
-                  );
-                }).toList(),
-              );
-            },
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            metadata,
+                            style: const TextStyle(color: Colors.white60),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, color: Colors.white38),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (resolved)
+                Row(
+                  key: Key('rated-match-player-${player.uid}'),
+                  children: [
+                    const Icon(
+                      Icons.check_circle_outline,
+                      color: Color(0xFF74E8A0),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Rating submitted · ${prior!.rating} stars',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    ),
+                  ],
+                )
+              else ...[
+                Text(
+                  'How was playing with $name?',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    key: Key('rate-match-player-${player.uid}'),
+                    onPressed: submitting ? null : onRate,
+                    child: submitting
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Rate player'),
+                  ),
+                ),
+              ],
+            ],
           ),
-      ],
+        ),
+      ),
     );
   }
 }

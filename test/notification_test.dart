@@ -41,15 +41,15 @@ void main() {
     expect(result.map((item) => item.id), ['new', 'old', 'legacy']);
   });
 
-  test('relative timestamps cover current, minutes, hours, and days', () {
-    expect(relativeNotificationTime(now, now), 'Just now');
+  test('friendly timestamps cover today, yesterday, week, and older', () {
+    expect(relativeNotificationTime(now, now), '12:00 PM');
     expect(
       relativeNotificationTime(now.subtract(const Duration(minutes: 15)), now),
-      '15 min ago',
+      '11:45 AM',
     );
     expect(
       relativeNotificationTime(now.subtract(const Duration(hours: 3)), now),
-      '3 hrs ago',
+      '9:00 AM',
     );
     expect(
       relativeNotificationTime(now.subtract(const Duration(hours: 25)), now),
@@ -57,8 +57,10 @@ void main() {
     );
     expect(
       relativeNotificationTime(now.subtract(const Duration(days: 3)), now),
-      '3 days ago',
+      'Sun',
     );
+    expect(relativeNotificationTime(DateTime(2026, 8, 4), now), 'Aug 4');
+    expect(relativeNotificationTime(DateTime(2025, 8, 4), now), 'Aug 4, 2025');
     expect(relativeNotificationTime(null, now), 'Time unavailable');
   });
 
@@ -161,7 +163,7 @@ void main() {
       'isRead': 'not-a-bool',
     });
     expect(malformed.id, 'legacy');
-    expect(malformed.type, AppNotificationType.joinRequest);
+    expect(malformed.type, AppNotificationType.unknown);
     expect(malformed.message, '');
     expect(malformed.read, isFalse);
   });
@@ -246,7 +248,11 @@ void main() {
     await tester.pump();
     expect(invocations, 1);
     expect(
-      tester.widget<TextButton>(find.byType(TextButton)).onPressed,
+      tester
+          .widget<TextButton>(
+            find.byKey(const Key('mark-all-notifications-read')),
+          )
+          .onPressed,
       isNull,
     );
     completion.complete();
@@ -276,13 +282,14 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('2 min ago'), findsOneWidget);
-    expect(find.text('Current request status: Pending'), findsOneWidget);
+    expect(find.text('11:58 AM'), findsOneWidget);
+    expect(find.text('Pending'), findsOneWidget);
     expect(
       tester.widget<Card>(find.byType(Card)).color,
       const Color(0xFF1D3027),
     );
     expect(find.byTooltip('Mark as read'), findsOneWidget);
+    expect(find.text('Mark read'), findsOneWidget);
     expect(find.byKey(const ValueKey('unread-indicator')), findsOneWidget);
   });
 
@@ -387,7 +394,10 @@ void main() {
     await tester.pumpWidget(
       screen(loading: false, error: true, retry: () => retried = true),
     );
-    expect(find.text('Notifications unavailable'), findsOneWidget);
+    expect(
+      find.text('Notifications are unavailable right now.'),
+      findsOneWidget,
+    );
     await tester.tap(find.text('Try again'));
     expect(retried, isTrue);
   });
@@ -422,5 +432,152 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(find.textContaining('Alexandria Montgomery'), findsOneWidget);
+  });
+
+  testWidgets('all known types and unknown use safe icon presentation', (
+    tester,
+  ) async {
+    for (final type in AppNotificationType.values) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: NotificationCard(
+              notification: notification(id: type.name, type: type),
+              now: now,
+              onMarkRead: (_) {},
+              onOpen: (_) {},
+            ),
+          ),
+        ),
+      );
+      expect(
+        find.byKey(ValueKey('notification-type-${type.name}')),
+        findsOneWidget,
+      );
+    }
+  });
+
+  testWidgets('join request status renders as a compact chip', (tester) async {
+    for (final status in const [
+      'Pending',
+      'Approved',
+      'Declined',
+      'No longer active',
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: NotificationCard(
+              notification: notification(id: status),
+              now: now,
+              onMarkRead: (_) {},
+              onOpen: (_) {},
+              requestStream: Stream.value(
+                status == 'No longer active'
+                    ? null
+                    : {'eventId': 'cycle-1', 'status': status.toLowerCase()},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(ValueKey('notification-status-$status')),
+        findsOneWidget,
+      );
+    }
+  });
+
+  testWidgets('later listener failure preserves existing notifications', (
+    tester,
+  ) async {
+    Widget screen(List<AppNotification> items, {bool error = false}) =>
+        MaterialApp(
+          home: Scaffold(
+            body: NotificationsTab(
+              notifications: items,
+              isLoading: false,
+              error: error,
+              onMarkRead: (_) {},
+              onOpen: (_) {},
+            ),
+          ),
+        );
+    await tester.pumpWidget(screen([notification(id: 'kept')]));
+    expect(find.byKey(const ValueKey('notification-kept')), findsOneWidget);
+    await tester.pumpWidget(screen(const [], error: true));
+    expect(find.byKey(const ValueKey('notification-kept')), findsOneWidget);
+    expect(find.text('Notifications are unavailable right now.'), findsNothing);
+  });
+
+  testWidgets('mark-all failure is safely reported', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: [notification(id: 'one')],
+            isLoading: false,
+            error: false,
+            onMarkRead: (_) {},
+            onOpen: (_) {},
+            onMarkAllRead: () async => throw Exception('private details'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Mark all as read'));
+    await tester.pumpAndSettle();
+    expect(find.text('Could not mark notifications as read.'), findsOneWidget);
+    expect(find.textContaining('private details'), findsNothing);
+  });
+
+  testWidgets('mark-read failure is safely reported', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationsTab(
+            notifications: [notification(id: 'one')],
+            isLoading: false,
+            error: false,
+            onMarkRead: (_) => throw Exception('private details'),
+            onOpen: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Mark read'));
+    await tester.pumpAndSettle();
+    expect(find.text('Could not mark notification as read.'), findsOneWidget);
+    expect(find.textContaining('private details'), findsNothing);
+  });
+
+  testWidgets('notification exposes coherent unread semantics at large text', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
+          child: Scaffold(
+            body: NotificationCard(
+              notification: notification(id: 'semantic', createdAt: now),
+              now: now,
+              onMarkRead: (_) {},
+              onOpen: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    final node = tester.getSemantics(
+      find.byKey(const ValueKey('notification-semantic')),
+    );
+    expect(node.label, contains('Unread'));
+    expect(node.label, contains('Historical activity'));
+    expect(node.label, contains('12:00 PM'));
+    expect(tester.takeException(), isNull);
+    semantics.dispose();
   });
 }

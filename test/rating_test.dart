@@ -1,6 +1,10 @@
+import 'dart:async';
+
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/main.dart';
+import 'package:padelx/profile_avatar.dart';
 
 void main() {
   final completedMatch = Match(
@@ -309,7 +313,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('rated-match-player-rated')), findsOneWidget);
-    expect(find.text('Submitted · 5 ★'), findsOneWidget);
+    expect(find.text('Rating submitted · 5 stars'), findsOneWidget);
     expect(find.byKey(const Key('rate-match-player-rated')), findsNothing);
   });
 
@@ -346,5 +350,213 @@ void main() {
 
     expect(find.byKey(const Key('rate-match-player-rated')), findsOneWidget);
     expect(attempts, 2);
+  });
+
+  testWidgets(
+    'rating dialog announces selection and Cancel keeps card unrated',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RatePlayersSection(
+              match: completedMatch,
+              currentUid: 'rater',
+              ratingsLoader: (_, _) async => const [],
+              ratingSubmitter: (_, _, _, _) async {},
+              profileLoader: (uid) async => PublicPlayerProfile(
+                uid: uid,
+                displayName: 'Player',
+                level: '3',
+                matches: const [],
+              ),
+              identityLoader: (uid) async => PublicPlayerProfile(
+                uid: uid,
+                displayName: 'Player',
+                level: '3',
+                matches: const [],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfileAvatar), findsNWidgets(2));
+      await tester.tap(find.byKey(const Key('rate-match-player-rated')));
+      await tester.pump();
+      expect(find.text('Select a rating'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Submit rating'),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.byKey(const Key('match-rating-star-4')));
+      await tester.pump();
+      expect(find.text('4 of 5'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Submit rating'),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('rate-match-player-rated')), findsOneWidget);
+    },
+  );
+
+  testWidgets('initial rating history shows an explicit loading state', (
+    tester,
+  ) async {
+    final pending = Completer<List<PlayerRating>>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RatePlayersSection(
+            match: completedMatch,
+            currentUid: 'rater',
+            ratingsLoader: (_, _) => pending.future,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.bySemanticsLabel('Loading submitted ratings'), findsOneWidget);
+    pending.complete(const []);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('non-Firebase submit failure is safe and leaves others active', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RatePlayersSection(
+            match: completedMatch,
+            currentUid: 'rater',
+            ratingsLoader: (_, _) async => const [],
+            ratingSubmitter: (_, _, _, _) async =>
+                throw Exception('private backend details'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('rate-match-player-rated')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('match-rating-star-3')));
+    await tester.pump();
+    await tester.tap(find.text('Submit rating'));
+    await tester.pumpAndSettle();
+    expect(find.text('Could not submit rating.'), findsOneWidget);
+    expect(find.textContaining('private backend details'), findsNothing);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const Key('rate-match-player-organizer')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('permission-denied remains an eligibility-safe failure', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RatePlayersSection(
+            match: completedMatch,
+            currentUid: 'rater',
+            ratingsLoader: (_, _) async => const [],
+            ratingSubmitter: (_, _, _, _) async => throw FirebaseException(
+              plugin: 'cloud_firestore',
+              code: 'permission-denied',
+              message: 'private details',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('rate-match-player-rated')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('match-rating-star-3')));
+    await tester.pump();
+    await tester.tap(find.text('Submit rating'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('This rating was already submitted or is not eligible.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('private details'), findsNothing);
+  });
+
+  testWidgets('all submitted players remain visible in quiet resolved cards', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RatePlayersSection(
+            match: completedMatch,
+            currentUid: 'rater',
+            ratingsLoader: (_, _) async => const [
+              PlayerRating(
+                matchId: 'completed',
+                raterUid: 'rater',
+                ratedUid: 'organizer',
+                rating: 4,
+              ),
+              PlayerRating(
+                matchId: 'completed',
+                raterUid: 'rater',
+                ratedUid: 'rated',
+                rating: 5,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('rated-match-player-organizer')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('rated-match-player-rated')), findsOneWidget);
+    expect(find.text('All players rated.'), findsOneWidget);
+    expect(find.byKey(const Key('rate-match-player-rated')), findsNothing);
+  });
+
+  testWidgets('rating cards support narrow large-text layouts', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(1.4)),
+          child: Scaffold(
+            body: SingleChildScrollView(
+              child: RatePlayersSection(
+                match: completedMatch,
+                currentUid: 'rater',
+                ratingsLoader: (_, _) async => const [],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 }
