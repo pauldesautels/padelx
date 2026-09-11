@@ -56,6 +56,18 @@ class ChatMessage {
   );
 }
 
+class MessagingIdentity {
+  final String uid;
+  final String displayName;
+  final int avatarVersion;
+
+  const MessagingIdentity({
+    required this.uid,
+    required this.displayName,
+    this.avatarVersion = 0,
+  });
+}
+
 DateTime? _messageDate(Object? value) {
   if (value is DateTime) return value;
   if (value is String) return DateTime.tryParse(value);
@@ -73,8 +85,80 @@ String messagingTime(DateTime? value) {
   if (local.year == now.year &&
       local.month == now.month &&
       local.day == now.day) {
-    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
-    return '$hour:${local.minute.toString().padLeft(2, '0')} ${local.hour < 12 ? 'AM' : 'PM'}';
+    return _clockTime(local);
   }
   return '${local.month}/${local.day}/${local.year}';
 }
+
+bool messagingSameLocalDay(DateTime? left, DateTime? right) {
+  if (left == null || right == null) return left == right;
+  final a = left.toLocal();
+  final b = right.toLocal();
+  return a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+DateTime _localDate(DateTime value) {
+  final local = value.toLocal();
+  return DateTime(local.year, local.month, local.day);
+}
+
+String messagingDateSeparator(DateTime? value, {DateTime? now}) {
+  if (value == null) return '';
+  final local = value.toLocal();
+  final today = _localDate(now ?? DateTime.now());
+  final day = DateTime(local.year, local.month, local.day);
+  final difference = today.difference(day).inDays;
+  if (difference == 0) return 'Today';
+  if (difference == 1) return 'Yesterday';
+  return '${_monthNames[local.month - 1]} ${local.day}'
+      '${local.year == today.year ? '' : ', ${local.year}'}';
+}
+
+String messagingInboxTime(DateTime? value, {DateTime? now}) {
+  if (value == null) return '';
+  final local = value.toLocal();
+  final current = (now ?? DateTime.now()).toLocal();
+  final today = DateTime(current.year, current.month, current.day);
+  final day = DateTime(local.year, local.month, local.day);
+  final difference = today.difference(day).inDays;
+  if (difference == 0) return _clockTime(local);
+  if (difference == 1) return 'Yesterday';
+  if (difference > 1 && difference < 7) return _weekdayNames[local.weekday - 1];
+  final date = '${_shortMonthNames[local.month - 1]} ${local.day}';
+  return local.year == current.year ? date : '$date, ${local.year}';
+}
+
+String _clockTime(DateTime local) {
+  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  return '$hour:${local.minute.toString().padLeft(2, '0')} ${local.hour < 12 ? 'AM' : 'PM'}';
+}
+
+const _monthNames = <String>[
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+const _shortMonthNames = <String>[
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+const _weekdayNames = <String>['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];

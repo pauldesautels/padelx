@@ -3484,6 +3484,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ? 'Match chat'
                       : 'Messages',
                   repository: _messagingRepository,
+                  conversationType:
+                      notification.type == AppNotificationType.matchMessage
+                      ? 'match'
+                      : 'direct',
                 ),
               ),
             );
@@ -6739,6 +6743,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
             repository: repository,
             otherUid: widget.uid,
             avatarVersion: avatarVersion,
+            conversationType: 'direct',
           ),
         ),
       );
@@ -7460,6 +7465,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
             currentUid: uid,
             title: match.club.isEmpty ? 'Match chat' : match.club,
             repository: repository,
+            conversationType: 'match',
           ),
         ),
       );

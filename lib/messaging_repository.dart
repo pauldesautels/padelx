@@ -42,6 +42,9 @@ abstract class MessagingRepository {
   Future<void> send(String conversationId, String text, String requestId);
   Future<void> markRead(String conversationId);
   Future<Map<String, String>> directNames(Iterable<String> uids);
+  Future<Map<String, MessagingIdentity>> playerIdentities(
+    Iterable<String> uids,
+  );
   Future<Map<String, String>> matchNames(Iterable<String> ids);
 }
 
@@ -189,8 +192,18 @@ class FirebaseMessagingRepository implements MessagingRepository {
   }
 
   Future<Map<String, int>> directAvatarVersions(Iterable<String> uids) async {
+    final identities = await playerIdentities(uids);
+    return identities.map(
+      (uid, identity) => MapEntry(uid, identity.avatarVersion),
+    );
+  }
+
+  @override
+  Future<Map<String, MessagingIdentity>> playerIdentities(
+    Iterable<String> uids,
+  ) async {
     final ids = uids.where((id) => id.isNotEmpty).toSet().toList();
-    final versions = <String, int>{};
+    final identities = <String, MessagingIdentity>{};
     for (var i = 0; i < ids.length; i += 30) {
       final chunk = ids.sublist(i, (i + 30).clamp(0, ids.length));
       if (chunk.isEmpty) continue;
@@ -199,11 +212,16 @@ class FirebaseMessagingRepository implements MessagingRepository {
           .where(FieldPath.documentId, whereIn: chunk)
           .get();
       for (final doc in docs.docs) {
+        final displayName = doc.data()['displayName']?.toString().trim() ?? '';
         final value = doc.data()['avatarVersion'];
-        versions[doc.id] = value is num ? value.toInt() : 0;
+        identities[doc.id] = MessagingIdentity(
+          uid: doc.id,
+          displayName: displayName.isEmpty ? 'Player' : displayName,
+          avatarVersion: value is num ? value.toInt() : 0,
+        );
       }
     }
-    return versions;
+    return identities;
   }
 
   @override

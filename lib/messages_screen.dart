@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'conversation_screen.dart';
+import 'firebase_diagnostics.dart';
 import 'messaging.dart';
 import 'messaging_repository.dart';
 import 'profile_avatar.dart';
@@ -22,8 +23,8 @@ class MessagesScreen extends StatefulWidget {
 
 class _MessagesScreenState extends State<MessagesScreen> {
   final List<ConversationSummary> _items = [];
-  final Map<String, String> _direct = {}, _matches = {};
-  final Map<String, int> _avatars = {};
+  final Map<String, MessagingIdentity> _players = {};
+  final Map<String, String> _matches = {};
   String? _cursor;
   StreamSubscription<String>? _invalidationSubscription;
   String? _invalidationBaseline;
@@ -33,6 +34,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
       _more = false,
       _refreshing = false,
       _refreshPending = false;
+  bool _initialLoadFailed = false;
   @override
   void initState() {
     super.initState();
@@ -54,8 +56,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
             _invalidationBaseline = version;
             unawaited(_refresh(source: 'notification'));
           },
-          onError: (Object _) {
-            debugPrint('Messages inbox notification listener failed.');
+          onError: (Object error) {
+            debugPrint(
+              'Messages inbox notification listener failed '
+              '${safeFirebaseFailure(error)}.',
+            );
           },
         );
   }
@@ -118,48 +123,66 @@ class _MessagesScreenState extends State<MessagesScreen> {
       final page = await widget.repository.conversations(
         before: append ? _cursor : null,
       );
-      final direct = await widget.repository.directNames(
+      final players = await widget.repository.playerIdentities(
         page.conversations.map((c) => c.otherUid ?? ''),
       );
       final matches = await widget.repository.matchNames(
         page.conversations.map((c) => c.matchId ?? ''),
       );
-      final avatars = widget.repository is FirebaseMessagingRepository
-          ? await (widget.repository as FirebaseMessagingRepository)
-                .directAvatarVersions(
-                  page.conversations.map((c) => c.otherUid ?? ''),
-                )
-          : const <String, int>{};
       if (!mounted) return;
       setState(() {
         if (!append) {
           _items.clear();
-          _direct.clear();
+          _players.clear();
           _matches.clear();
-          _avatars.clear();
         }
         _items.addAll(page.conversations);
-        _direct.addAll(direct);
+        _players.addAll(players);
         _matches.addAll(matches);
-        _avatars.addAll(avatars);
         _cursor = page.cursor;
         _more = page.hasMore;
         _loading = false;
+        _initialLoadFailed = false;
       });
     } catch (_) {
       debugPrint('Messages inbox $source load failed.');
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          if (_items.isEmpty) _initialLoadFailed = true;
+        });
+      }
     }
   }
 
   String _title(ConversationSummary c) => c.type == 'direct'
-      ? (_direct[c.otherUid] ?? 'Player')
+      ? (_players[c.otherUid]?.displayName ?? 'Player')
       : (_matches[c.matchId] ?? 'Match chat');
+  void _retry() {
+    setState(() {
+      _loading = true;
+      _initialLoadFailed = false;
+    });
+    unawaited(_refresh(source: 'retry'));
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Messages')),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
+        : _initialLoadFailed
+        ? Center(
+            key: const Key('conversation-list-error'),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Messages are unavailable right now.'),
+                const SizedBox(height: 12),
+                FilledButton(onPressed: _retry, child: const Text('Try Again')),
+              ],
+            ),
+          )
         : _items.isEmpty
         ? const Center(
             key: Key('conversation-list-empty'),
@@ -167,46 +190,116 @@ class _MessagesScreenState extends State<MessagesScreen> {
           )
         : ListView(
             children: [
-              ..._items.map(
-                (c) => ListTile(
-                  key: Key('conversation-${c.id}'),
-                  leading: c.type == 'direct'
-                      ? ProfileAvatar(
-                          uid: c.otherUid ?? '',
-                          displayName: _title(c),
-                          avatarVersion: _avatars[c.otherUid] ?? 0,
-                        )
-                      : const CircleAvatar(child: Icon(Icons.sports_tennis)),
-                  title: Text(_title(c)),
-                  subtitle: Text(
+              ..._items.map((c) {
+                final title = _title(c);
+                final unread = c.unreadCount > 0;
+                final identity = _players[c.otherUid];
+                final timestamp = messagingInboxTime(c.lastMessageAt);
+                return Semantics(
+                  label: [
+                    c.type == 'match' ? '$title, Match Chat' : title,
                     c.preview.isEmpty ? 'No messages yet' : c.preview,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: c.unreadCount > 0
-                      ? Badge(label: Text('${c.unreadCount}'))
-                      : Text(messagingTime(c.lastMessageAt)),
-                  onTap: () async {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ConversationScreen(
-                          conversationId: c.id,
-                          currentUid: widget.currentUid,
-                          title: _title(c),
-                          repository: widget.repository,
-                          otherUid: c.type == 'direct' ? c.otherUid : null,
-                          avatarVersion: _avatars[c.otherUid] ?? 0,
-                          notificationStream:
-                              widget.conversationNotificationStream,
+                    if (timestamp.isNotEmpty) timestamp,
+                    if (unread) '${c.unreadCount} unread messages',
+                  ].join(', '),
+                  button: true,
+                  excludeSemantics: true,
+                  child: ListTile(
+                    key: Key('conversation-${c.id}'),
+                    leading: c.type == 'direct'
+                        ? ProfileAvatar(
+                            uid: c.otherUid ?? '',
+                            displayName: title,
+                            avatarVersion: identity?.avatarVersion ?? 0,
+                          )
+                        : const CircleAvatar(
+                            backgroundColor: Color(0xFF16382E),
+                            child: Icon(Icons.sports_tennis),
+                          ),
+                    title: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: unread
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
+                          ),
                         ),
-                      ),
-                    );
-                    if (mounted) {
-                      unawaited(_refresh(source: 'conversation-return'));
-                    }
-                  },
-                ),
-              ),
+                        if (timestamp.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            timestamp,
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (c.type == 'match')
+                          const Text(
+                            'Match Chat',
+                            style: TextStyle(
+                              color: Color(0xFF72F58B),
+                              fontSize: 12,
+                            ),
+                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                c.preview.isEmpty
+                                    ? 'No messages yet'
+                                    : c.preview,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: unread
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                            if (unread) ...[
+                              const SizedBox(width: 8),
+                              Badge(label: Text('${c.unreadCount}')),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                    onTap: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ConversationScreen(
+                            conversationId: c.id,
+                            currentUid: widget.currentUid,
+                            title: title,
+                            repository: widget.repository,
+                            otherUid: c.type == 'direct' ? c.otherUid : null,
+                            avatarVersion: identity?.avatarVersion ?? 0,
+                            conversationType: c.type,
+                            notificationStream:
+                                widget.conversationNotificationStream,
+                          ),
+                        ),
+                      );
+                      if (mounted) {
+                        unawaited(_refresh(source: 'conversation-return'));
+                      }
+                    },
+                  ),
+                );
+              }),
               if (_more)
                 TextButton(
                   key: const Key('load-older-conversations'),

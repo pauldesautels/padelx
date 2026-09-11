@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/conversation_screen.dart';
@@ -12,6 +13,7 @@ class FakeMessagingRepository implements MessagingRepository {
   int messageLoads = 0;
   int markReads = 0;
   int sends = 0;
+  Object? sendError;
   String? sentText;
   void Function()? onMarkRead;
   final StreamController<String> inboxInvalidations =
@@ -20,10 +22,17 @@ class FakeMessagingRepository implements MessagingRepository {
   int inboxCancellations = 0;
   int conversationLoads = 0;
   final List<String?> conversationBefores = [];
+  final List<String?> messageBefores = [];
   final List<Object> conversationResponses;
+  final List<Object> messageResponses;
+  final Map<String, MessagingIdentity> identities;
+  int identityLoads = 0;
+  final List<Set<String>> identityRequests = [];
   FakeMessagingRepository({
     this.readOnly = false,
     this.conversationResponses = const [],
+    this.messageResponses = const [],
+    this.identities = const {},
   });
   @override
   Stream<String> watchInboxInvalidations(String currentUid) {
@@ -92,7 +101,14 @@ class FakeMessagingRepository implements MessagingRepository {
     String? before,
     int limit = 40,
   }) async {
-    messageLoads++;
+    messageBefores.add(before);
+    final call = messageLoads++;
+    if (call < messageResponses.length) {
+      final response = messageResponses[call];
+      if (response is Future<MessagesPage>) return await response;
+      if (response is MessagesPage) return response;
+      throw response;
+    }
     return MessagesPage(
       [const ChatMessage(id: 'one', senderUid: 'friend', text: 'Hello')],
       canSend: !readOnly,
@@ -114,12 +130,31 @@ class FakeMessagingRepository implements MessagingRepository {
   ) async {
     sends++;
     sentText = text;
+    if (sendError != null) throw sendError!;
   }
 
   @override
   Future<Map<String, String>> directNames(Iterable<String> uids) async => {
     'friend': 'Alex',
   };
+  @override
+  Future<Map<String, MessagingIdentity>> playerIdentities(
+    Iterable<String> uids,
+  ) async {
+    identityLoads++;
+    final requested = uids.where((uid) => uid.isNotEmpty).toSet();
+    identityRequests.add(requested);
+    return {
+      for (final uid in requested)
+        uid:
+            identities[uid] ??
+            MessagingIdentity(
+              uid: uid,
+              displayName: uid == 'friend' ? 'Alex' : 'Player',
+            ),
+    };
+  }
+
   @override
   Future<Map<String, String>> matchNames(Iterable<String> ids) async => {
     'match': 'Club X',
@@ -166,13 +201,18 @@ void main() {
 
   Widget conversation(
     FakeMessagingRepository repository,
-    Stream<Map<String, dynamic>?> stream,
-  ) => MaterialApp(
+    Stream<Map<String, dynamic>?> stream, {
+    String type = 'match',
+    String title = 'Club X',
+    String? otherUid,
+  }) => MaterialApp(
     home: ConversationScreen(
       conversationId: 'match-id',
       currentUid: 'me',
-      title: 'Club X',
+      title: title,
       repository: repository,
+      conversationType: type,
+      otherUid: otherUid,
       notificationStream: (_, _) => stream,
     ),
   );
@@ -476,6 +516,41 @@ void main() {
     await notifications.close();
   });
 
+  testWidgets('conversation listener logs only safe Firebase diagnostics', (
+    tester,
+  ) async {
+    final logs = <String>[];
+    final originalDebugPrint = debugPrint;
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) logs.add(message);
+    };
+    addTearDown(() => debugPrint = originalDebugPrint);
+    final notifications = StreamController<Map<String, dynamic>?>();
+    await tester.pumpWidget(
+      conversation(FakeMessagingRepository(), notifications.stream),
+    );
+    await tester.pumpAndSettle();
+    notifications.addError(
+      FirebaseException(
+        plugin: 'firebase_firestore',
+        code: 'permission-denied',
+        message: 'private@example.com token-secret',
+      ),
+    );
+    await tester.pump();
+    expect(
+      logs,
+      contains(
+        'Conversation notification listener failed '
+        '[firebase_firestore/permission-denied; authorization-or-app-check].',
+      ),
+    );
+    expect(logs.join(' '), isNot(contains('private@example.com')));
+    expect(logs.join(' '), isNot(contains('token-secret')));
+    debugPrint = originalDebugPrint;
+    await notifications.close();
+  });
+
   testWidgets('manual refresh and send retain existing behavior', (
     tester,
   ) async {
@@ -492,6 +567,7 @@ void main() {
       find.byKey(const Key('message-composer')),
       'Still callable-mediated',
     );
+    await tester.pump();
     await tester.tap(find.byKey(const Key('send-message')));
     await tester.pumpAndSettle();
     expect(repository.sends, 1);
@@ -499,4 +575,287 @@ void main() {
     expect(repository.messageLoads, 3);
     await notifications.close();
   });
+
+  test('date and inbox labels use local-day friendly formatting', () {
+    final now = DateTime(2026, 9, 11, 15, 30);
+    expect(messagingDateSeparator(now, now: now), 'Today');
+    expect(
+      messagingDateSeparator(DateTime(2026, 9, 10), now: now),
+      'Yesterday',
+    );
+    expect(
+      messagingDateSeparator(DateTime(2026, 9, 1), now: now),
+      'September 1',
+    );
+    expect(
+      messagingDateSeparator(DateTime(2025, 12, 31), now: now),
+      'December 31, 2025',
+    );
+    expect(
+      messagingInboxTime(DateTime(2026, 9, 11, 9, 5), now: now),
+      '9:05 AM',
+    );
+    expect(messagingInboxTime(DateTime(2026, 9, 10), now: now), 'Yesterday');
+    expect(messagingInboxTime(DateTime(2026, 9, 8), now: now), 'Tue');
+    expect(messagingInboxTime(DateTime(2026, 8, 1), now: now), 'Aug 1');
+  });
+
+  testWidgets('match chat groups participants with identity and date context', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final repository = FakeMessagingRepository(
+      identities: const {
+        'friend': MessagingIdentity(uid: 'friend', displayName: 'Alex'),
+        'second': MessagingIdentity(uid: 'second', displayName: 'Sam'),
+      },
+      messageResponses: [
+        MessagesPage([
+          ChatMessage(
+            id: 'mine',
+            senderUid: 'me',
+            text: 'See you there',
+            createdAt: now,
+          ),
+          ChatMessage(
+            id: 'alex-new',
+            senderUid: 'friend',
+            text: 'Perfect',
+            createdAt: now.subtract(const Duration(minutes: 1)),
+          ),
+          ChatMessage(
+            id: 'alex-old',
+            senderUid: 'friend',
+            text: 'Court two?',
+            createdAt: now.subtract(const Duration(minutes: 2)),
+          ),
+          ChatMessage(
+            id: 'sam',
+            senderUid: 'second',
+            text: 'I am in',
+            createdAt: now.subtract(const Duration(days: 1)),
+          ),
+        ]),
+      ],
+    );
+    final notifications = StreamController<Map<String, dynamic>?>();
+    await tester.pumpWidget(conversation(repository, notifications.stream));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Match Chat'), findsOneWidget);
+    expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Yesterday'), findsOneWidget);
+    expect(find.byKey(const Key('message-sender-alex-old')), findsOneWidget);
+    expect(find.byKey(const Key('message-sender-alex-new')), findsNothing);
+    expect(find.byKey(const Key('message-time-alex-new')), findsOneWidget);
+    expect(find.byKey(const Key('message-time-alex-old')), findsNothing);
+    expect(find.byKey(const Key('message-sender-sam')), findsOneWidget);
+    expect(repository.identityRequests.single, {'friend', 'second'});
+
+    final mine = tester.getCenter(
+      find.byKey(const Key('message-content-mine')),
+    );
+    final incoming = tester.getCenter(
+      find.byKey(const Key('message-content-alex-new')),
+    );
+    expect(mine.dx, greaterThan(incoming.dx));
+    await notifications.close();
+  });
+
+  testWidgets('direct chat keeps the established compact identity header', (
+    tester,
+  ) async {
+    final repository = FakeMessagingRepository();
+    final notifications = StreamController<Map<String, dynamic>?>();
+    await tester.pumpWidget(
+      conversation(
+        repository,
+        notifications.stream,
+        type: 'direct',
+        title: 'Alex',
+        otherUid: 'friend',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Alex'), findsOneWidget);
+    expect(find.text('Match Chat'), findsNothing);
+    expect(find.byKey(const Key('message-sender-one')), findsNothing);
+    await notifications.close();
+  });
+
+  testWidgets('composer disables empty sends and reports send failure once', (
+    tester,
+  ) async {
+    final repository = FakeMessagingRepository()..sendError = Exception('send');
+    final notifications = StreamController<Map<String, dynamic>?>();
+    await tester.pumpWidget(conversation(repository, notifications.stream));
+    await tester.pumpAndSettle();
+
+    IconButton sendButton() =>
+        tester.widget(find.byKey(const Key('send-message')));
+    expect(sendButton().onPressed, isNull);
+    await tester.enterText(find.byKey(const Key('message-composer')), '   ');
+    await tester.pump();
+    expect(sendButton().onPressed, isNull);
+    await tester.enterText(find.byKey(const Key('message-composer')), 'Hello');
+    await tester.pump();
+    expect(sendButton().onPressed, isNotNull);
+    await tester.tap(find.byKey(const Key('send-message')));
+    await tester.pumpAndSettle();
+    expect(repository.sends, 1);
+    expect(find.text('Could not send this message.'), findsOneWidget);
+    await notifications.close();
+  });
+
+  testWidgets(
+    'conversation distinguishes initial failure and retry from empty',
+    (tester) async {
+      final repository = FakeMessagingRepository(
+        messageResponses: [Exception('offline'), const MessagesPage([])],
+      );
+      final notifications = StreamController<Map<String, dynamic>?>();
+      await tester.pumpWidget(conversation(repository, notifications.stream));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('messages-error-state')), findsOneWidget);
+      expect(find.text('Try Again'), findsOneWidget);
+      await tester.tap(find.text('Try Again'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('messages-empty-state')), findsOneWidget);
+      await notifications.close();
+    },
+  );
+
+  testWidgets(
+    'conversation refreshes serialize and retain loaded older messages',
+    (tester) async {
+      final pending = Completer<MessagesPage>();
+      final first = MessagesPage(
+        const [ChatMessage(id: 'latest', senderUid: 'friend', text: 'Latest')],
+        cursor: 'older-cursor',
+        hasMore: true,
+      );
+      final repository = FakeMessagingRepository(
+        messageResponses: [
+          first,
+          const MessagesPage([
+            ChatMessage(id: 'older', senderUid: 'friend', text: 'Older'),
+          ]),
+          pending.future,
+          MessagesPage([
+            const ChatMessage(
+              id: 'newest',
+              senderUid: 'friend',
+              text: 'Newest',
+            ),
+            ...first.messages,
+          ]),
+        ],
+      );
+      final notifications = StreamController<Map<String, dynamic>?>();
+      await tester.pumpWidget(conversation(repository, notifications.stream));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('load-older-messages')));
+      await tester.tap(find.byKey(const Key('load-older-messages')));
+      await tester.pumpAndSettle();
+      expect(repository.messageBefores, contains('older-cursor'));
+      expect(find.text('Older'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('refresh-conversation')));
+      await tester.pump();
+      notifications.add(notification(createdAt: 40));
+      await tester.pump();
+      expect(repository.messageLoads, 3);
+      pending.complete(first);
+      await tester.pumpAndSettle();
+      expect(repository.messageLoads, 4);
+      expect(find.text('Newest'), findsOneWidget);
+      expect(find.text('Older'), findsOneWidget);
+      await notifications.close();
+    },
+  );
+
+  testWidgets(
+    'inbox presents type, preview, time, unread, and accessible context',
+    (tester) async {
+      final now = DateTime.now();
+      final repository = FakeMessagingRepository(
+        conversationResponses: [
+          ConversationsPage([
+            ConversationSummary(
+              id: 'direct-id',
+              type: 'direct',
+              otherUid: 'friend',
+              preview: 'Ready for Thursday?',
+              unreadCount: 3,
+              lastMessageAt: now,
+            ),
+            ConversationSummary(
+              id: 'match-id',
+              type: 'match',
+              matchId: 'match',
+              preview: 'Court two confirmed',
+              lastMessageAt: now.subtract(const Duration(days: 1)),
+            ),
+          ]),
+        ],
+      );
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(inbox(repository));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ready for Thursday?'), findsOneWidget);
+      expect(find.text('Court two confirmed'), findsOneWidget);
+      expect(find.text('Match Chat'), findsOneWidget);
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('Yesterday'), findsOneWidget);
+      expect(
+        tester
+            .getSemantics(find.byKey(const Key('conversation-direct-id')))
+            .label,
+        contains('3 unread messages'),
+      );
+      expect(repository.identityRequests.single, {'friend'});
+      semantics.dispose();
+    },
+  );
+
+  testWidgets(
+    'long localized-style message remains usable on a narrow screen',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 568));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final repository = FakeMessagingRepository(
+        identities: const {
+          'friend': MessagingIdentity(
+            uid: 'friend',
+            displayName: 'A very long participant display name',
+          ),
+        },
+        messageResponses: [
+          MessagesPage([
+            ChatMessage(
+              id: 'long',
+              senderUid: 'friend',
+              text: List.filled(35, 'Long localized message').join(' '),
+              createdAt: DateTime.now(),
+            ),
+          ]),
+        ],
+      );
+      final notifications = StreamController<Map<String, dynamic>?>();
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(
+            size: Size(320, 568),
+            textScaler: TextScaler.linear(1.3),
+          ),
+          child: conversation(repository, notifications.stream),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('message-long')), findsOneWidget);
+      await notifications.close();
+    },
+  );
 }

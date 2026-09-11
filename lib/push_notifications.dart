@@ -7,6 +7,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'firebase_diagnostics.dart';
+
 enum PushPermissionState { notDetermined, allowed, denied, unsupported }
 
 const isIosDeviceTestBuild = bool.fromEnvironment('PADELX_IOS_DEVICE_TEST');
@@ -296,7 +298,8 @@ class PushNotificationService implements PushSettingsService {
         }
       } catch (error) {
         debugPrint(
-          'Push token refresh synchronization failed: ${error.runtimeType}.',
+          'Push token refresh synchronization failed '
+          '${safeFirebaseFailure(error)}.',
         );
       }
     });
@@ -320,7 +323,8 @@ class PushNotificationService implements PushSettingsService {
       }
     } catch (error) {
       debugPrint(
-        'Push registration synchronization failed: ${error.runtimeType}.',
+        'Push registration synchronization failed '
+        '${safeFirebaseFailure(error)}.',
       );
     }
   }

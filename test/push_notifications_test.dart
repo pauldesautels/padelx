@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/push_notifications.dart';
@@ -8,12 +9,14 @@ import 'package:padelx/settings_screen.dart';
 class _Preferences implements NotificationPreferencesRepository {
   NotificationPreferences value;
   Completer<NotificationPreferences>? nextLoad;
+  Object? loadError;
   final StreamController<NotificationPreferences> controller =
       StreamController<NotificationPreferences>.broadcast();
   int saves = 0;
   _Preferences([this.value = const NotificationPreferences()]);
   @override
   Future<NotificationPreferences> load(String uid) async {
+    if (loadError != null) throw loadError!;
     final delayed = nextLoad;
     nextLoad = null;
     return delayed == null ? value : delayed.future;
@@ -144,6 +147,37 @@ void main() {
     expect(value.friendAccepted, true);
     expect(value.matchUpdates, true);
     expect(value.playAgain, true);
+  });
+
+  test('startup synchronization logs only safe Firebase diagnostics', () async {
+    final logs = <String>[];
+    final originalDebugPrint = debugPrint;
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) logs.add(message);
+    };
+    addTearDown(() => debugPrint = originalDebugPrint);
+    final preferences = _Preferences()
+      ..loadError = FirebaseException(
+        plugin: 'firebase_firestore',
+        code: 'permission-denied',
+        message: 'private@example.com token-secret',
+      );
+
+    await _service(
+      _UnsupportedMessaging(),
+      _Devices(),
+      preferences,
+    ).startForUser('alice');
+
+    expect(
+      logs,
+      contains(
+        'Push registration synchronization failed '
+        '[firebase_firestore/permission-denied; authorization-or-app-check].',
+      ),
+    );
+    expect(logs.join(' '), isNot(contains('private@example.com')));
+    expect(logs.join(' '), isNot(contains('token-secret')));
   });
 
   test('denied permission never registers or enables push', () async {
