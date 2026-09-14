@@ -5669,6 +5669,23 @@ class _ProfileMessageState extends StatelessWidget {
   );
 }
 
+@visibleForTesting
+Future<void> saveProfileWithLegacyLocationFallback({
+  required bool hasCanonicalLocation,
+  required Future<void> Function(bool includeCanonicalLocation) write,
+}) async {
+  try {
+    await write(true);
+  } on FirebaseException catch (error) {
+    if (!hasCanonicalLocation || error.code != 'permission-denied') rethrow;
+    debugPrint(
+      'Profile save canonical location fields were rejected; '
+      'retrying with the legacy location shape.',
+    );
+    await write(false);
+  }
+}
+
 class ProfileEditorScreen extends StatefulWidget {
   final User? user;
   final UserProfile? profile;
@@ -5678,6 +5695,8 @@ class ProfileEditorScreen extends StatefulWidget {
   final String _testDisplayName;
   final VoidCallback? onSignOut;
   final GooglePlacesClient? placesClient;
+  final Future<void> Function(UserProfile profile)? saveOverride;
+  final ValueChanged<UserProfile>? onRequiredSaved;
 
   const ProfileEditorScreen({
     super.key,
@@ -5686,6 +5705,8 @@ class ProfileEditorScreen extends StatefulWidget {
     this.isRequired = false,
     this.onSignOut,
     this.placesClient,
+    this.saveOverride,
+    this.onRequiredSaved,
   }) : _testUid = '',
        _testEmail = '',
        _testDisplayName = '';
@@ -5700,6 +5721,8 @@ class ProfileEditorScreen extends StatefulWidget {
     this.isRequired = false,
     this.onSignOut,
     this.placesClient,
+    this.saveOverride,
+    this.onRequiredSaved,
   }) : user = null,
        _testUid = uid,
        _testEmail = email,
@@ -5719,6 +5742,8 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   late final TextEditingController _discoveryCountryCodeController;
   late final TextEditingController _discoveryCityController;
   late final TextEditingController _discoveryAreaController;
+  late String _discoveryCityId;
+  late String _discoveryAreaId;
   late final TextEditingController _bioController;
   late PreferredSide _preferredSide;
   late PlayFrequency _playFrequency;
@@ -5757,6 +5782,8 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
     _discoveryAreaController = TextEditingController(
       text: widget.profile?.discoveryLocation.area ?? '',
     );
+    _discoveryCityId = widget.profile?.discoveryLocation.cityId ?? '';
+    _discoveryAreaId = widget.profile?.discoveryLocation.areaId ?? '';
     _bioController = TextEditingController(
       text: widget.profile?.socialProfile.bio ?? '',
     );
@@ -5764,7 +5791,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
         widget.profile?.socialProfile.preferredSide ?? PreferredSide.either;
     _playFrequency =
         widget.profile?.socialProfile.playFrequency ?? PlayFrequency.occasional;
-    _discoverable = widget.profile?.socialProfile.discoverable ?? false;
+    // Only a genuinely absent profile is new. Existing and legacy profiles
+    // preserve their parsed value (including the privacy-safe missing=false).
+    _discoverable = widget.profile?.socialProfile.discoverable ?? true;
     _avatarVersion = widget.profile?.avatarVersion ?? 0;
     _discoveryLatitude = widget.profile?.discoveryLocation.latitude;
     _discoveryLongitude = widget.profile?.discoveryLocation.longitude;
@@ -5789,7 +5818,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       country: _discoveryCountryController.text,
       countryCode: _discoveryCountryCodeController.text,
       city: _discoveryCityController.text,
+      cityId: _discoveryCityId,
       area: _discoveryAreaController.text,
+      areaId: _discoveryAreaId,
       latitude: _discoveryLatitude,
       longitude: _discoveryLongitude,
     );
@@ -5828,48 +5859,32 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
 
     setState(() => _isSaving = true);
     try {
-      final firestore = FirebaseFirestore.instance;
-      final privateReference = firestore.collection('users').doc(widget.uid);
-      final publicReference = firestore
-          .collection('publicProfiles')
-          .doc(widget.uid);
-      final batch = firestore.batch();
-      final timestamp = FieldValue.serverTimestamp();
-      final createdAt = widget.profile?.createdAt ?? timestamp;
-      final socialProfile = SocialProfileData(
-        preferredSide: _preferredSide,
-        playFrequency: _playFrequency,
-        bio: bio,
-        discoverable: _discoverable,
-      );
-      final sharedSocialData = socialProfile.toMap();
-      final publicLocation = coarsePublicLocation(discovery.toMap());
-      batch.set(privateReference, {
-        'uid': widget.uid,
-        'displayName': displayName,
-        'level': profileLevelStorageValue(level),
-        'email': widget.email.isNotEmpty
+      final savedProfile = UserProfile(
+        uid: widget.uid,
+        displayName: displayName,
+        level: profileLevelStorageValue(level),
+        email: widget.email.isNotEmpty
             ? widget.email
             : widget.profile?.email ?? '',
-        'discoveryLocation': discovery.toMap(),
-        'countryCode': FieldValue.delete(),
-        'city': FieldValue.delete(),
-        'area': FieldValue.delete(),
-        'createdAt': createdAt,
-        'updatedAt': timestamp,
-        ...sharedSocialData,
-      }, SetOptions(merge: true));
-      batch.set(publicReference, {
-        'uid': widget.uid,
-        'displayName': displayName,
-        'level': profileLevelStorageValue(level),
-        ...publicLocation,
-        ...sharedSocialData,
-      }, SetOptions(merge: true));
-      await batch.commit();
+        discoveryLocation: discovery,
+        socialProfile: SocialProfileData(
+          preferredSide: _preferredSide,
+          playFrequency: _playFrequency,
+          bio: bio,
+          discoverable: _discoverable,
+        ),
+        avatarVersion: _avatarVersion,
+      );
+      if (widget.saveOverride case final saveOverride?) {
+        await saveOverride(savedProfile);
+      } else {
+        await _persistProfile(savedProfile);
+      }
 
       if (!mounted) return;
-      if (!widget.isRequired) {
+      if (widget.isRequired) {
+        widget.onRequiredSaved?.call(savedProfile);
+      } else {
         final messenger = ScaffoldMessenger.of(context);
         Navigator.pop(context);
         messenger.showSnackBar(
@@ -5886,6 +5901,58 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  Future<void> _persistProfile(UserProfile profile) async {
+    final hasCanonicalLocation =
+        profile.discoveryLocation.cityId.isNotEmpty ||
+        profile.discoveryLocation.areaId.isNotEmpty;
+    await saveProfileWithLegacyLocationFallback(
+      hasCanonicalLocation: hasCanonicalLocation,
+      write: (includeCanonicalLocation) async {
+        final discovery = includeCanonicalLocation
+            ? profile.discoveryLocation
+            : DiscoveryLocation(
+                country: profile.discoveryLocation.country,
+                countryCode: profile.discoveryLocation.countryCode,
+                city: profile.discoveryLocation.city,
+                area: profile.discoveryLocation.area,
+                latitude: profile.discoveryLocation.latitude,
+                longitude: profile.discoveryLocation.longitude,
+              );
+        final firestore = FirebaseFirestore.instance;
+        final privateReference = firestore.collection('users').doc(widget.uid);
+        final publicReference = firestore
+            .collection('publicProfiles')
+            .doc(widget.uid);
+        final batch = firestore.batch();
+        final timestamp = FieldValue.serverTimestamp();
+        final createdAt = widget.profile?.createdAt ?? timestamp;
+        final sharedSocialData = profile.socialProfile.toMap();
+        final publicLocation = coarsePublicLocation(discovery.toMap());
+        batch.set(privateReference, {
+          'uid': widget.uid,
+          'displayName': profile.displayName,
+          'level': profile.level,
+          'email': profile.email,
+          'discoveryLocation': discovery.toMap(),
+          'countryCode': FieldValue.delete(),
+          'city': FieldValue.delete(),
+          'area': FieldValue.delete(),
+          'createdAt': createdAt,
+          'updatedAt': timestamp,
+          ...sharedSocialData,
+        }, SetOptions(merge: true));
+        batch.set(publicReference, {
+          'uid': widget.uid,
+          'displayName': profile.displayName,
+          'level': profile.level,
+          ...publicLocation,
+          ...sharedSocialData,
+        }, SetOptions(merge: true));
+        await batch.commit();
+      },
+    );
   }
 
   void _showMessage(String message) {
@@ -5969,6 +6036,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           const SizedBox(height: 12),
           DropdownButtonFormField<PreferredSide>(
             key: const Key('preferred-side-field'),
+            isExpanded: true,
             initialValue: _preferredSide,
             decoration: const InputDecoration(
               labelText: 'Preferred side',
@@ -5988,6 +6056,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           const SizedBox(height: 12),
           DropdownButtonFormField<PlayFrequency>(
             key: const Key('play-frequency-field'),
+            isExpanded: true,
             initialValue: _playFrequency,
             decoration: const InputDecoration(
               labelText: 'How often do you play?',
@@ -6021,9 +6090,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             key: const Key('profile-discoverable-field'),
             value: _discoverable,
             contentPadding: EdgeInsets.zero,
-            title: const Text('Players discovery'),
+            title: const Text('Let other players find me'),
             subtitle: const Text(
-              'Allow other players to find me in Players discovery.',
+              'Allow other PadelX players to discover your profile and invite you to play.',
             ),
             onChanged: _isSaving
                 ? null
@@ -6054,14 +6123,16 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
               client: widget.placesClient,
               onSelected: (location) => setState(() {
                 final sameCity =
-                    _discoveryCountryCodeController.text.trim().toUpperCase() ==
-                        location.countryCode.trim().toUpperCase() &&
-                    _discoveryCityController.text.trim().toLowerCase() ==
-                        location.city.trim().toLowerCase();
+                    _discoveryCityId.isNotEmpty &&
+                    _discoveryCityId == location.placeId.trim();
                 _discoveryCountryController.text = location.country;
                 _discoveryCountryCodeController.text = location.countryCode;
                 _discoveryCityController.text = location.city;
-                if (!sameCity) _discoveryAreaController.clear();
+                _discoveryCityId = location.placeId.trim();
+                if (!sameCity) {
+                  _discoveryAreaController.clear();
+                  _discoveryAreaId = '';
+                }
                 _discoveryLatitude = location.latitude;
                 _discoveryLongitude = location.longitude;
               }),
@@ -6077,6 +6148,8 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
               enabled: !_isSaving,
               onChanged: (_) => setState(() {
                 _discoveryAreaController.clear();
+                _discoveryCityId = '';
+                _discoveryAreaId = '';
                 _discoveryLatitude = null;
                 _discoveryLongitude = null;
               }),
@@ -6091,6 +6164,8 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
               enabled: !_isSaving,
               onChanged: (_) => setState(() {
                 _discoveryAreaController.clear();
+                _discoveryCityId = '';
+                _discoveryAreaId = '';
                 _discoveryLatitude = null;
                 _discoveryLongitude = null;
               }),
@@ -6109,6 +6184,8 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
               enabled: !_isSaving,
               onChanged: (_) => setState(() {
                 _discoveryAreaController.clear();
+                _discoveryCityId = '';
+                _discoveryAreaId = '';
                 _discoveryLatitude = null;
                 _discoveryLongitude = null;
               }),
@@ -6126,7 +6203,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
               country: _discoveryCountryController.text,
               countryCode: _discoveryCountryCodeController.text,
               city: _discoveryCityController.text,
+              cityId: _discoveryCityId,
               area: _discoveryAreaController.text,
+              areaId: _discoveryAreaId,
               latitude: _discoveryLatitude,
               longitude: _discoveryLongitude,
             ),
@@ -6136,8 +6215,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             helperText: _discoveryAreaController.text.trim().isEmpty
                 ? 'Optional neighborhood within your city'
                 : 'Current area; clear or replace it with a search result',
-            onChanged: (value) =>
-                setState(() => _discoveryAreaController.text = value),
+            onChanged: (value) => setState(() {
+              _discoveryAreaController.text = value.label;
+              _discoveryAreaId = value.id;
+            }),
           ),
           const SizedBox(height: 8),
           FilledButton(

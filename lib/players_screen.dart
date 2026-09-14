@@ -57,6 +57,28 @@ class _PlayersScreenState extends State<PlayersScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant PlayersScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_sameDiscoveryScope(oldWidget.discoveryLocation, widget.discoveryLocation)) return;
+    filters = PlayerDiscoveryFilters(
+      level: filters.level,
+      preferredSide: filters.preferredSide,
+      relationship: filters.relationship,
+    );
+    _filterGeneration += 1;
+    _queuedFilterLoad = true;
+    _scheduleFilterLoad();
+  }
+
+  bool _sameDiscoveryScope(DiscoveryLocation left, DiscoveryLocation right) {
+    if (left.countryCode.trim().toUpperCase() != right.countryCode.trim().toUpperCase()) return false;
+    final leftId = left.cityId.trim();
+    final rightId = right.cityId.trim();
+    if (leftId.isNotEmpty || rightId.isNotEmpty) return leftId == rightId;
+    return left.city.trim() == right.city.trim();
+  }
+
+  @override
   void dispose() {
     _filterTimer?.cancel();
     super.dispose();
@@ -117,6 +139,12 @@ class _PlayersScreenState extends State<PlayersScreen> {
     _scheduleFilterLoad();
   }
 
+  Future<void> _refresh() async {
+    _filterGeneration += 1;
+    _queuedFilterLoad = loading;
+    await _load(reset: true);
+  }
+
   void _scheduleFilterLoad() {
     _filterTimer?.cancel();
     if (loading) return;
@@ -133,10 +161,13 @@ class _PlayersScreenState extends State<PlayersScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => ListView(
-    key: const Key('players-scroll-view'),
-    padding: const EdgeInsets.fromLTRB(20, 12, 20, 104),
-    children: [
+  Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: _refresh,
+    child: ListView(
+      key: const Key('players-scroll-view'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 104),
+      children: [
       const Text(
         'Players',
         style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
@@ -197,11 +228,17 @@ class _PlayersScreenState extends State<PlayersScreen> {
           action: () => _load(reset: true),
         )
       else if (players.isEmpty)
-        const _State(
-          key: Key('players-empty'),
+        _State(
+          key: Key(hasMore ? 'players-more-available' : 'players-empty'),
           icon: Icons.group_outlined,
-          title: 'No players match these filters',
-          message: 'Try a broader area, level, side, or relationship filter.',
+          title: hasMore
+              ? 'More players may match'
+              : 'No players match these filters',
+          message: hasMore
+              ? 'Continue searching the remaining players.'
+              : 'Try a broader area, level, side, or relationship filter.',
+          action: hasMore ? _load : null,
+          actionLabel: 'Load more',
         )
       else
         ...players.map(
@@ -220,7 +257,8 @@ class _PlayersScreenState extends State<PlayersScreen> {
           onPressed: loading ? null : _load,
           child: Text(loading ? 'Loading…' : 'Load more'),
         ),
-    ],
+      ],
+    ),
   );
 }
 
@@ -246,7 +284,8 @@ class _Filters extends StatelessWidget {
         placesClient: placesClient,
         onChanged: (value) => onChanged(
           PlayerDiscoveryFilters(
-            area: value,
+            area: value.label,
+            areaId: value.id,
             level: filters.level,
             preferredSide: filters.preferredSide,
             relationship: filters.relationship,
@@ -276,6 +315,7 @@ class _Filters extends StatelessWidget {
             onChanged: (v) => onChanged(
               PlayerDiscoveryFilters(
                 area: filters.area,
+                areaId: filters.areaId,
                 level: v == 'any' ? '' : v!,
                 preferredSide: filters.preferredSide,
                 relationship: filters.relationship,
@@ -300,6 +340,7 @@ class _Filters extends StatelessWidget {
             onChanged: (v) => onChanged(
               PlayerDiscoveryFilters(
                 area: filters.area,
+                areaId: filters.areaId,
                 level: filters.level,
                 preferredSide: v!,
                 relationship: filters.relationship,
@@ -323,6 +364,7 @@ class _Filters extends StatelessWidget {
             onChanged: (v) => onChanged(
               PlayerDiscoveryFilters(
                 area: filters.area,
+                areaId: filters.areaId,
                 level: filters.level,
                 preferredSide: filters.preferredSide,
                 relationship: v!,
@@ -429,12 +471,14 @@ class _State extends StatelessWidget {
   final String title;
   final String? message;
   final VoidCallback? action;
+  final String actionLabel;
   const _State({
     super.key,
     required this.icon,
     required this.title,
     this.message,
     this.action,
+    this.actionLabel = 'Try Again',
   });
   @override
   Widget build(BuildContext context) => Padding(
@@ -450,7 +494,7 @@ class _State extends StatelessWidget {
         ),
         if (message != null) Text(message!, textAlign: TextAlign.center),
         if (action != null)
-          TextButton(onPressed: action, child: const Text('Try Again')),
+          TextButton(onPressed: action, child: Text(actionLabel)),
       ],
     ),
   );

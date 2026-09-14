@@ -4,16 +4,22 @@
 
 `discoverPlayers` derives country and city from the authenticated viewer's private profile and queries only
 `publicProfiles` where `discoverable == true`, `countryCode == viewer.countryCode`, and
-`city == viewer.city`. The Firestore-backed order is ascending `displayName`, then ascending public `uid`.
+`cityId == viewer.cityId`. `cityId` is the stable provider place ID captured by the city selector; `city`
+remains localized display text. Legacy viewers without `cityId` retain the previous exact `city` query until
+they explicitly reselect their city or are backfilled. Canonical and legacy records are never guessed or
+fuzzily combined. The Firestore-backed order is ascending `displayName`, then ascending public `uid`.
 The opaque client cursor contains those two values and `startAfter` preserves that exact order.
 
-Each request returns at most 20 players and reads at most 60 candidate profiles (plus one existence probe).
-Area, level, side, and relationship filters are applied after this bounded query. A sparse filtered page is
-therefore expected and the backend never scans the rest of a city to fill it.
+Each request returns at most 20 players. It reads candidates in 60-document windows and inspects at most 120
+candidates total. If the first window is sparse after policy/filter checks, the callable continues into the
+second window. At the work cap it returns every eligible result found, a cursor for the last inspected
+candidate, and `hasMore == true` when another candidate exists. End-of-query returns `hasMore == false`.
+The client always exposes continuation when `hasMore` is true, even after an empty visible page.
 
 ## Filter semantics
 
-- Area is an optional case-insensitive exact refinement inside the viewer's city.
+- Area is an optional canonical `areaId` refinement when selected from Places. Legacy area selections retain
+  their previous case-insensitive display-label refinement until replaced.
 - Level is an optional exact match against the existing public level value.
 - Left includes `left` and `either`; Right includes `right` and `either`; Either only includes `either`.
 - Relationship can be Everyone, accepted Friends, or Played With (positive completed-match count).

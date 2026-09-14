@@ -2,11 +2,13 @@ enum PlayerRelationshipFilter { all, friends, playedWith }
 
 class PlayerDiscoveryFilters {
   final String area;
+  final String areaId;
   final String level;
   final String preferredSide;
   final PlayerRelationshipFilter relationship;
   const PlayerDiscoveryFilters({
     this.area = '',
+    this.areaId = '',
     this.level = '',
     this.preferredSide = 'any',
     this.relationship = PlayerRelationshipFilter.all,
@@ -16,15 +18,18 @@ class PlayerDiscoveryFilters {
   bool operator ==(Object other) =>
       other is PlayerDiscoveryFilters &&
       area == other.area &&
+      areaId == other.areaId &&
       level == other.level &&
       preferredSide == other.preferredSide &&
       relationship == other.relationship;
 
   @override
-  int get hashCode => Object.hash(area, level, preferredSide, relationship);
+  int get hashCode =>
+      Object.hash(area, areaId, level, preferredSide, relationship);
 
   Map<String, Object> toMap({Object? cursor}) => {
     if (area.trim().isNotEmpty) 'area': area.trim(),
+    if (areaId.trim().isNotEmpty) 'areaId': areaId.trim(),
     if (level.trim().isNotEmpty) 'level': level.trim(),
     'preferredSide': preferredSide,
     'relationship': relationship.name,

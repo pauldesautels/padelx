@@ -4,10 +4,16 @@ import 'location.dart';
 import 'places.dart';
 import 'places_autocomplete.dart';
 
+class AreaSelection {
+  final String id;
+  final String label;
+  const AreaSelection({required this.id, required this.label});
+}
+
 class AreaSelectorField extends StatelessWidget {
   final String value;
   final DiscoveryLocation location;
-  final ValueChanged<String> onChanged;
+  final ValueChanged<AreaSelection> onChanged;
   final GooglePlacesClient? placesClient;
   final bool enabled;
   final String? helperText;
@@ -25,7 +31,7 @@ class AreaSelectorField extends StatelessWidget {
   });
 
   Future<void> _open(BuildContext context) async {
-    final selected = await showModalBottomSheet<String>(
+    final selected = await showModalBottomSheet<AreaSelection>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -35,7 +41,7 @@ class AreaSelectorField extends StatelessWidget {
         placesClient: placesClient,
       ),
     );
-    if (selected != null && selected != value) onChanged(selected);
+    if (selected != null) onChanged(selected);
   }
 
   @override
@@ -116,7 +122,8 @@ class _AreaPicker extends StatelessWidget {
             trailing: currentValue.trim().isEmpty
                 ? const Icon(Icons.check)
                 : null,
-            onTap: () => Navigator.pop(context, ''),
+            onTap: () =>
+                Navigator.pop(context, const AreaSelection(id: '', label: '')),
           ),
           const SizedBox(height: 8),
           if (client.isConfigured)
@@ -141,7 +148,13 @@ class _AreaPicker extends StatelessWidget {
                   );
                   return;
                 }
-                Navigator.pop(context, candidate.area.trim());
+                Navigator.pop(
+                  context,
+                  AreaSelection(
+                    id: candidate.placeId.trim(),
+                    label: candidate.area.trim(),
+                  ),
+                );
               },
             )
           else

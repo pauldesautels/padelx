@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:padelx/main.dart';
 import 'package:padelx/location.dart';
 import 'package:padelx/places.dart';
@@ -34,8 +35,44 @@ class _ProfilePlacesClient extends GooglePlacesClient {
     region: 'Jalisco',
     city: 'Guadalajara',
     area: '',
+    placeId: 'places/guadalajara',
     latitude: 20.6597,
     longitude: -103.3496,
+  );
+}
+
+class _CompletionPlacesClient extends GooglePlacesClient {
+  _CompletionPlacesClient() : super(apiKey: 'test-key');
+
+  @override
+  Future<List<PlacePrediction>> autocomplete(
+    String query, {
+    required String sessionToken,
+    bool citiesOnly = false,
+    bool areasOnly = false,
+    String countryCode = '',
+    double? biasLatitude,
+    double? biasLongitude,
+  }) async => areasOnly
+      ? const [PlacePrediction(placeId: 'area-polanco', label: 'Polanco')]
+      : const [
+          PlacePrediction(placeId: 'city-cdmx', label: 'Mexico City, Mexico'),
+        ];
+
+  @override
+  Future<MatchLocation> placeDetails(
+    String placeId, {
+    required String sessionToken,
+  }) async => MatchLocation(
+    clubName: placeId == 'area-polanco' ? 'Polanco' : 'Mexico City',
+    countryCode: 'MX',
+    country: 'Mexico',
+    region: 'Ciudad de México',
+    city: 'Mexico City',
+    area: placeId == 'area-polanco' ? 'Polanco' : '',
+    placeId: placeId,
+    latitude: 19.4326,
+    longitude: -99.1332,
   );
 }
 
@@ -231,7 +268,9 @@ void main() {
         country: 'Mexico',
         countryCode: 'MX',
         city: 'Mexico City',
+        cityId: 'places/cdmx',
         area: 'Roma',
+        areaId: 'places/roma',
       ),
     );
     await tester.pumpWidget(
@@ -415,5 +454,233 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Complete Profile'), findsOneWidget);
+  });
+
+  testWidgets('new profiles default discovery on with clear onboarding copy', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      const MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(1.6)),
+        child: MaterialApp(
+          home: ProfileEditorScreen.test(uid: 'new-player', isRequired: true),
+        ),
+      ),
+    );
+    final toggle = find.byKey(const Key('profile-discoverable-field'));
+    await tester.scrollUntilVisible(
+      toggle,
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(toggle).value, true);
+    expect(find.text('Let other players find me'), findsOneWidget);
+    expect(
+      find.text(
+        'Allow other PadelX players to discover your profile and invite you to play.',
+      ),
+      findsOneWidget,
+    );
+    final semantics = tester.getSemantics(
+      find.descendant(of: toggle, matching: find.byType(Switch)),
+    );
+    expect(semantics.label, contains('Let other players find me'));
+    expect(
+      semantics.label,
+      contains('Allow other PadelX players to discover your profile'),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('existing discovery choices remain unchanged when editing', (
+    tester,
+  ) async {
+    for (final discoverable in [false, true]) {
+      final existing = UserProfile(
+        uid: 'player',
+        displayName: 'Player',
+        level: '3',
+        email: '',
+        socialProfile: SocialProfileData(discoverable: discoverable),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ProfileEditorScreen.test(
+            key: ValueKey(discoverable),
+            uid: 'player',
+            profile: existing,
+          ),
+        ),
+      );
+      final toggle = find.byKey(const Key('profile-discoverable-field'));
+      await tester.scrollUntilVisible(
+        toggle,
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(toggle).value, discoverable);
+    }
+  });
+
+  testWidgets('new-profile discovery default can be switched off', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ProfileEditorScreen.test(uid: 'new-player', isRequired: true),
+      ),
+    );
+    final toggle = find.byKey(const Key('profile-discoverable-field'));
+    await tester.scrollUntilVisible(
+      toggle,
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(toggle);
+    await tester.pump();
+    expect(tester.widget<SwitchListTile>(toggle).value, false);
+  });
+
+  test(
+    'canonical profile save retries only a permission-denied legacy rollout',
+    () async {
+      final attempts = <bool>[];
+      await saveProfileWithLegacyLocationFallback(
+        hasCanonicalLocation: true,
+        write: (includeCanonicalLocation) async {
+          attempts.add(includeCanonicalLocation);
+          if (includeCanonicalLocation) {
+            throw FirebaseException(
+              plugin: 'cloud_firestore',
+              code: 'permission-denied',
+            );
+          }
+        },
+      );
+      expect(attempts, [true, false]);
+
+      for (final code in ['unavailable', 'invalid-argument']) {
+        await expectLater(
+          saveProfileWithLegacyLocationFallback(
+            hasCanonicalLocation: true,
+            write: (_) =>
+                throw FirebaseException(plugin: 'cloud_firestore', code: code),
+          ),
+          throwsA(isA<FirebaseException>()),
+        );
+      }
+    },
+  );
+
+  testWidgets('new canonical profile saves and leaves Complete Profile', (
+    tester,
+  ) async {
+    for (final includeArea in [false, true]) {
+      for (final discoverable in [true, false]) {
+        UserProfile? saved;
+        var completed = false;
+        late StateSetter rebuild;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StatefulBuilder(
+              builder: (context, setState) {
+                rebuild = setState;
+                if (completed) {
+                  return const Scaffold(
+                    key: Key('completed-profile-destination'),
+                  );
+                }
+                return ProfileEditorScreen.test(
+                  key: ValueKey('$includeArea-$discoverable'),
+                  uid: 'new-player',
+                  email: 'new@example.com',
+                  isRequired: true,
+                  placesClient: _CompletionPlacesClient(),
+                  saveOverride: (profile) async => saved = profile,
+                  onRequiredSaved: (_) => rebuild(() => completed = true),
+                );
+              },
+            ),
+          ),
+        );
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Display name'),
+          'New Player',
+        );
+        await tester.tap(find.byKey(const Key('profile-level-field')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('padel-level-option-3')));
+        await tester.pumpAndSettle();
+
+        final city = find.byKey(const Key('places-autocomplete-field'));
+        await tester.scrollUntilVisible(
+          city,
+          500,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.enterText(city, 'Mexico');
+        await tester.pump(const Duration(milliseconds: 301));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Mexico City, Mexico'));
+        await tester.pumpAndSettle();
+
+        if (includeArea) {
+          final area = find.byKey(const Key('profile-area-field'));
+          await tester.scrollUntilVisible(
+            area,
+            500,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.tap(area);
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('places-autocomplete-field')).last,
+            'Polanco',
+          );
+          await tester.pump(const Duration(milliseconds: 301));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Polanco').last);
+          await tester.pumpAndSettle();
+        }
+        if (!discoverable) {
+          final toggle = find.byKey(const Key('profile-discoverable-field'));
+          await tester.scrollUntilVisible(
+            toggle,
+            500,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.tap(toggle);
+          await tester.pump();
+        }
+        final save = find.text('Save Profile');
+        await tester.scrollUntilVisible(
+          save,
+          500,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('completed-profile-destination')),
+          findsOneWidget,
+        );
+        expect(find.text('Complete Your Profile'), findsNothing);
+        expect(saved!.isComplete, true);
+        expect(saved!.discoveryLocation.cityId, 'city-cdmx');
+        expect(
+          saved!.discoveryLocation.areaId,
+          includeArea ? 'area-polanco' : '',
+        );
+        expect(saved!.socialProfile.discoverable, discoverable);
+      }
+    }
   });
 }

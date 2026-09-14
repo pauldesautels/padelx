@@ -59,12 +59,21 @@ service cloud.firestore {
       return location is map
         && location.keys().hasAll(['country', 'countryCode', 'city', 'area'])
         && location.keys().hasOnly([
-          'country', 'countryCode', 'city', 'area', 'latitude', 'longitude'
+          'country', 'countryCode', 'city', 'cityId', 'area', 'areaId',
+          'latitude', 'longitude'
         ])
         && location.country is string && location.country.size() <= 80
         && location.countryCode is string
         && location.city is string && location.city.size() <= 80
         && location.area is string && location.area.size() <= 100
+        && (!('cityId' in location) || (
+          location.cityId is string && location.cityId.size() >= 1
+          && location.cityId.size() <= 256 && location.city.size() >= 1
+        ))
+        && (!('areaId' in location) || (
+          location.areaId is string && location.areaId.size() >= 1
+          && location.areaId.size() <= 256 && location.area.size() >= 1
+        ))
         && (
           (
             location.country == ''
@@ -106,6 +115,14 @@ service cloud.firestore {
       return data.countryCode is string && data.countryCode.size() <= 2
         && data.city is string && data.city.size() <= 80
         && data.area is string && data.area.size() <= 100
+        && (!('cityId' in data) || (
+          data.cityId is string && data.cityId.size() >= 1
+          && data.cityId.size() <= 256 && data.city.size() >= 1
+        ))
+        && (!('areaId' in data) || (
+          data.areaId is string && data.areaId.size() >= 1
+          && data.areaId.size() <= 256 && data.area.size() >= 1
+        ))
         && ((data.countryCode == '' && data.city == '' && data.area == '')
           || (data.countryCode.size() == 2 && data.city.size() >= 1));
     }
@@ -155,6 +172,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'uid', 'displayName', 'level', 'ratingCount', 'ratingSum',
           'ratingAverage', 'countryCode', 'city', 'area', 'preferredSide',
+          'cityId', 'areaId',
           'playFrequency', 'bio', 'discoverable', 'completedMatchCount',
           'repeatPlayerCount', 'avatarVersion'
         ])
@@ -197,7 +215,13 @@ service cloud.firestore {
           || privateData.avatarVersion == publicData.avatarVersion)
         && privateData.discoveryLocation.countryCode == publicData.countryCode
         && privateData.discoveryLocation.city == publicData.city
-        && privateData.discoveryLocation.area == publicData.area;
+        && privateData.discoveryLocation.area == publicData.area
+        && (('cityId' in privateData.discoveryLocation) == ('cityId' in publicData))
+        && (!('cityId' in privateData.discoveryLocation)
+          || privateData.discoveryLocation.cityId == publicData.cityId)
+        && (('areaId' in privateData.discoveryLocation) == ('areaId' in publicData))
+        && (!('areaId' in privateData.discoveryLocation)
+          || privateData.discoveryLocation.areaId == publicData.areaId);
     }
 
     function isOrganizer(matchId) {
@@ -851,7 +875,8 @@ service cloud.firestore {
         && validPublicProfile(userId, request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly([
-            'displayName', 'level', 'countryCode', 'city', 'area',
+            'displayName', 'level', 'countryCode', 'city', 'cityId', 'area',
+            'areaId',
             'preferredSide', 'playFrequency', 'bio', 'discoverable',
             'avatarVersion'
           ])

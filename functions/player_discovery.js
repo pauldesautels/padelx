@@ -4,13 +4,14 @@ import { blockId } from './friendship_policy.js';
 import { ACCOUNT_ENFORCEMENT, getEffectiveAccountEnforcement } from './account_enforcement.js';
 
 export const DISCOVERY_RESULT_LIMIT = 20;
-export const DISCOVERY_SCAN_CAP = 60;
+export const DISCOVERY_QUERY_WINDOW = 60;
+export const DISCOVERY_SCAN_CAP = 120;
 export const DISCOVERY_THROTTLE_MS = 750;
 const recentRequests = new Map();
 
 const text = (value, max = 80) => typeof value === 'string' && value.trim().length <= max
   ? value.trim() : null;
-const allowedKeys = new Set(['area', 'level', 'preferredSide', 'relationship', 'cursor', 'limit']);
+const allowedKeys = new Set(['area', 'areaId', 'level', 'preferredSide', 'relationship', 'cursor', 'limit']);
 
 function payload(data) {
   const value = data ?? {};
@@ -19,19 +20,20 @@ function payload(data) {
     throw new HttpsError('invalid-argument', 'Invalid discovery filters.');
   }
   const area = value.area === undefined ? '' : text(value.area);
+  const areaId = value.areaId === undefined ? '' : text(value.areaId, 256);
   const level = value.level === undefined ? '' : text(value.level, 30);
   const side = value.preferredSide ?? 'any';
   const relationship = value.relationship ?? 'all';
   const limit = value.limit ?? DISCOVERY_RESULT_LIMIT;
   const cursor = value.cursor ?? null;
-  if (area === null || level === null || !['any', 'left', 'right', 'either'].includes(side)
+  if (area === null || areaId === null || level === null || !['any', 'left', 'right', 'either'].includes(side)
       || !['all', 'friends', 'playedWith'].includes(relationship)
       || !Number.isSafeInteger(limit) || limit < 1 || limit > DISCOVERY_RESULT_LIMIT
       || (cursor !== null && (typeof cursor !== 'object' || Array.isArray(cursor)
         || text(cursor.displayName) === null || text(cursor.uid, 128) === null))) {
     throw new HttpsError('invalid-argument', 'Invalid discovery filters.');
   }
-  return { area, level, side, relationship, limit, cursor };
+  return { area, areaId, level, side, relationship, limit, cursor };
 }
 
 const validPublic = (profile) => profile?.discoverable === true
@@ -74,43 +76,57 @@ export async function discoverPlayersOperation(firestore, request, { now = Date.
   const location = viewer.data()?.discoveryLocation ?? viewerProfile.data() ?? {};
   const countryCode = text(location.countryCode, 8)?.toUpperCase() ?? '';
   const city = text(location.city) ?? '';
-  if (!viewer.exists || viewer.data()?.active === false || !countryCode || !city) {
+  const cityId = text(location.cityId, 256) ?? '';
+  if (!viewer.exists || viewer.data()?.active === false || !countryCode || (!cityId && !city)) {
     return { players: [], cursor: null, hasMore: false, noLocation: !countryCode || !city };
   }
-  let query = firestore.collection('publicProfiles').where('discoverable', '==', true)
-    .where('countryCode', '==', countryCode).where('city', '==', city)
+  const baseQuery = firestore.collection('publicProfiles').where('discoverable', '==', true)
+    .where('countryCode', '==', countryCode)
+    .where(cityId ? 'cityId' : 'city', '==', cityId || city)
     .orderBy('displayName').orderBy('uid');
-  if (filters.cursor) query = query.startAfter(filters.cursor.displayName, filters.cursor.uid);
-  const page = await query.limit(DISCOVERY_SCAN_CAP + 1).get();
-  const scanned = page.docs.slice(0, DISCOVERY_SCAN_CAP);
-  const uids = scanned.map((doc) => doc.id).filter((uid) => uid !== viewerUid);
-  const refs = uids.flatMap((uid) => [firestore.doc(`users/${uid}`), firestore.doc(`${DELETION_BARRIERS}/${uid}`),
-    firestore.doc(`${ACCOUNT_ENFORCEMENT}/${uid}`),
-    firestore.doc(`blocks/${blockId(viewerUid, uid)}`), firestore.doc(`blocks/${blockId(uid, viewerUid)}`),
-    firestore.doc(`users/${viewerUid}/friendViews/${uid}`), firestore.doc(`users/${viewerUid}/playedWith/${uid}`)]);
-  const states = refs.length ? await firestore.getAll(...refs) : [];
   const players = [];
-  let consumed = 0;
-  for (const doc of scanned) {
-    consumed += 1;
-    if (doc.id === viewerUid) continue;
-    const offset = uids.indexOf(doc.id) * 7;
-    const [user, barrier, enforcement, mine, theirs, friend, played] = states.slice(offset, offset + 7);
-    const data = doc.data();
-    if (!user?.exists || user.data()?.active === false || barrier?.exists
-      || getEffectiveAccountEnforcement(enforcement?.data(), new Date(now))
-      || mine?.exists || theirs?.exists
-      || !validPublic(data) || data.uid !== doc.id) continue;
-    if (filters.area && (text(data.area) ?? '').toLocaleLowerCase() !== filters.area.toLocaleLowerCase()) continue;
-    if (filters.level && data.level !== filters.level) continue;
-    if (filters.side !== 'any' && (filters.side === 'either' ? data.preferredSide !== 'either'
-      : ![filters.side, 'either'].includes(data.preferredSide))) continue;
-    if (filters.relationship === 'friends' && friend.data()?.status !== 'accepted') continue;
-    if (filters.relationship === 'playedWith' && !(played.data()?.completedMatchCount > 0)) continue;
-    players.push(publicResult(doc.id, data, friend.data(), played.data()));
-    if (players.length >= filters.limit) break;
+  let inspected = 0;
+  let continuation = filters.cursor;
+  let hasMore = false;
+  while (players.length < filters.limit && inspected < DISCOVERY_SCAN_CAP) {
+    const windowSize = Math.min(DISCOVERY_QUERY_WINDOW, DISCOVERY_SCAN_CAP - inspected);
+    let query = baseQuery;
+    if (continuation) query = query.startAfter(continuation.displayName, continuation.uid);
+    const page = await query.limit(windowSize + 1).get();
+    const scanned = page.docs.slice(0, windowSize);
+    const uids = scanned.map((doc) => doc.id).filter((uid) => uid !== viewerUid);
+    const refs = uids.flatMap((uid) => [firestore.doc(`users/${uid}`), firestore.doc(`${DELETION_BARRIERS}/${uid}`),
+      firestore.doc(`${ACCOUNT_ENFORCEMENT}/${uid}`),
+      firestore.doc(`blocks/${blockId(viewerUid, uid)}`), firestore.doc(`blocks/${blockId(uid, viewerUid)}`),
+      firestore.doc(`users/${viewerUid}/friendViews/${uid}`), firestore.doc(`users/${viewerUid}/playedWith/${uid}`)]);
+    const states = refs.length ? await firestore.getAll(...refs) : [];
+    const offsets = new Map(uids.map((uid, index) => [uid, index * 7]));
+    let consumed = 0;
+    for (const doc of scanned) {
+      consumed += 1;
+      inspected += 1;
+      continuation = { displayName: doc.data().displayName, uid: doc.id };
+      if (doc.id === viewerUid) continue;
+      const offset = offsets.get(doc.id);
+      const [user, barrier, enforcement, mine, theirs, friend, played] = states.slice(offset, offset + 7);
+      const data = doc.data();
+      if (!user?.exists || user.data()?.active === false || barrier?.exists
+        || getEffectiveAccountEnforcement(enforcement?.data(), new Date(now))
+        || mine?.exists || theirs?.exists
+        || !validPublic(data) || data.uid !== doc.id) continue;
+      if (filters.areaId && text(data.areaId, 256) !== filters.areaId) continue;
+      if (!filters.areaId && filters.area
+        && (text(data.area) ?? '').toLocaleLowerCase() !== filters.area.toLocaleLowerCase()) continue;
+      if (filters.level && data.level !== filters.level) continue;
+      if (filters.side !== 'any' && (filters.side === 'either' ? data.preferredSide !== 'either'
+        : ![filters.side, 'either'].includes(data.preferredSide))) continue;
+      if (filters.relationship === 'friends' && friend.data()?.status !== 'accepted') continue;
+      if (filters.relationship === 'playedWith' && !(played.data()?.completedMatchCount > 0)) continue;
+      players.push(publicResult(doc.id, data, friend.data(), played.data()));
+      if (players.length >= filters.limit) break;
+    }
+    hasMore = page.docs.length > consumed;
+    if (players.length >= filters.limit || !hasMore || scanned.length === 0) break;
   }
-  const last = scanned[consumed - 1];
-  return { players, cursor: last ? { displayName: last.data().displayName, uid: last.id } : null,
-    hasMore: page.docs.length > consumed, noLocation: false };
+  return { players, cursor: continuation ?? null, hasMore, noLocation: false };
 }

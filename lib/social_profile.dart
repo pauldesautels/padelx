@@ -77,5 +77,9 @@ class SocialProfileData {
 Map<String, String> coarsePublicLocation(Map<dynamic, dynamic> location) => {
   'countryCode': location['countryCode']?.toString().trim().toUpperCase() ?? '',
   'city': location['city']?.toString().trim() ?? '',
+  if (location['cityId']?.toString().trim().isNotEmpty ?? false)
+    'cityId': location['cityId'].toString().trim(),
   'area': location['area']?.toString().trim() ?? '',
+  if (location['areaId']?.toString().trim().isNotEmpty ?? false)
+    'areaId': location['areaId'].toString().trim(),
 };

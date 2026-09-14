@@ -368,6 +368,33 @@ describe('private and public profiles', () => {
     await assertSucceeds(getDoc(doc(auth('bob'), 'publicProfiles/alice')));
   });
 
+  test('new canonical profile completes through the client merge payload', async () => {
+    const uid = 'canonical-new';
+    const db = auth(uid);
+    const batch = writeBatch(db);
+    const canonical = discovery({
+      city: 'Ciudad de México', cityId: 'places/cdmx',
+      area: 'Polanco', areaId: 'places/polanco',
+    });
+    batch.set(doc(db, 'users', uid), {
+      uid, displayName: 'Canonical Player', level: '3',
+      email: `${uid}@example.com`, discoveryLocation: canonical,
+      countryCode: deleteField(), city: deleteField(), area: deleteField(),
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+      preferredSide: 'either', playFrequency: 'occasional', bio: '',
+      discoverable: true,
+    }, { merge: true });
+    batch.set(doc(db, 'publicProfiles', uid), {
+      uid, displayName: 'Canonical Player', level: '3',
+      countryCode: 'MX', city: 'Ciudad de México', cityId: 'places/cdmx',
+      area: 'Polanco', areaId: 'places/polanco',
+      preferredSide: 'either', playFrequency: 'occasional', bio: '',
+      discoverable: true,
+    }, { merge: true });
+    await assertSucceeds(batch.commit());
+    assert.equal((await getDoc(doc(db, 'users', uid))).data().uid, uid);
+  });
+
   test('another user cannot modify private or public profile', async () => {
     await seed('users/alice', privateProfile('alice'));
     await seed('publicProfiles/alice', publicProfile('alice'));
@@ -476,6 +503,33 @@ describe('private and public profiles', () => {
       bio: 'Right-side player', discoverable: true,
     });
     await assertSucceeds(batch.commit());
+  });
+
+  test('canonical discovery identities must be valid and synchronized', async () => {
+    await seed('users/alice', privateProfile('alice'));
+    await seed('publicProfiles/alice', publicProfile('alice'));
+    const db = auth('alice');
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users/alice'), {
+      discoveryLocation: discovery({
+        city: 'Ciudad de México', cityId: 'places/cdmx',
+        area: 'Polanco', areaId: 'places/polanco',
+      }),
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(db, 'publicProfiles/alice'), {
+      city: 'Ciudad de México', cityId: 'places/cdmx',
+      area: 'Polanco', areaId: 'places/polanco',
+    });
+    await assertSucceeds(batch.commit());
+
+    const mismatch = writeBatch(db);
+    mismatch.update(doc(db, 'users/alice'), {
+      discoveryLocation: discovery({ cityId: 'places/cdmx' }),
+      updatedAt: serverTimestamp(),
+    });
+    mismatch.update(doc(db, 'publicProfiles/alice'), { cityId: 'places/other' });
+    await assertFails(mismatch.commit());
   });
 
   test('modern profile save removes only known legacy location fields', async () => {

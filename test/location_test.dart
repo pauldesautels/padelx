@@ -4,6 +4,38 @@ import 'package:padelx/main.dart';
 import 'package:padelx/places.dart';
 
 void main() {
+  test('discovery location preserves canonical city and area identities', () {
+    const location = DiscoveryLocation(
+      country: 'México',
+      countryCode: 'mx',
+      city: 'Ciudad de México',
+      cityId: 'places/cdmx',
+      area: 'Polanco',
+      areaId: 'places/polanco',
+    );
+    expect(location.toMap(), containsPair('cityId', 'places/cdmx'));
+    expect(location.toMap(), containsPair('areaId', 'places/polanco'));
+    final restored = DiscoveryLocation.fromMap(location.toMap());
+    expect(restored.city, 'Ciudad de México');
+    expect(restored.cityId, 'places/cdmx');
+    expect(restored.areaId, 'places/polanco');
+  });
+
+  test(
+    'legacy discovery location remains readable without canonical identities',
+    () {
+      final restored = DiscoveryLocation.fromMap(const {
+        'country': 'Mexico',
+        'countryCode': 'MX',
+        'city': 'Mexico City',
+        'area': '',
+      });
+      expect(restored.cityId, isEmpty);
+      expect(restored.areaId, isEmpty);
+      expect(restored.isConfigured, isTrue);
+    },
+  );
+
   group('global match location', () {
     test('serializes Mexico and optional area', () {
       const location = MatchLocation(

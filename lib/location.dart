@@ -107,13 +107,15 @@ double? distanceBetweenKm({
 }
 
 class DiscoveryLocation {
-  final String country, countryCode, city, area;
+  final String country, countryCode, city, cityId, area, areaId;
   final double? latitude, longitude;
   const DiscoveryLocation({
     required this.country,
     required this.countryCode,
     required this.city,
+    this.cityId = '',
     this.area = '',
+    this.areaId = '',
     this.latitude,
     this.longitude,
   });
@@ -122,7 +124,9 @@ class DiscoveryLocation {
     'country': country.trim(),
     'countryCode': countryCode.trim().toUpperCase(),
     'city': city.trim(),
+    if (cityId.trim().isNotEmpty) 'cityId': cityId.trim(),
     'area': area.trim(),
+    if (areaId.trim().isNotEmpty) 'areaId': areaId.trim(),
     'latitude': ?latitude,
     'longitude': ?longitude,
   };
@@ -132,7 +136,9 @@ class DiscoveryLocation {
       country: data['country']?.toString().trim() ?? '',
       countryCode: data['countryCode']?.toString().trim() ?? '',
       city: data['city']?.toString().trim() ?? '',
+      cityId: data['cityId']?.toString().trim() ?? '',
       area: data['area']?.toString().trim() ?? '',
+      areaId: data['areaId']?.toString().trim() ?? '',
       latitude: data['latitude'] is num
           ? (data['latitude'] as num).toDouble()
           : null,

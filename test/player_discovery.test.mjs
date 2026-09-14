@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { blockId } from '../functions/friendship_policy.js';
-import { discoverPlayersOperation, DISCOVERY_SCAN_CAP } from '../functions/player_discovery.js';
+import { discoverPlayersOperation, DISCOVERY_QUERY_WINDOW, DISCOVERY_SCAN_CAP } from '../functions/player_discovery.js';
 
 const projectId = 'demo-padelx-player-discovery';
 process.env.GCLOUD_PROJECT = projectId;
@@ -43,6 +43,24 @@ test('returns only valid, discoverable, active same-city targets and omits self/
   for (const forbidden of ['email', 'latitude', 'longitude', 'placeId', 'deletionState']) {
     assert.equal(Object.hasOwn(result.players[0], forbidden), false);
   }
+});
+
+test('canonical city identity matches localized labels and excludes different or legacy identities', async () => {
+  await db.doc('users/viewer').update({
+    discoveryLocation: { countryCode: 'MX', city: 'Mexico City', cityId: 'places/cdmx' },
+  });
+  await account('spanish', { displayName: 'Ciudad', city: 'Ciudad de México', cityId: 'places/cdmx' });
+  await account('different', { displayName: 'Different', city: 'Mexico City', cityId: 'places/other-city' });
+  await account('legacy-city', { displayName: 'Legacy', city: 'Mexico City' });
+  const result = await discover();
+  assert.deepEqual(result.players.map((player) => player.uid), ['spanish']);
+  assert.equal(result.players[0].city, 'Ciudad de México');
+});
+
+test('legacy viewers retain exact city-label discovery until migrated or edited', async () => {
+  await account('same-label', { displayName: 'Same' });
+  await account('localized', { displayName: 'Localized', city: 'Ciudad de México', cityId: 'places/cdmx' });
+  assert.deepEqual((await discover()).players.map((player) => player.uid), ['same-label']);
 });
 
 test('suppresses blocks in both directions', async () => {
@@ -92,14 +110,45 @@ test('relationship context is allowlisted and filterable', async () => {
 });
 
 test('ordering, result limit, cursor, and candidate scan cap are stable', async () => {
-  for (let i = 0; i < DISCOVERY_SCAN_CAP + 5; i += 1) await account(`p${String(i).padStart(2, '0')}`,
-    { displayName: `Player ${String(i).padStart(2, '0')}` });
+  for (let i = 0; i < DISCOVERY_SCAN_CAP + 5; i += 1) await account(`p${String(i).padStart(3, '0')}`,
+    { displayName: `Player ${String(i).padStart(3, '0')}` });
   const first = await discover({ limit: 20 });
   assert.equal(first.players.length, 20); assert.equal(first.hasMore, true);
   const second = await discover({ limit: 20, cursor: first.cursor });
-  assert.equal(second.players[0].uid, 'p20');
+  assert.equal(second.players[0].uid, 'p020');
+  assert.equal(new Set([...first.players, ...second.players].map((player) => player.uid)).size, 40);
   const sparse = await discover({ level: 'never' });
-  assert.equal(sparse.players.length, 0); assert.equal(sparse.cursor.uid, 'p59'); assert.equal(sparse.hasMore, true);
+  assert.equal(sparse.players.length, 0); assert.equal(sparse.cursor.uid, 'p119'); assert.equal(sparse.hasMore, true);
+});
+
+test('continues past an empty candidate window to return a later eligible player', async () => {
+  for (let i = 0; i < DISCOVERY_QUERY_WINDOW; i += 1) await account(`filtered-${String(i).padStart(3, '0')}`,
+    { displayName: `Candidate ${String(i).padStart(3, '0')}`, level: '3' });
+  await account('eligible', { displayName: `Candidate ${String(DISCOVERY_QUERY_WINDOW).padStart(3, '0')}`, level: '5' });
+  const result = await discover({ level: '5' });
+  assert.deepEqual(result.players.map((player) => player.uid), ['eligible']);
+  assert.equal(result.hasMore, false);
+});
+
+test('work cap returns a valid continuation and a later request reaches the next candidate', async () => {
+  for (let i = 0; i < DISCOVERY_SCAN_CAP + 1; i += 1) await account(`bounded-${String(i).padStart(3, '0')}`,
+    { displayName: `Bounded ${String(i).padStart(3, '0')}`, level: i === DISCOVERY_SCAN_CAP ? '5' : '3' });
+  const capped = await discover({ level: '5' });
+  assert.equal(capped.players.length, 0);
+  assert.equal(capped.cursor.uid, `bounded-${String(DISCOVERY_SCAN_CAP - 1).padStart(3, '0')}`);
+  assert.equal(capped.hasMore, true);
+  const continued = await discover({ level: '5', cursor: capped.cursor });
+  assert.deepEqual(continued.players.map((player) => player.uid), [`bounded-${String(DISCOVERY_SCAN_CAP).padStart(3, '0')}`]);
+  assert.equal(continued.hasMore, false);
+});
+
+test('multiple filtered windows stop cleanly at end of query', async () => {
+  for (let i = 0; i < DISCOVERY_QUERY_WINDOW + 5; i += 1) await account(`end-${String(i).padStart(3, '0')}`,
+    { displayName: `End ${String(i).padStart(3, '0')}`, level: '3' });
+  const result = await discover({ level: '5' });
+  assert.equal(result.players.length, 0);
+  assert.equal(result.hasMore, false);
+  assert.equal(result.cursor.uid, 'viewer');
 });
 
 test('malformed, unauthenticated, and unverified requests are rejected; missing city is safe', async () => {

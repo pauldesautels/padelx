@@ -53,16 +53,20 @@ void main() {
     final location = coarsePublicLocation({
       'countryCode': 'mx',
       'city': 'Mexico City',
+      'cityId': 'city-place-id',
       'area': 'Roma Norte',
+      'areaId': 'area-place-id',
       'latitude': 19.4,
       'longitude': -99.1,
-      'placeId': 'secret',
+      'placeId': 'match-place-id',
       'email': 'secret@example.com',
     });
     expect(location, {
       'countryCode': 'MX',
       'city': 'Mexico City',
+      'cityId': 'city-place-id',
       'area': 'Roma Norte',
+      'areaId': 'area-place-id',
     });
   });
 }

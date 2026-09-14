@@ -68,7 +68,7 @@ GooglePlacesClient client({
 
 Widget app({
   String value = '',
-  required ValueChanged<String> onChanged,
+  required ValueChanged<AreaSelection> onChanged,
   GooglePlacesClient? placesClient,
 }) => MaterialApp(
   theme: ThemeData.dark(useMaterial3: true),
@@ -97,10 +97,11 @@ Future<void> searchAndSelect(WidgetTester tester) async {
 
 void main() {
   testWidgets('selects only a structured same-city Area', (tester) async {
-    String? selected;
+    AreaSelection? selected;
     await tester.pumpWidget(app(onChanged: (value) => selected = value));
     await searchAndSelect(tester);
-    expect(selected, 'Polanco');
+    expect(selected?.label, 'Polanco');
+    expect(selected?.id, 'area-id');
     expect(find.byKey(const Key('area-places-autocomplete')), findsNothing);
   });
 
@@ -109,7 +110,7 @@ void main() {
       client(city: 'Guadalajara'),
       client(countryCode: 'US'),
     ]) {
-      String? selected;
+      AreaSelection? selected;
       await tester.pumpWidget(
         app(placesClient: placesClient, onChanged: (value) => selected = value),
       );
@@ -124,7 +125,7 @@ void main() {
   testWidgets('Any area clears while Back preserves the current value', (
     tester,
   ) async {
-    String? selected;
+    AreaSelection? selected;
     await tester.pumpWidget(
       app(value: 'Roma', onChanged: (value) => selected = value),
     );
@@ -139,11 +140,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('area-selector-any')));
     await tester.pumpAndSettle();
-    expect(selected, '');
+    expect(selected?.label, '');
+    expect(selected?.id, '');
   });
 
   testWidgets('unconfigured Places still permits Any area', (tester) async {
-    String? selected;
+    AreaSelection? selected;
     await tester.pumpWidget(
       app(
         value: 'Legacy Area',
@@ -156,6 +158,7 @@ void main() {
     expect(find.byKey(const Key('area-selector-unavailable')), findsOneWidget);
     await tester.tap(find.byKey(const Key('area-selector-any')));
     await tester.pumpAndSettle();
-    expect(selected, '');
+    expect(selected?.label, '');
+    expect(selected?.id, '');
   });
 }
