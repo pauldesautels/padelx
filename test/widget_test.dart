@@ -973,7 +973,8 @@ void main() {
   testWidgets('edit match prepopulates current data and saves safely', (
     WidgetTester tester,
   ) async {
-    final scheduledAt = DateTime(2026, 9, 12, 18, 30);
+    final now = DateTime(2030, 1, 1, 9);
+    final scheduledAt = now.add(const Duration(days: 1, hours: 9, minutes: 30));
     final match = Match(
       id: 'editable',
       title: 'Saturday match',
@@ -1003,6 +1004,7 @@ void main() {
       MaterialApp(
         home: EditMatchScreen(
           match: match,
+          nowProvider: () => now,
           saver: (update) async => saved = update,
         ),
       ),
