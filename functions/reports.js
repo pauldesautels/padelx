@@ -5,7 +5,8 @@ import { validRelationshipUid } from './friendship_policy.js';
 import { conversationAccess, requireMessagingActor } from './messaging.js';
 import {
   REPORT_SCHEMA_VERSION, REPORT_ROLLING_MAX, REPORT_ROLLING_WINDOW_MS,
-  REPORT_SUBJECT_COOLDOWN_MS, normalizeReportPayload, reportDedupeKey,
+  REPORT_SUBJECT_COOLDOWN_MS, REPORT_RATE_LIMIT_CLEANUP_MARGIN_MS,
+  REPORT_MESSAGE_LIMIT_RETENTION_MS, normalizeReportPayload, reportDedupeKey,
   reportIdFor, reporterRateLimitId, subjectRateLimitId,
 } from './report_policy.js';
 
@@ -145,7 +146,10 @@ export async function submitReportOperation(firestore, request, now = new Date()
       return;
     }
     const subjectLimitData = subjectLimit.data();
-    const subjectExpiresAt = dateFrom(subjectLimitData?.expiresAt);
+    // Legacy records used expiresAt as the enforcement deadline. New records
+    // separate that deadline from the later TTL-cleanup timestamp.
+    const subjectExpiresAt = dateFrom(
+      subjectLimitData?.enforcementExpiresAt ?? subjectLimitData?.expiresAt);
     const subjectDuplicate = subjectLimit.exists && (payload.subjectType === 'message'
       || (subjectExpiresAt instanceof Date && subjectExpiresAt > now));
     if (subjectDuplicate) {
@@ -176,14 +180,23 @@ export async function submitReportOperation(firestore, request, now = new Date()
       evidence: context.evidence,
     };
     transaction.create(reportRef, report);
-    transaction.set(reporterLimitRef, { submittedAt: [...recent, now], updatedAt: now });
+    transaction.set(reporterLimitRef, {
+      submittedAt: [...recent, now],
+      updatedAt: now,
+      expiresAt: new Date(now.getTime() + REPORT_ROLLING_WINDOW_MS
+        + REPORT_RATE_LIMIT_CLEANUP_MARGIN_MS),
+    });
+    const subjectEnforcementWindow = payload.subjectType === 'message'
+      ? REPORT_MESSAGE_LIMIT_RETENTION_MS : REPORT_SUBJECT_COOLDOWN_MS;
     transaction.set(subjectLimitRef, {
       subjectType: payload.subjectType,
       dedupeKey,
       createdAt: now,
       updatedAt: now,
+      expiresAt: new Date(now.getTime() + subjectEnforcementWindow
+        + REPORT_RATE_LIMIT_CLEANUP_MARGIN_MS),
       ...(payload.subjectType === 'message'
-        ? {} : { expiresAt: new Date(now.getTime() + REPORT_SUBJECT_COOLDOWN_MS) }),
+        ? {} : { enforcementExpiresAt: new Date(now.getTime() + REPORT_SUBJECT_COOLDOWN_MS) }),
     });
   });
   return { submitted: true, duplicate };

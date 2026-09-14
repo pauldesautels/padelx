@@ -7,7 +7,9 @@ import { blockId } from '../functions/friendship_policy.js';
 import { directConversationId, matchConversationId } from '../functions/messaging_policy.js';
 import { submitReportOperation } from '../functions/reports.js';
 import {
-  REPORT_ROLLING_MAX, REPORT_SUBJECT_COOLDOWN_MS, normalizeReportPayload,
+  REPORT_ROLLING_MAX, REPORT_ROLLING_WINDOW_MS, REPORT_SUBJECT_COOLDOWN_MS,
+  REPORT_RATE_LIMIT_CLEANUP_MARGIN_MS, normalizeReportPayload, reportDedupeKey,
+  reporterRateLimitId, subjectRateLimitId,
 } from '../functions/report_policy.js';
 
 assert.ok(process.env.FIRESTORE_EMULATOR_HOST);
@@ -60,6 +62,7 @@ test('report payload accepts only canonical, bounded plain-text input', () => {
   for (const invalid of [
     { reason: 'unknown' }, { subjectType: 'unknown' }, { requestId: 'short' },
     { details: 'x'.repeat(501) }, { details: 'bad\u0000text' }, { reporterUid: 'forged' },
+    { expiresAt: now },
     { subjectType: 'message', subjectId: 'message_123456789' },
     { subjectType: 'player', conversationId: `direct_${'a'.repeat(64)}` },
   ]) assert.throws(() => normalizeReportPayload(payload(invalid)), { code: 'invalid-argument' });
@@ -302,4 +305,55 @@ test('rolling reporter limit rejects new reports while idempotent retry remains 
   await assert.rejects(submitReportOperation(db, request('rate-reporter', payload({
     subjectType: 'match', subjectId: `rate-match-${REPORT_ROLLING_MAX}`,
   })), now), { code: 'resource-exhausted' });
+});
+
+test('new rolling and subject limits receive server-derived cleanup expiry', async () => {
+  await account('expiry-reporter'); await account('expiry-target');
+  const data = payload({ subjectId: 'expiry-target', requestId: 'expiry_request_1234' });
+  await submitReportOperation(db, request('expiry-reporter', data), now);
+  const reporter = (await db.doc(`reportRateLimits/${reporterRateLimitId('expiry-reporter')}`).get()).data();
+  const dedupeKey = reportDedupeKey('expiry-reporter', data);
+  const subject = (await db.doc(`reportRateLimits/${subjectRateLimitId(dedupeKey)}`).get()).data();
+
+  assert.equal(reporter.expiresAt.toMillis(), now.getTime() + REPORT_ROLLING_WINDOW_MS
+    + REPORT_RATE_LIMIT_CLEANUP_MARGIN_MS);
+  assert.equal(subject.enforcementExpiresAt.toMillis(), now.getTime() + REPORT_SUBJECT_COOLDOWN_MS);
+  assert.equal(subject.expiresAt.toMillis(), now.getTime() + REPORT_SUBJECT_COOLDOWN_MS
+    + REPORT_RATE_LIMIT_CLEANUP_MARGIN_MS);
+  assert.ok(subject.expiresAt.toMillis() > subject.enforcementExpiresAt.toMillis());
+
+  await submitReportOperation(db, request('expiry-reporter', data),
+    new Date(now.getTime() + 1000));
+  const afterRetry = (await db.doc(`reportRateLimits/${reporterRateLimitId('expiry-reporter')}`).get()).data();
+  assert.equal(afterRetry.expiresAt.toMillis(), reporter.expiresAt.toMillis());
+
+  const conversationId = await directFixture(
+    'expiry-message-reporter', 'expiry-message-sender', 'expiry_message_1234');
+  const messageData = payload({
+    subjectType: 'message', subjectId: 'expiry_message_1234', conversationId,
+    requestId: 'expiry_message_request',
+  });
+  await submitReportOperation(db, request('expiry-message-reporter', messageData), now);
+  const messageDedupeKey = reportDedupeKey('expiry-message-reporter', messageData);
+  const messageLimit = (await db.doc(
+    `reportRateLimits/${subjectRateLimitId(messageDedupeKey)}`,
+  ).get()).data();
+  assert.ok(messageLimit.expiresAt.toMillis() > now.getTime());
+  assert.equal(messageLimit.enforcementExpiresAt, undefined);
+  await assert.rejects(submitReportOperation(db, request(
+    'expiry-message-reporter', { ...messageData, requestId: 'expiry_message_retry' }),
+  new Date(now.getTime() + REPORT_SUBJECT_COOLDOWN_MS * 2)), { code: 'already-exists' });
+});
+
+test('legacy subject limits without cleanup expiry remain compatible', async () => {
+  await account('legacy-limit-reporter'); await account('legacy-limit-target');
+  const data = payload({ subjectId: 'legacy-limit-target', requestId: 'legacy_limit_request' });
+  const dedupeKey = reportDedupeKey('legacy-limit-reporter', data);
+  const limitRef = db.doc(`reportRateLimits/${subjectRateLimitId(dedupeKey)}`);
+  await limitRef.set({ subjectType: 'player', dedupeKey, createdAt: now, updatedAt: now });
+
+  await submitReportOperation(db, request('legacy-limit-reporter', data), now);
+  const refreshed = (await limitRef.get()).data();
+  assert.ok(refreshed.expiresAt);
+  assert.ok(refreshed.enforcementExpiresAt);
 });

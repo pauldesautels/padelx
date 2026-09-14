@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'blocked_players_screen.dart';
 import 'friends_repository.dart';
 import 'push_notifications.dart';
+import 'safety_policy.dart';
 
 class SettingsScreen extends StatelessWidget {
   final FriendsRepository friendsRepository;
@@ -102,7 +103,35 @@ class SettingsScreen extends StatelessWidget {
 
 class HelpSafetyScreen extends StatelessWidget {
   final FriendsRepository friendsRepository;
-  const HelpSafetyScreen({super.key, required this.friendsRepository});
+  final PadelXSupportConfiguration supportConfiguration;
+  final SupportUriLauncher supportLauncher;
+
+  const HelpSafetyScreen({
+    super.key,
+    required this.friendsRepository,
+    this.supportConfiguration = PadelXSupportConfiguration.beta,
+    this.supportLauncher = launchSupportUri,
+  });
+
+  Future<void> _contactSupport(BuildContext context) async {
+    final uri = supportConfiguration.mailtoUri;
+    if (uri == null) return;
+    var launched = false;
+    try {
+      launched = await supportLauncher(uri);
+    } catch (_) {
+      launched = false;
+    }
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not open your email app. You can contact us at ${supportConfiguration.displayLabel}.',
+          ),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -162,6 +191,150 @@ class HelpSafetyScreen extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         const Text('PadelX is for adults 18 and older.'),
+        const Divider(height: 36),
+        Semantics(
+          header: true,
+          child: const Text(
+            'Support & Safety',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Text('Need help or want to report a safety concern?'),
+        const SizedBox(height: 8),
+        if (supportConfiguration.mailtoUri != null)
+          ListTile(
+            key: const Key('contact-padelx-support'),
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.email_outlined),
+            title: const Text('Contact PadelX Support'),
+            subtitle: Text(supportConfiguration.displayLabel),
+            onTap: () => _contactSupport(context),
+          ),
+        const SizedBox(height: 12),
+        Semantics(
+          label: 'Emergency safety guidance',
+          child: const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Immediate danger',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 6),
+                  Text(emergencySafetyGuidance),
+                  SizedBox(height: 6),
+                  Text(notEmergencyServiceGuidance),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const Divider(height: 36),
+        ListTile(
+          key: const Key('help-safety-community-guidelines'),
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.gavel_outlined),
+          title: const Text('Community Guidelines'),
+          subtitle: const Text('Safety expectations for the PadelX beta'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CommunityGuidelinesScreen(
+                supportConfiguration: supportConfiguration,
+                supportLauncher: supportLauncher,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class CommunityGuidelinesScreen extends StatelessWidget {
+  final PadelXSupportConfiguration supportConfiguration;
+  final SupportUriLauncher supportLauncher;
+
+  const CommunityGuidelinesScreen({
+    super.key,
+    this.supportConfiguration = PadelXSupportConfiguration.beta,
+    this.supportLauncher = launchSupportUri,
+  });
+
+  Future<void> _contactSupport(BuildContext context) async {
+    final uri = supportConfiguration.mailtoUri;
+    if (uri == null) return;
+    var launched = false;
+    try {
+      launched = await supportLauncher(uri);
+    } catch (_) {
+      launched = false;
+    }
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not open your email app. You can contact us at ${supportConfiguration.displayLabel}.',
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Community Guidelines')),
+    body: ListView(
+      key: const Key('community-guidelines-list'),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      children: [
+        for (final section in communityGuidelineSections) ...[
+          Semantics(
+            header: true,
+            child: Text(
+              section.heading,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final paragraph in section.paragraphs) ...[
+            Text(paragraph),
+            const SizedBox(height: 8),
+          ],
+          const SizedBox(height: 12),
+        ],
+        Semantics(
+          header: true,
+          child: Text(
+            'Questions or safety concerns',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+        ),
+        const SizedBox(height: 6),
+        if (supportConfiguration.mailtoUri != null)
+          TextButton.icon(
+            key: const Key('guidelines-contact-support'),
+            onPressed: () => _contactSupport(context),
+            icon: const Icon(Icons.email_outlined),
+            label: Text(supportConfiguration.displayLabel),
+          ),
+        const SizedBox(height: 16),
+        Semantics(
+          header: true,
+          child: Text(
+            'Emergency',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(emergencySafetyGuidance),
+        const SizedBox(height: 6),
+        const Text(notEmergencyServiceGuidance),
       ],
     ),
   );

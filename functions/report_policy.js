@@ -8,6 +8,19 @@ export const REPORT_DETAILS_MAX_LENGTH = 500;
 export const REPORT_ROLLING_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const REPORT_ROLLING_MAX = 10;
 export const REPORT_SUBJECT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+// Cleanup is deliberately later than enforcement. Runtime checks remain
+// authoritative because Firestore TTL deletion is asynchronous.
+export const REPORT_RATE_LIMIT_CLEANUP_MARGIN_MS = 24 * 60 * 60 * 1000;
+// Message reports are permanently duplicate-protected by the current runtime.
+// This conservative timestamp only prepares the schema; TTL must not be enabled
+// until message dedupe is moved out of the expiring rate-limit document.
+export const REPORT_MESSAGE_LIMIT_RETENTION_MS = 24 * 31 * 24 * 60 * 60 * 1000;
+
+// Approved policy targets. They are documentation constants only; report
+// resolution, evidence separation, legal holds, and deletion are not yet built.
+export const UNRESOLVED_REPORT_STATUSES = Object.freeze(['open', 'reviewing']);
+export const RESOLVED_REPORT_EVIDENCE_RETENTION_MONTHS = 12;
+export const PSEUDONYMIZED_AUDIT_RETENTION_MONTHS = 24;
 export const REPORT_REASONS = Object.freeze([
   'harassment_bullying',
   'hate_abuse',

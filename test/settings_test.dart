@@ -7,6 +7,7 @@ import 'package:padelx/account_deletion.dart';
 import 'package:padelx/settings_screen.dart';
 import 'package:padelx/social_profile.dart';
 import 'package:padelx/push_notifications.dart';
+import 'package:padelx/safety_policy.dart';
 
 class _SettingsPreferences implements NotificationPreferencesRepository {
   @override
@@ -188,6 +189,162 @@ void main() {
     await tester.tap(find.byKey(const Key('help-safety-blocked-players')));
     await tester.pumpAndSettle();
     expect(find.text('Blocked Players'), findsOneWidget);
+  });
+
+  testWidgets('support contact launches the centralized safe mailto URI', (
+    tester,
+  ) async {
+    Uri? launched;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HelpSafetyScreen(
+          friendsRepository: _SettingsFriends(),
+          supportLauncher: (uri) async {
+            launched = uri;
+            return true;
+          },
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('contact-padelx-support')),
+      300,
+    );
+    await tester.tap(find.byKey(const Key('contact-padelx-support')));
+    await tester.pump();
+
+    expect(launched, Uri.parse('mailto:support.padelx@gmail.com'));
+  });
+
+  testWidgets('invalid support configuration fails closed', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HelpSafetyScreen(
+          friendsRepository: _SettingsFriends(),
+          supportConfiguration: const PadelXSupportConfiguration(
+            supportEmail: 'not-an-email',
+          ),
+          supportLauncher: (_) async => throw StateError('must not launch'),
+        ),
+      ),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -1000));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('contact-padelx-support')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('support launch failure keeps address visible and reports safely', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HelpSafetyScreen(
+          friendsRepository: _SettingsFriends(),
+          supportLauncher: (_) async => false,
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('contact-padelx-support')),
+      300,
+    );
+    await tester.tap(find.byKey(const Key('contact-padelx-support')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'Could not open your email app. You can contact us at support.padelx@gmail.com.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('support.padelx@gmail.com'), findsOneWidget);
+  });
+
+  testWidgets('Community Guidelines is reachable from Help & Safety', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HelpSafetyScreen(
+          friendsRepository: _SettingsFriends(),
+          supportLauncher: (_) async => true,
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('help-safety-community-guidelines')),
+      300,
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('help-safety-community-guidelines')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('help-safety-community-guidelines')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('community-guidelines-list')), findsOneWidget);
+  });
+
+  testWidgets('Community Guidelines cover beta safety policy accessibly', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(1.6)),
+          child: CommunityGuidelinesScreen(supportLauncher: (_) async => true),
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('community-guidelines-list')), findsOneWidget);
+    expect(communityGuidelineSections.map((section) => section.heading), [
+      'Adults only',
+      'Respect other players',
+      'Hate and discrimination',
+      'Sexual or inappropriate conduct',
+      'Threats and unsafe behavior',
+      'Spam, scams, and deception',
+      'Impersonation',
+      'Privacy',
+      'Profiles and content',
+      'Messaging',
+      'Matches',
+      'Blocking and reporting',
+      'Real-world safety',
+      'Future reliability',
+      'Enforcement',
+    ]);
+    final policyText = communityGuidelineSections
+        .expand((section) => section.paragraphs)
+        .join('\n');
+    for (final expected in [
+      '18 and older',
+      'Harassment, bullying',
+      'Hateful or discriminatory',
+      'unwanted sexual content',
+      'Threats, violence',
+      'scams, spam',
+      'impersonate',
+      'private information',
+      'Display names, avatars',
+      'Direct Messages or Match Chat',
+      'honest match listings',
+      'retaliate',
+      'malicious or fabricated reports',
+      'meeting people in person',
+      'may later use objective participation behavior',
+      'may review reported conduct',
+    ]) {
+      expect(policyText, contains(expected));
+    }
+    await tester.scrollUntilVisible(find.text('Emergency'), 500);
+    expect(find.text('support.padelx@gmail.com'), findsOneWidget);
+    expect(find.text(emergencySafetyGuidance), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    final semantics = tester.getSemantics(find.text('Emergency'));
+    expect(semantics.flagsCollection.isHeader, true);
   });
 
   testWidgets('Settings opens Notifications without requesting permission', (
