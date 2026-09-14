@@ -482,7 +482,7 @@ void main() {
     expect(find.text('Let other players find me'), findsOneWidget);
     expect(
       find.text(
-        'Allow other PadelX players to discover your profile and invite you to play.',
+        'When off, your profile will not appear in Find Players. Players may still see it through matches, friendships, messages, invitations, or shared history.',
       ),
       findsOneWidget,
     );
@@ -492,7 +492,7 @@ void main() {
     expect(semantics.label, contains('Let other players find me'));
     expect(
       semantics.label,
-      contains('Allow other PadelX players to discover your profile'),
+      contains('your profile will not appear in Find Players'),
     );
     expect(tester.takeException(), isNull);
   });

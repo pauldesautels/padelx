@@ -29,6 +29,9 @@ import 'player_discovery_repository.dart';
 import 'players_screen.dart';
 import 'profile_avatar.dart';
 import 'avatar_editor.dart';
+import 'legal_acceptance.dart';
+import 'legal.dart';
+import 'rating_receipts.dart';
 
 import 'firebase_app_check_configuration.dart';
 import 'firebase_environment.dart';
@@ -152,9 +155,14 @@ class _AuthGateState extends State<AuthGate> {
   final AccountAccessRepository _accountAccessRepository =
       FirebaseAccountAccessRepository();
   int _eligibilityGeneration = 0;
+  int _legalGeneration = 0;
 
   void _eligibilityRecorded() {
     if (mounted) setState(() => _eligibilityGeneration++);
+  }
+
+  void _legalRecorded() {
+    if (mounted) setState(() => _legalGeneration++);
   }
 
   bool _deleting = false;
@@ -240,6 +248,7 @@ class _AuthGateState extends State<AuthGate> {
             MaterialPageRoute(
               builder: (routeContext) => AuthScreen(
                 onEligibilityRecorded: _eligibilityRecorded,
+                onLegalAcceptanceRecorded: _legalRecorded,
                 onAuthenticationSucceeded: () =>
                     Navigator.of(routeContext).pop(),
               ),
@@ -256,19 +265,24 @@ class _AuthGateState extends State<AuthGate> {
         key: ValueKey('eligibility-${user.uid}-$_eligibilityGeneration'),
         repository: EligibilityRepository.firebase(),
         onSignOut: _signOutWithPushCleanup,
-        eligibleBuilder: (_) => EmailVerificationScreen(
-          email: user.email ?? '',
-          onContinue: () async {
-            await user.reload();
-            final refreshedUser = FirebaseAuth.instance.currentUser;
-            if (refreshedUser?.emailVerified != true) return false;
-            await refreshedUser!.getIdToken(true);
-            _continueAfterVerification();
-            return true;
-          },
-          onResend: user.sendEmailVerification,
+        eligibleBuilder: (_) => LegalAcceptanceGate(
+          key: ValueKey('legal-${user.uid}-$_legalGeneration'),
+          repository: LegalAcceptanceRepository.firebase(),
           onSignOut: _signOutWithPushCleanup,
-          onDeleteAccount: _openDeletion,
+          acceptedBuilder: (_) => EmailVerificationScreen(
+            email: user.email ?? '',
+            onContinue: () async {
+              await user.reload();
+              final refreshedUser = FirebaseAuth.instance.currentUser;
+              if (refreshedUser?.emailVerified != true) return false;
+              await refreshedUser!.getIdToken(true);
+              _continueAfterVerification();
+              return true;
+            },
+            onResend: user.sendEmailVerification,
+            onSignOut: _signOutWithPushCleanup,
+            onDeleteAccount: _openDeletion,
+          ),
         ),
       );
     }
@@ -276,8 +290,13 @@ class _AuthGateState extends State<AuthGate> {
       key: ValueKey('eligibility-${user.uid}-$_eligibilityGeneration'),
       repository: EligibilityRepository.firebase(),
       onSignOut: _signOutWithPushCleanup,
-      eligibleBuilder: (_) =>
-          ProfileGate(user: user, onDeleteAccount: _openDeletion),
+      eligibleBuilder: (_) => LegalAcceptanceGate(
+        key: ValueKey('legal-${user.uid}-$_legalGeneration'),
+        repository: LegalAcceptanceRepository.firebase(),
+        onSignOut: _signOutWithPushCleanup,
+        acceptedBuilder: (_) =>
+            ProfileGate(user: user, onDeleteAccount: _openDeletion),
+      ),
     );
   }
 }
@@ -759,7 +778,9 @@ class AuthScreen extends StatefulWidget {
   final Future<void> Function(String email, String password)? signUpHandler;
   final Future<void> Function()? emailVerificationSender;
   final Future<void> Function(String requestId)? ageEligibilityRecorder;
+  final Future<void> Function(String requestId)? legalAcceptanceRecorder;
   final VoidCallback? onEligibilityRecorded;
+  final VoidCallback? onLegalAcceptanceRecorded;
   final VoidCallback? onAuthenticationSucceeded;
 
   const AuthScreen({
@@ -769,7 +790,9 @@ class AuthScreen extends StatefulWidget {
     this.signUpHandler,
     this.emailVerificationSender,
     this.ageEligibilityRecorder,
+    this.legalAcceptanceRecorder,
     this.onEligibilityRecorded,
+    this.onLegalAcceptanceRecorded,
     this.onAuthenticationSucceeded,
   });
 
@@ -787,9 +810,11 @@ class _AuthScreenState extends State<AuthScreen> {
   String? _emailError;
   String? _passwordError;
   bool _ageConfirmed = false;
+  bool _legalAcknowledged = false;
   bool _eligibilitySetupPending = false;
   String? _eligibilityError;
   String? _eligibilityRequestId;
+  String? _legalRequestId;
 
   @override
   void dispose() {
@@ -800,10 +825,11 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _submit() async {
     if (_isLoading) return;
-    if (!_isLogin && !_ageConfirmed) {
+    if (!_isLogin && (!_ageConfirmed || !_legalAcknowledged)) {
       setState(() {
-        _eligibilityError =
-            'Confirm that you are 18 years of age or older to continue.';
+        _eligibilityError = !_ageConfirmed
+            ? 'Confirm that you are 18 years of age or older to continue.'
+            : 'Agree to the Terms of Use and acknowledge the Privacy Policy to continue.';
       });
       return;
     }
@@ -849,6 +875,7 @@ class _AuthScreenState extends State<AuthScreen> {
           }
           _eligibilitySetupPending = true;
           _eligibilityRequestId ??= newEligibilityRequestId();
+          _legalRequestId ??= newLegalRequestId();
         }
         try {
           await (widget.ageEligibilityRecorder != null
@@ -866,6 +893,24 @@ class _AuthScreenState extends State<AuthScreen> {
           return;
         }
         widget.onEligibilityRecorded?.call();
+        try {
+          if (widget.legalAcceptanceRecorder != null) {
+            await widget.legalAcceptanceRecorder!(_legalRequestId!);
+          } else if (widget.signUpHandler == null) {
+            await LegalAcceptanceRepository.firebase().recordAcceptance(
+              requestId: _legalRequestId!,
+            );
+          }
+        } catch (_) {
+          if (mounted) {
+            setState(() {
+              _eligibilityError =
+                  'Your account was created, but legal acknowledgement could not be recorded. Try again to continue.';
+            });
+          }
+          return;
+        }
+        widget.onLegalAcceptanceRecorded?.call();
         if (widget.emailVerificationSender != null) {
           await widget.emailVerificationSender!.call();
         } else {
@@ -955,6 +1000,7 @@ class _AuthScreenState extends State<AuthScreen> {
       _passwordError = null;
       _obscurePassword = true;
       _ageConfirmed = false;
+      _legalAcknowledged = false;
       _eligibilityError = null;
     });
   }
@@ -1119,8 +1165,11 @@ class _AuthScreenState extends State<AuthScreen> {
                             },
                             onSubmitted: (_) {
                               if (_isLoading) return;
-                              if (!_isLogin && !_ageConfirmed) {
+                              if (!_isLogin &&
+                                  (!_ageConfirmed || !_legalAcknowledged)) {
                                 FocusScope.of(context).unfocus();
+                                _submit();
+                                return;
                               }
                               _submit();
                             },
@@ -1181,6 +1230,50 @@ class _AuthScreenState extends State<AuthScreen> {
                                 ),
                               ),
                             ),
+                            Material(
+                              type: MaterialType.transparency,
+                              child: CheckboxListTile(
+                                key: const Key('signup-legal-checkbox'),
+                                value: _legalAcknowledged,
+                                onChanged:
+                                    _isLoading || _eligibilitySetupPending
+                                    ? null
+                                    : (value) => setState(() {
+                                        _legalAcknowledged = value == true;
+                                        _eligibilityError = null;
+                                      }),
+                                contentPadding: EdgeInsets.zero,
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                title: Wrap(
+                                  children: [
+                                    const Text('I agree to the '),
+                                    InkWell(
+                                      onTap: () =>
+                                          openLegalLink(context, '/terms'),
+                                      child: const Text(
+                                        'Terms of Use',
+                                        style: TextStyle(
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ),
+                                    const Text(' and acknowledge the '),
+                                    InkWell(
+                                      onTap: () =>
+                                          openLegalLink(context, '/privacy'),
+                                      child: const Text(
+                                        'Privacy Policy',
+                                        style: TextStyle(
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ),
+                                    const Text('.'),
+                                  ],
+                                ),
+                              ),
+                            ),
                             if (_eligibilityError != null)
                               Semantics(
                                 liveRegion: true,
@@ -1199,7 +1292,10 @@ class _AuthScreenState extends State<AuthScreen> {
                             child: FilledButton(
                               key: const Key('auth-submit'),
                               onPressed:
-                                  _isLoading || (!_isLogin && !_ageConfirmed)
+                                  _isLoading ||
+                                      (!_isLogin &&
+                                          (!_ageConfirmed ||
+                                              !_legalAcknowledged))
                                   ? null
                                   : _submit,
                               style: FilledButton.styleFrom(
@@ -1782,40 +1878,32 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
       .map(Match.fromDocument)
       .toList();
   final viewerUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-  final viewerRatings = <PlayerRating>[];
-  if (viewerUid.isNotEmpty && viewerUid != uid) {
-    final documents = await Future.wait(
-      matches.map(
-        (match) => firestore
-            .collection('matches')
-            .doc(match.id)
-            .collection('ratingRaters')
-            .doc(viewerUid)
-            .collection('ratings')
-            .doc(uid)
-            .get(),
-      ),
-    );
-    for (final document in documents.where((item) => item.exists)) {
-      final data = document.data()!;
-      viewerRatings.add(
-        PlayerRating(
-          matchId: data['matchId']?.toString() ?? '',
-          raterUid: data['raterUid']?.toString() ?? '',
-          ratedUid: data['ratedUid']?.toString() ?? '',
-          rating: data['rating'] is int ? data['rating'] as int : 0,
-          createdAt: _parseScheduledAt(data['createdAt']),
+  final sharedMatches = viewerUid.isEmpty || viewerUid == uid
+      ? const <Match>[]
+      : matches.where((match) => matchIncludesIdentity(match, viewerUid, ''));
+  final submittedByMatch = await Future.wait(
+    sharedMatches.map(
+      (match) async =>
+          (match.id, await loadOwnRatingReceiptUids(match.id, [uid])),
+    ),
+  );
+  final ratings = submittedByMatch
+      .where((entry) => entry.$2.contains(uid))
+      .map(
+        (entry) => PlayerRating(
+          matchId: entry.$1,
+          raterUid: viewerUid,
+          ratedUid: uid,
+          rating: 0,
         ),
-      );
-    }
-  }
-
+      )
+      .toList();
   return PublicPlayerProfile(
     uid: uid,
     displayName: profile?.displayName ?? '',
     level: profile?.level ?? '',
     matches: matches,
-    ratings: viewerRatings,
+    ratings: ratings,
     lifetimeRatingCount: profile?.ratingCount ?? 0,
     lifetimeRatingAverage: profile?.ratingAverage ?? 0,
     completedMatchCount: profile?.completedMatchCount ?? 0,
@@ -6092,7 +6180,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             contentPadding: EdgeInsets.zero,
             title: const Text('Let other players find me'),
             subtitle: const Text(
-              'Allow other PadelX players to discover your profile and invite you to play.',
+              'When off, your profile will not appear in Find Players. Players may still see it through matches, friendships, messages, invitations, or shared history.',
             ),
             onChanged: _isSaving
                 ? null
@@ -7426,7 +7514,9 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                       ),
                       trailing: existing != null
                           ? Text(
-                              'Submitted · ${existing.rating} stars',
+                              existing.rating > 0
+                                  ? 'Submitted · ${existing.rating} stars'
+                                  : 'Rating submitted',
                               key: Key('existing-rating-${match.id}'),
                             )
                           : eligible
@@ -7474,14 +7564,27 @@ Future<List<PlayerRating>> loadMatchRatings(
   String matchId,
   String raterUid,
 ) async {
-  final snapshot = await FirebaseFirestore.instance
+  final match = await FirebaseFirestore.instance
       .collection('matches')
       .doc(matchId)
-      .collection('ratingRaters')
-      .doc(raterUid)
-      .collection('ratings')
       .get();
-  return snapshot.docs.map(PlayerRating.fromDocument).toList();
+  final candidates = match.exists
+      ? ratingCandidates(Match.fromDocument(match), raterUid)
+      : const <MatchPlayer>[];
+  final submitted = await loadOwnRatingReceiptUids(
+    matchId,
+    candidates.map((p) => p.uid).toList(),
+  );
+  return submitted
+      .map(
+        (ratedUid) => PlayerRating(
+          matchId: matchId,
+          raterUid: raterUid,
+          ratedUid: ratedUid,
+          rating: 0,
+        ),
+      )
+      .toList();
 }
 
 Future<void> submitMatchRating(
@@ -7813,7 +7916,7 @@ class _RatingPlayerCard extends StatelessWidget {
     final resolved = prior != null;
     return Semantics(
       label: resolved
-          ? '$name, $metadata, rating submitted, ${prior!.rating} stars'
+          ? '$name, $metadata, rating submitted${prior!.rating > 0 ? ', ${prior!.rating} stars' : ''}'
           : '$name, $metadata, rating available',
       container: true,
       child: Card(
@@ -7886,7 +7989,9 @@ class _RatingPlayerCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Rating submitted · ${prior!.rating} stars',
+                        prior!.rating > 0
+                            ? 'Rating submitted · ${prior!.rating} stars'
+                            : 'Rating submitted',
                         style: const TextStyle(color: Colors.white70),
                       ),
                     ),

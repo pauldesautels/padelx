@@ -4,6 +4,7 @@ import 'blocked_players_screen.dart';
 import 'friends_repository.dart';
 import 'push_notifications.dart';
 import 'safety_policy.dart';
+import 'legal.dart';
 
 class SettingsScreen extends StatelessWidget {
   final FriendsRepository friendsRepository;
@@ -96,6 +97,29 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
         ),
+        const Divider(),
+        const _SettingsHeader('Legal'),
+        for (final entry in const [
+          ('settings-terms', 'Terms of Use', '/terms'),
+          ('settings-privacy', 'Privacy Policy', '/privacy'),
+          (
+            'settings-community-legal',
+            'Community Guidelines',
+            '/community-guidelines',
+          ),
+          (
+            'settings-account-deletion-info',
+            'Account Deletion',
+            '/account-deletion',
+          ),
+        ])
+          ListTile(
+            key: Key(entry.$1),
+            leading: const Icon(Icons.open_in_new),
+            title: Text(entry.$2),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => openLegalLink(context, entry.$3),
+          ),
       ],
     ),
   );

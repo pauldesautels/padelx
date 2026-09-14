@@ -268,6 +268,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
     await tester.ensureVisible(find.byKey(const Key('signup-age-checkbox')));
     await tester.tap(find.byKey(const Key('signup-age-checkbox')));
+    await tester.ensureVisible(find.byKey(const Key('signup-legal-checkbox')));
+    await tester.tap(find.byKey(const Key('signup-legal-checkbox')));
     await tester.pump();
     await tester.ensureVisible(find.byKey(const Key('auth-submit')));
     await tester.tap(find.byKey(const Key('auth-submit')));
@@ -339,6 +341,10 @@ void main() {
           find.byKey(const Key('signup-age-checkbox')),
         );
         await tester.tap(find.byKey(const Key('signup-age-checkbox')));
+        await tester.ensureVisible(
+          find.byKey(const Key('signup-legal-checkbox')),
+        );
+        await tester.tap(find.byKey(const Key('signup-legal-checkbox')));
         await tester.pump();
         await tester.ensureVisible(find.byKey(const Key('auth-submit')));
         await tester.tap(find.byKey(const Key('auth-submit')));
@@ -882,33 +888,72 @@ void main() {
     expect(find.text('Unknown location'), findsNothing);
   });
 
-  testWidgets('Home keeps discovered matches despite differing profile place names', (
-    WidgetTester tester,
-  ) async {
-    for (final preferred in [
-      const DiscoveryLocation(country: 'México', countryCode: 'MX', city: 'Mexico City'),
-      const DiscoveryLocation(country: 'Mexico', countryCode: 'MX', city: 'Ciudad de México'),
-      const DiscoveryLocation(country: 'Mexico', countryCode: 'MX', city: 'Mexico City', area: 'Roma Norte'),
-      const DiscoveryLocation(country: 'Spain', countryCode: 'ES', city: 'Madrid'),
-    ]) {
-      await _pumpHome(tester, preferredLocation: preferred, matches: [
-        Match(id: 'nearby', title: 'Game', club: 'Polanco Club', level: 'Level 2',
-          spotsLeft: 2, creatorUid: 'creator', creatorEmail: '', players: const [],
-          scheduledAt: DateTime.now().add(const Duration(days: 1)),
-          location: const MatchLocation(clubName: 'Polanco Club', country: 'Mexico',
-            countryCode: 'MX', region: '', city: 'Mexico City', area: 'Polanco',
-            latitude: 19.433, longitude: -99.2),
+  testWidgets(
+    'Home keeps discovered matches despite differing profile place names',
+    (WidgetTester tester) async {
+      for (final preferred in [
+        const DiscoveryLocation(
+          country: 'México',
+          countryCode: 'MX',
+          city: 'Mexico City',
         ),
-      ]);
-      expect(find.text('Polanco Club'), findsOneWidget);
-      expect(find.byKey(const Key('home-empty-state')), findsNothing);
-    }
-  });
+        const DiscoveryLocation(
+          country: 'Mexico',
+          countryCode: 'MX',
+          city: 'Ciudad de México',
+        ),
+        const DiscoveryLocation(
+          country: 'Mexico',
+          countryCode: 'MX',
+          city: 'Mexico City',
+          area: 'Roma Norte',
+        ),
+        const DiscoveryLocation(
+          country: 'Spain',
+          countryCode: 'ES',
+          city: 'Madrid',
+        ),
+      ]) {
+        await _pumpHome(
+          tester,
+          preferredLocation: preferred,
+          matches: [
+            Match(
+              id: 'nearby',
+              title: 'Game',
+              club: 'Polanco Club',
+              level: 'Level 2',
+              spotsLeft: 2,
+              creatorUid: 'creator',
+              creatorEmail: '',
+              players: const [],
+              scheduledAt: DateTime.now().add(const Duration(days: 1)),
+              location: const MatchLocation(
+                clubName: 'Polanco Club',
+                country: 'Mexico',
+                countryCode: 'MX',
+                region: '',
+                city: 'Mexico City',
+                area: 'Polanco',
+                latitude: 19.433,
+                longitude: -99.2,
+              ),
+            ),
+          ],
+        );
+        expect(find.text('Polanco Club'), findsOneWidget);
+        expect(find.byKey(const Key('home-empty-state')), findsNothing);
+      }
+    },
+  );
 
-  testWidgets('Home retains the shared discovery order and three-match limit', (tester) async {
-    await _pumpHome(tester, matches: [
-      for (var i = 1; i <= 4; i++) _match(id: '$i', club: 'Club $i'),
-    ]);
+  testWidgets('Home retains the shared discovery order and three-match limit', (
+    tester,
+  ) async {
+    await _pumpHome(
+      tester,
+      matches: [for (var i = 1; i <= 4; i++) _match(id: '$i', club: 'Club $i')],
+    );
     final cards = tester.widgetList<MatchCard>(find.byType(MatchCard));
     expect(cards.map((card) => card.match.id), ['1', '2', '3']);
   });

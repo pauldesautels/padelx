@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'branding.dart';
+import 'legal.dart';
 
 class AuthLandingScreen extends StatelessWidget {
   final VoidCallback onEmail;
@@ -60,11 +61,19 @@ class AuthLandingScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 28),
-                const Text(
-                  'Terms of Use and Privacy Policy will be available before launch.',
+                Wrap(
                   key: Key('auth-legal-copy'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                  alignment: WrapAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: () => openLegalLink(context, '/terms'),
+                      child: const Text('Terms of Use'),
+                    ),
+                    TextButton(
+                      onPressed: () => openLegalLink(context, '/privacy'),
+                      child: const Text('Privacy Policy'),
+                    ),
+                  ],
                 ),
               ],
             ),

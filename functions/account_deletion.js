@@ -53,6 +53,9 @@ export async function acceptAccountDeletion(db, request, now = new Date()) {
     tx.delete(db.collection('users').doc(uid));
     tx.delete(db.collection('publicProfiles').doc(uid));
     tx.delete(db.collection('accountEligibility').doc(uid));
+    // Beta policy deletes active acceptance with the account. Whether a
+    // pseudonymized legal receipt must be retained requires counsel approval.
+    tx.delete(db.collection('accountLegalAcceptance').doc(uid));
     // Active access-control state must not outlive accepted account destruction.
     // Historical moderation actions remain server-owned under their retention policy.
     tx.delete(db.collection('accountEnforcement').doc(uid));

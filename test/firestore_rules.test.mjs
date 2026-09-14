@@ -9,6 +9,7 @@ import {
 import {
   Timestamp,
   collection,
+  collectionGroup,
   deleteField,
   deleteDoc,
   doc,
@@ -777,6 +778,20 @@ describe('join requests, notifications, and ratings', () => {
 });
 
 describe('account deletion foundation', () => {
+  test('individual ratings and legal acceptance are private to the server', async () => {
+    await seed('matches/private-ratings/ratingRaters/alice/ratings/bob', {
+      matchId: 'private-ratings', raterUid: 'alice', ratedUid: 'bob', rating: 5,
+      createdAt: past(),
+    });
+    await seed('accountLegalAcceptance/alice', { uid: 'alice', schemaVersion: 1 });
+    for (const db of [environment.unauthenticatedContext().firestore(), auth('alice'), auth('bob'), auth('other')]) {
+      await assertFails(getDoc(doc(db, 'matches/private-ratings/ratingRaters/alice/ratings/bob')));
+      await assertFails(getDocs(collection(db, 'matches/private-ratings/ratingRaters/alice/ratings')));
+      await assertFails(getDocs(collectionGroup(db, 'ratings')));
+      await assertFails(getDoc(doc(db, 'accountLegalAcceptance/alice')));
+      await assertFails(setDoc(doc(db, 'accountLegalAcceptance/alice'), { uid: 'alice' }));
+    }
+  });
   test('reports and report rate limits are inaccessible to every client', async () => {
     await seed('reports/report-1', { reporterUid: 'alice', subjectOwnerUid: 'bob', status: 'open' });
     await seed('reportRateLimits/rate-1', { submittedAt: [past()] });

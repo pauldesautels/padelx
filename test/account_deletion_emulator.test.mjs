@@ -35,6 +35,12 @@ test('concurrent admission atomically removes profiles and preserves one cutoff 
   await db.doc(`users/${uid}`).set({ email: 'private' });
   await db.doc(`publicProfiles/${uid}`).set({ displayName: 'Private' });
   await db.doc(`accountEligibility/${uid}`).set({ uid, age18Confirmed: true });
+  await db.doc(`accountLegalAcceptance/${uid}`).set({
+    uid,
+    termsVersion: 'terms-beta-v1',
+    privacyVersion: 'privacy-beta-v1',
+    communityVersion: 'community-beta-v1',
+  });
   await db.doc(`accountEnforcement/${uid}`).set({
     schemaVersion: 1, uid, status: 'banned', reasonCode: 'other_policy_violation',
   });
@@ -52,6 +58,7 @@ test('concurrent admission atomically removes profiles and preserves one cutoff 
   assert.equal(await read(`users/${uid}`), undefined);
   assert.equal(await read(`publicProfiles/${uid}`), undefined);
   assert.equal(await read(`accountEligibility/${uid}`), undefined);
+  assert.equal(await read(`accountLegalAcceptance/${uid}`), undefined);
   assert.equal(await read(`accountEnforcement/${uid}`), undefined);
   assert.ok(await read(`reports/retained-${uid}`));
 });

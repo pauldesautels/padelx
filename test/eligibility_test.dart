@@ -168,6 +168,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
     await tester.ensureVisible(find.byKey(const Key('signup-age-checkbox')));
     await tester.tap(find.byKey(const Key('signup-age-checkbox')));
+    await tester.ensureVisible(find.byKey(const Key('signup-legal-checkbox')));
+    await tester.tap(find.byKey(const Key('signup-legal-checkbox')));
     await tester.showKeyboard(find.byKey(const Key('auth-password')));
 
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -206,6 +208,7 @@ void main() {
         home: AuthScreen(
           signUpHandler: (_, _) async => events.add('auth'),
           ageEligibilityRecorder: (_) async => events.add('eligibility'),
+          legalAcceptanceRecorder: (_) async => events.add('legal'),
           emailVerificationSender: () async => events.add('verification'),
         ),
       ),
@@ -220,12 +223,14 @@ void main() {
     await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
     await tester.ensureVisible(find.byKey(const Key('signup-age-checkbox')));
     await tester.tap(find.byKey(const Key('signup-age-checkbox')));
+    await tester.ensureVisible(find.byKey(const Key('signup-legal-checkbox')));
+    await tester.tap(find.byKey(const Key('signup-legal-checkbox')));
     await tester.pump();
     await tester.ensureVisible(find.byKey(const Key('auth-submit')));
     await tester.tap(find.byKey(const Key('auth-submit')));
     await tester.pumpAndSettle();
 
-    expect(events, ['auth', 'eligibility', 'verification']);
+    expect(events, ['auth', 'eligibility', 'legal', 'verification']);
   });
 
   testWidgets(
@@ -253,6 +258,10 @@ void main() {
       );
       await tester.ensureVisible(find.byKey(const Key('signup-age-checkbox')));
       await tester.tap(find.byKey(const Key('signup-age-checkbox')));
+      await tester.ensureVisible(
+        find.byKey(const Key('signup-legal-checkbox')),
+      );
+      await tester.tap(find.byKey(const Key('signup-legal-checkbox')));
       await tester.pump();
       await tester.ensureVisible(find.byKey(const Key('auth-submit')));
       await tester.tap(find.byKey(const Key('auth-submit')));
@@ -297,6 +306,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
     await tester.ensureVisible(find.byKey(const Key('signup-age-checkbox')));
     await tester.tap(find.byKey(const Key('signup-age-checkbox')));
+    await tester.ensureVisible(find.byKey(const Key('signup-legal-checkbox')));
+    await tester.tap(find.byKey(const Key('signup-legal-checkbox')));
     await tester.pump();
     await tester.ensureVisible(find.byKey(const Key('auth-submit')));
     await tester.tap(find.byKey(const Key('auth-submit')));
@@ -342,6 +353,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('auth-password')), 'secret12');
     await tester.ensureVisible(find.byKey(const Key('signup-age-checkbox')));
     await tester.tap(find.byKey(const Key('signup-age-checkbox')));
+    await tester.ensureVisible(find.byKey(const Key('signup-legal-checkbox')));
+    await tester.tap(find.byKey(const Key('signup-legal-checkbox')));
     await tester.pump();
     await tester.showKeyboard(find.byKey(const Key('auth-password')));
     await tester.testTextInput.receiveAction(TextInputAction.done);

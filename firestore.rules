@@ -917,6 +917,9 @@ service cloud.firestore {
     match /accountEligibility/{uid} {
       allow read, create, update, delete: if false;
     }
+    match /accountLegalAcceptance/{uid} {
+      allow read, create, update, delete: if false;
+    }
     match /accountEnforcement/{uid} {
       allow read, create, update, delete: if false;
     }
@@ -971,7 +974,7 @@ service cloud.firestore {
     // Public profiles aggregate immutable rating records with a targeted
     // collection-group query. Writes remain match-scoped below.
     match /{path=**}/ratings/{ratingId} {
-      allow list: if verifiedUser();
+      allow read: if false;
     }
 
     match /matches/{matchId} {
@@ -1064,7 +1067,7 @@ service cloud.firestore {
 
 
       match /ratingRaters/{raterUid}/ratings/{ratedUid} {
-        allow read: if verifiedUser();
+        allow read: if false;
         allow create: if verifiedUser()
           && validRating(matchId, raterUid, ratedUid);
         allow update, delete: if false;

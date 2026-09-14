@@ -254,9 +254,8 @@ test('deployed-style geo indexing and lifetime rating aggregation', async () => 
     },
   ));
   assert.equal(
-    (await getDoc(doc(auth('outsider'),
-      'matches/completed/ratingRaters/outsider/ratings/rated'))).exists(),
-    false,
+    await adminData('matches/completed/ratingRaters/outsider/ratings/rated'),
+    undefined,
   );
   aggregate = await adminData('publicProfiles/rated');
   assert.deepEqual(
