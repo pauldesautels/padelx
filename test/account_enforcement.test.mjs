@@ -11,6 +11,7 @@ import {
   revokeAccountEnforcement,
 } from '../functions/account_enforcement.js';
 import { requireActiveAccount } from '../functions/account_state.js';
+import { buildEnforcementInput } from '../tool/safety_admin/policy.mjs';
 
 assert.ok(process.env.FIRESTORE_EMULATOR_HOST, 'Firestore emulator is required');
 const projectId = 'demo-padelx-enforcement';
@@ -80,12 +81,36 @@ test('apply validates policy, reports, target, and never disables Auth', async (
   const result = await applyAccountEnforcement(db, identity,
     input({ sourceReportIds: ['report-one'] }), now);
   assert.equal(result.changed, true);
+  assert.equal(typeof result.moderationActionId, 'string');
   assert.equal(identity.revoked, 1);
   assert.equal(identity.disabled, 0);
   assert.equal((await db.doc('reports/report-one').get()).data().status, 'open');
   const actions = await db.collection('moderationActions').get();
   assert.equal(actions.size, 1);
   assert.equal(actions.docs[0].data().type, 'suspension_applied');
+});
+
+test('CLI singular source report input persists for suspension and ban audits', async () => {
+  await db.doc('users/target-user').set({ uid: 'target-user' });
+  await db.doc('reports/report-cli-source').set({ status: 'reviewing' });
+  const identity = auth();
+  const common = { options: { reason: 'threats_unsafe_behavior', minutes: '10',
+    'source-report-id': 'report-cli-source' }, actorUid: 'trusted-actor',
+  targetUid: 'target-user', now };
+  const suspended = buildEnforcementInput({ ...common, command: 'suspend',
+    requestId: '123e4567-e89b-42d3-a456-426614174000' });
+  assert.deepEqual(suspended.sourceReportIds, ['report-cli-source']);
+  await applyAccountEnforcement(db, identity, suspended, now);
+  const banned = buildEnforcementInput({ ...common, command: 'ban',
+    requestId: '123e4567-e89b-42d3-a456-426614174001' });
+  assert.deepEqual(banned.sourceReportIds, ['report-cli-source']);
+  await applyAccountEnforcement(db, identity, banned, now);
+  const actions = await db.collection('moderationActions').get();
+  const applied = actions.docs.map((document) => document.data())
+    .filter((action) => ['suspension_applied', 'ban_applied'].includes(action.type));
+  assert.equal(applied.length, 2);
+  assert.ok(applied.every((action) =>
+    JSON.stringify(action.sourceReportIds) === JSON.stringify(['report-cli-source'])));
 });
 
 test('apply is idempotent and token failure cannot remove enforcement', async () => {
@@ -102,9 +127,16 @@ test('apply is idempotent and token failure cannot remove enforcement', async ()
 
 test('ban and explicit revoke preserve immutable audit history', async () => {
   await db.doc('users/target-user').set({ uid: 'target-user' });
+  await db.doc('reports/report-ban-source').set({ status: 'reviewing' });
   const identity = auth();
   await applyAccountEnforcement(db, identity,
-    input({ status: 'banned', expiresAt: undefined }), now);
+    input({ status: 'banned', expiresAt: undefined,
+      sourceReportIds: ['report-ban-source'] }), now);
+  const applied = (await db.collection('moderationActions')
+    .where('type', '==', 'ban_applied').get()).docs[0].data();
+  assert.deepEqual(applied.sourceReportIds, ['report-ban-source']);
+  assert.deepEqual((await db.doc('accountEnforcement/target-user').get())
+    .data().sourceReportIds, ['report-ban-source']);
   const restricted = await getAccountAccessStateOperation(db, request(), now);
   assert.deepEqual(restricted, {
     restricted: true, status: 'banned', reasonCategory: 'harassment_abuse',

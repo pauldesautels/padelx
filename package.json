@@ -17,6 +17,8 @@
     "test:deletion-completion": "firebase emulators:exec --project demo-padelx-phase8 --only auth,firestore,storage,functions \"node --test --test-concurrency=1 test/account_deletion_completion.test.mjs\"",
     "test:phase9": "firebase emulators:exec --project demo-padelx-phase8 --only auth,firestore \"node --test test/account_deletion_v2.test.mjs && node --test test/account_deletion_v2_emulator.test.mjs && node --test test/friendship.test.mjs && node --test test/messaging.test.mjs && node --test test/play_again.test.mjs && node --test test/player_discovery.test.mjs && node --test test/played_with_projection.test.mjs\"",
     "test:phase9-safety": "node --test test/*safety.test.mjs",
+    "test:safety-admin": "node --test test/report_review_policy.test.mjs test/safety_admin.test.mjs",
+    "test:report-review": "firebase emulators:exec --project demo-padelx-review --only firestore \"node --test --test-concurrency=1 test/report_review.test.mjs\"",
     "prepare:deletion": "node tool/prepare_account_deletion.mjs"
   },
   "devDependencies": {

@@ -6,6 +6,12 @@ export const ACCOUNT_ENFORCEMENT = 'accountEnforcement';
 export const MODERATION_ACTIONS = 'moderationActions';
 export const ENFORCEMENT_SCHEMA_VERSION = 1;
 export const MAX_SOURCE_REPORT_IDS = 20;
+export const MODERATION_ACTION_TYPES = Object.freeze([
+  'suspension_applied', 'suspension_expired', 'suspension_revoked',
+  'ban_applied', 'ban_revoked', 'report_review_started',
+  'report_review_released', 'report_dismissed', 'report_actioned',
+  'safety_role_granted', 'safety_role_revoked',
+]);
 export const ENFORCEMENT_REASONS = Object.freeze([
   'harassment_abuse',
   'hate_discrimination',
@@ -110,7 +116,7 @@ export async function applyAccountEnforcement(firestore, auth, input, now = new 
           || millis(recorded.newExpiresAt) !== (input.status === 'suspended' ? expiry : undefined)) {
         throw new HttpsError('failed-precondition', 'Enforcement request conflict.');
       }
-      return { applied: true, changed: false, idempotent: true };
+      return { applied: true, changed: false, idempotent: true, moderationActionId: auditRef.id };
     }
     const previousData = previous.data();
     const enforcement = {
@@ -139,7 +145,7 @@ export async function applyAccountEnforcement(firestore, auth, input, now = new 
       ...(previousData?.expiresAt ? { previousExpiresAt: previousData.expiresAt } : {}),
       ...(input.status === 'suspended' ? { newExpiresAt: input.expiresAt } : {}),
     });
-    return { applied: true, changed: true, idempotent: false };
+    return { applied: true, changed: true, idempotent: false, moderationActionId: auditRef.id };
   });
   try {
     await auth.revokeRefreshTokens(input.targetUid);
