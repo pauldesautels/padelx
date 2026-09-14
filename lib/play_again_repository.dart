@@ -1,4 +1,5 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'account_access.dart';
 
 abstract class PlayAgainRepository {
   Future<void> invite({
@@ -20,18 +21,28 @@ class FirebasePlayAgainRepository implements PlayAgainRepository {
     required String inviteeUid,
     String? sourceMatchId,
   }) async {
-    await functions.httpsCallable('createPlayAgainInvitation').call({
-      'matchId': matchId,
-      'inviteeUid': inviteeUid,
-      if (sourceMatchId != null && sourceMatchId.isNotEmpty)
-        'sourceMatchId': sourceMatchId,
-    });
+    try {
+      await functions.httpsCallable('createPlayAgainInvitation').call({
+        'matchId': matchId,
+        'inviteeUid': inviteeUid,
+        if (sourceMatchId != null && sourceMatchId.isNotEmpty)
+          'sourceMatchId': sourceMatchId,
+      });
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
   }
 
   @override
   Future<void> dismiss(String matchId) async {
-    await functions.httpsCallable('dismissPlayAgainInvitation').call({
-      'matchId': matchId,
-    });
+    try {
+      await functions.httpsCallable('dismissPlayAgainInvitation').call({
+        'matchId': matchId,
+      });
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
   }
 }

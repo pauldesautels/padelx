@@ -10,8 +10,23 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/accountDeletionBarriers/$(uid));
     }
 
+    function enforcementExpired(uid) {
+      let data = get(
+        /databases/$(database)/documents/accountEnforcement/$(uid)
+      ).data;
+      return data.schemaVersion == 1
+        && data.uid == uid
+        && data.status == 'suspended'
+        && data.expiresAt is timestamp
+        && data.expiresAt <= request.time;
+    }
+
     function activeAccount(uid) {
-      return !accountDeleting(uid);
+      let enforcementPath = /databases/$(database)/documents/accountEnforcement/$(uid);
+      return !accountDeleting(uid) && (
+        !exists(enforcementPath)
+        || enforcementExpired(uid)
+      );
     }
 
     function activePublicAccount(uid) {
@@ -20,7 +35,7 @@ service cloud.firestore {
     }
 
     function verifiedUser() {
-      return signedIn() && activeAccount(request.auth.uid)
+      return request.auth != null && activeAccount(request.auth.uid)
         && request.auth.token.email_verified == true;
     }
 
@@ -329,19 +344,20 @@ service cloud.firestore {
     }
 
     function preservesPlayersAndAppendsOne() {
-      return request.resource.data.players.size()
-          == existingPlayers().size() + 1
-        && request.resource.data.players.size() <= 3
+      let before = existingPlayers();
+      let after = request.resource.data.players;
+      return after.size() == before.size() + 1
+        && after.size() <= 3
         && (
-          existingPlayers().size() == 0
+          before.size() == 0
           || (
-            existingPlayers().size() == 1
-            && request.resource.data.players[0] == existingPlayers()[0]
+            before.size() == 1
+            && after[0] == before[0]
           )
           || (
-            existingPlayers().size() == 2
-            && request.resource.data.players[0] == existingPlayers()[0]
-            && request.resource.data.players[1] == existingPlayers()[1]
+            before.size() == 2
+            && after[0] == before[0]
+            && after[1] == before[1]
           )
         );
     }
@@ -351,15 +367,17 @@ service cloud.firestore {
     }
 
     function appendedPlayerIsUnique() {
-      return existingPlayers().size() == 0
+      let before = existingPlayers();
+      let appendedUid = appendedPlayerUid();
+      return before.size() == 0
         || (
-          existingPlayers().size() == 1
-          && playerUid(existingPlayers()[0]) != appendedPlayerUid()
+          before.size() == 1
+          && playerUid(before[0]) != appendedUid
         )
         || (
-          existingPlayers().size() == 2
-          && playerUid(existingPlayers()[0]) != appendedPlayerUid()
-          && playerUid(existingPlayers()[1]) != appendedPlayerUid()
+          before.size() == 2
+          && playerUid(before[0]) != appendedUid
+          && playerUid(before[1]) != appendedUid
         );
     }
 
@@ -520,15 +538,17 @@ service cloud.firestore {
       let matchAfter = getAfter(
         /databases/$(database)/documents/matches/$(matchId)
       ).data;
-      return matchAfter.players.size() == playersIn(matchBefore).size() + 1
-        && matchAfter.players[playersIn(matchBefore).size()].uid == playerUid
+      let playersBefore = playersIn(matchBefore);
+      let spotsBefore = spotsLeftIn(matchBefore);
+      return matchAfter.players.size() == playersBefore.size() + 1
+        && matchAfter.players[playersBefore.size()].uid == playerUid
         && (
           (
-            spotsLeftIn(matchBefore) - 1 <= 3 - matchAfter.players.size()
-            && matchAfter.spotsLeft == spotsLeftIn(matchBefore) - 1
+            spotsBefore - 1 <= 3 - matchAfter.players.size()
+            && matchAfter.spotsLeft == spotsBefore - 1
           )
           || (
-            spotsLeftIn(matchBefore) - 1 > 3 - matchAfter.players.size()
+            spotsBefore - 1 > 3 - matchAfter.players.size()
             && matchAfter.spotsLeft == 3 - matchAfter.players.size()
           )
         );
@@ -870,6 +890,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
     match /accountEligibility/{uid} {
+      allow read, create, update, delete: if false;
+    }
+    match /accountEnforcement/{uid} {
+      allow read, create, update, delete: if false;
+    }
+    match /moderationActions/{actionId} {
       allow read, create, update, delete: if false;
     }
     match /reports/{reportId} {

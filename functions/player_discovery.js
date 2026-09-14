@@ -1,6 +1,7 @@
 import { HttpsError } from 'firebase-functions/v2/https';
 import { DELETION_BARRIERS, requireActiveAccount } from './account_state.js';
 import { blockId } from './friendship_policy.js';
+import { ACCOUNT_ENFORCEMENT, getEffectiveAccountEnforcement } from './account_enforcement.js';
 
 export const DISCOVERY_RESULT_LIMIT = 20;
 export const DISCOVERY_SCAN_CAP = 60;
@@ -84,6 +85,7 @@ export async function discoverPlayersOperation(firestore, request, { now = Date.
   const scanned = page.docs.slice(0, DISCOVERY_SCAN_CAP);
   const uids = scanned.map((doc) => doc.id).filter((uid) => uid !== viewerUid);
   const refs = uids.flatMap((uid) => [firestore.doc(`users/${uid}`), firestore.doc(`${DELETION_BARRIERS}/${uid}`),
+    firestore.doc(`${ACCOUNT_ENFORCEMENT}/${uid}`),
     firestore.doc(`blocks/${blockId(viewerUid, uid)}`), firestore.doc(`blocks/${blockId(uid, viewerUid)}`),
     firestore.doc(`users/${viewerUid}/friendViews/${uid}`), firestore.doc(`users/${viewerUid}/playedWith/${uid}`)]);
   const states = refs.length ? await firestore.getAll(...refs) : [];
@@ -92,10 +94,12 @@ export async function discoverPlayersOperation(firestore, request, { now = Date.
   for (const doc of scanned) {
     consumed += 1;
     if (doc.id === viewerUid) continue;
-    const offset = uids.indexOf(doc.id) * 6;
-    const [user, barrier, mine, theirs, friend, played] = states.slice(offset, offset + 6);
+    const offset = uids.indexOf(doc.id) * 7;
+    const [user, barrier, enforcement, mine, theirs, friend, played] = states.slice(offset, offset + 7);
     const data = doc.data();
-    if (!user?.exists || user.data()?.active === false || barrier?.exists || mine?.exists || theirs?.exists
+    if (!user?.exists || user.data()?.active === false || barrier?.exists
+      || getEffectiveAccountEnforcement(enforcement?.data(), new Date(now))
+      || mine?.exists || theirs?.exists
       || !validPublic(data) || data.uid !== doc.id) continue;
     if (filters.area && (text(data.area) ?? '').toLocaleLowerCase() !== filters.area.toLocaleLowerCase()) continue;
     if (filters.level && data.level !== filters.level) continue;

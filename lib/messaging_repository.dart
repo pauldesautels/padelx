@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'messaging.dart';
+import 'account_access.dart';
 
 class ConversationsPage {
   final List<ConversationSummary> conversations;
@@ -60,9 +61,16 @@ class FirebaseMessagingRepository implements MessagingRepository {
   Future<Map<dynamic, dynamic>> _call(
     String name,
     Map<String, Object?> data,
-  ) async => Map<dynamic, dynamic>.from(
-    (await functions.httpsCallable(name).call(data)).data as Map,
-  );
+  ) async {
+    try {
+      return Map<dynamic, dynamic>.from(
+        (await functions.httpsCallable(name).call(data)).data as Map,
+      );
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
+  }
 
   String _notificationVersion(Object? value) {
     if (value is Timestamp) return '${value.seconds}:${value.nanoseconds}';

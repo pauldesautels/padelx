@@ -246,6 +246,88 @@ describe('verified email boundary', () => {
   });
 });
 
+describe('account enforcement boundary', () => {
+  async function enforcementFixture(status, expiresAt) {
+    await seed('users/restricted', privateProfile('restricted'));
+    await seed('publicProfiles/restricted', publicProfile('restricted'));
+    await seed('publicProfiles/other', publicProfile('other'));
+    await seed('matches/enforcement-match', matchData('other'));
+    await seed('matches/enforcement-match/joinRequests/restricted', {
+      userId: 'restricted', displayName: 'Player restricted', level: 'Level 3',
+      email: 'restricted@example.com', status: 'pending',
+      requestedAt: Timestamp.fromMillis(now), eventId: 'event-enforcement',
+    });
+    await seed('matches/enforcement-match/ratingRaters/restricted/ratings/other', {
+      matchId: 'enforcement-match', raterUid: 'restricted', ratedUid: 'other',
+      rating: 5, createdAt: Timestamp.fromMillis(now),
+    });
+    await seed('notifications/enforcement-notification', {
+      recipientUid: 'restricted', isRead: false, type: 'join_approved',
+      createdAt: Timestamp.fromMillis(now),
+    });
+    await seed('users/restricted/friendViews/other', {
+      otherUid: 'other', status: 'accepted', acceptedAt: Timestamp.fromMillis(now),
+    });
+    await seed('users/restricted/playedWith/other', {
+      otherUid: 'other', completedMatchCount: 1,
+    });
+    await seed('users/restricted/settings/notifications', {
+      ...notificationSettings(), updatedAt: Timestamp.fromMillis(now),
+    });
+    await seed('accountEnforcement/restricted', {
+      schemaVersion: 1, uid: 'restricted', status,
+      reasonCode: 'harassment_abuse', createdAt: Timestamp.fromMillis(now),
+      updatedAt: Timestamp.fromMillis(now), actionedBy: 'trusted-actor',
+      sourceReportIds: [], ...(expiresAt ? { expiresAt } : {}),
+    });
+  }
+
+  for (const status of ['suspended', 'banned']) {
+    test(`${status} requester is denied across direct client surfaces`, async () => {
+      await enforcementFixture(status, status === 'suspended' ? future() : null);
+      const db = auth('restricted');
+      for (const path of [
+        'users/restricted', 'publicProfiles/other', 'matches/enforcement-match',
+        'matches/enforcement-match/joinRequests/restricted',
+        'matches/enforcement-match/ratingRaters/restricted/ratings/other',
+        'notifications/enforcement-notification', 'users/restricted/friendViews/other',
+        'users/restricted/playedWith/other', 'users/restricted/settings/notifications',
+      ]) await assertFails(getDoc(doc(db, path)));
+      await assertFails(updateDoc(doc(db, 'users/restricted/settings/notifications'), notificationSettings()));
+    });
+  }
+
+  test('expired suspension restores existing authorized access', async () => {
+    await enforcementFixture('suspended', past());
+    const db = auth('restricted');
+    await assertSucceeds(getDoc(doc(db, 'users/restricted')));
+    await assertSucceeds(getDoc(doc(db, 'publicProfiles/other')));
+    await assertSucceeds(getDoc(doc(db, 'matches/enforcement-match')));
+    await assertSucceeds(getDoc(doc(db, 'notifications/enforcement-notification')));
+  });
+
+  test('enforcement and moderation records are completely server-only', async () => {
+    await enforcementFixture('banned');
+    await seed('moderationActions/action-one', {
+      schemaVersion: 1, type: 'ban_applied', targetUid: 'restricted',
+      actorUid: 'trusted-actor', reasonCode: 'harassment_abuse',
+      sourceReportIds: [], createdAt: Timestamp.fromMillis(now), requestId: 'request_1234567890',
+    });
+    for (const db of [environment.unauthenticatedContext().firestore(), auth('restricted'), auth('other')]) {
+      await assertFails(getDoc(doc(db, 'accountEnforcement/restricted')));
+      await assertFails(getDocs(collection(db, 'accountEnforcement')));
+      await assertFails(setDoc(doc(db, 'accountEnforcement/forged'), { status: 'banned' }));
+      await assertFails(updateDoc(doc(db, 'accountEnforcement/restricted'), { status: 'banned' }));
+      await assertFails(deleteDoc(doc(db, 'accountEnforcement/restricted')));
+      await assertFails(getDoc(doc(db, 'moderationActions/action-one')));
+      await assertFails(getDocs(collection(db, 'moderationActions')));
+      await assertFails(setDoc(doc(db, 'moderationActions/forged'), { type: 'ban_applied' }));
+      await assertFails(updateDoc(doc(db, 'moderationActions/action-one'), { type: 'ban_revoked' }));
+      await assertFails(deleteDoc(doc(db, 'moderationActions/action-one')));
+    }
+  });
+});
+
 describe('private and public profiles', () => {
   test('avatar version is synchronized and cannot reference another user path', async () => {
     const db = auth('alice');

@@ -1,5 +1,6 @@
 import { assertSafeFirestore } from './backend_environment.js';
 import { HttpsError } from 'firebase-functions/v2/https';
+import { readEffectiveAccountEnforcement } from './account_enforcement.js';
 
 export const LEGACY_ACCOUNT_SCHEMA_VERSION = 1;
 // Retained for Phase 8 fixtures/operators. New admissions use CURRENT_*.
@@ -60,7 +61,7 @@ export function requireRecentAuthentication(request, { nowSeconds = Date.now() /
 
 // Caller provides the already environment-validated Firestore instance.
 // For destructive callables also check revocation/disabled state with Admin Auth.
-export async function requireActiveAccount(firestore, request, { verified = true } = {}) {
+export async function requireActiveAccount(firestore, request, { verified = true, now = new Date() } = {}) {
   assertSafeFirestore(firestore);
   const uid = requireSignedIn(request);
   if (verified && request.auth.token?.email_verified !== true) {
@@ -68,6 +69,9 @@ export async function requireActiveAccount(firestore, request, { verified = true
   }
   if ((await firestore.collection(DELETION_BARRIERS).doc(uid).get()).exists) {
     throw new HttpsError('permission-denied', 'Account deletion is in progress.');
+  }
+  if (await readEffectiveAccountEnforcement(firestore, uid, now)) {
+    throw new HttpsError('permission-denied', 'Account access is restricted.');
   }
   return uid;
 }

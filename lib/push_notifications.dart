@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'firebase_diagnostics.dart';
+import 'account_access.dart';
 
 enum PushPermissionState { notDetermined, allowed, denied, unsupported }
 
@@ -227,9 +228,14 @@ class FirebasePushDeviceRepository implements PushDeviceRepository {
 
   @override
   Future<void> register(String token) async {
-    await functions
-        .httpsCallable('registerPushDevice')
-        .call(await _payload(token));
+    try {
+      await functions
+          .httpsCallable('registerPushDevice')
+          .call(await _payload(token));
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
   }
 
   @override

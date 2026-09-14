@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import 'branding.dart';
+import 'account_access.dart';
 
 const ageEligibilityVersion = '18-plus-v1';
 
@@ -28,7 +29,13 @@ class FirebaseEligibilityRepository implements EligibilityRepository {
 
   @override
   Future<bool> getEligibility() async {
-    final result = await functions.httpsCallable('getAgeEligibility').call();
+    late HttpsCallableResult<dynamic> result;
+    try {
+      result = await functions.httpsCallable('getAgeEligibility').call();
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
     final data = result.data;
     return data is Map &&
         data['eligible'] == true &&
@@ -37,11 +44,17 @@ class FirebaseEligibilityRepository implements EligibilityRepository {
 
   @override
   Future<void> recordEligibility({required String requestId}) async {
-    final result = await functions.httpsCallable('recordAgeEligibility').call({
-      'confirmed': true,
-      'version': ageEligibilityVersion,
-      'requestId': requestId,
-    });
+    late HttpsCallableResult<dynamic> result;
+    try {
+      result = await functions.httpsCallable('recordAgeEligibility').call({
+        'confirmed': true,
+        'version': ageEligibilityVersion,
+        'requestId': requestId,
+      });
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
     final data = result.data;
     if (data is! Map ||
         data['recorded'] != true ||

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { requireActiveAccount } from './account_state.js';
+import { requireActiveAccount, requireSignedIn } from './account_state.js';
 import { backendEnvironment } from './backend_environment.js';
 
 export const PUSH_DEVICES = 'pushDevices';
@@ -98,7 +98,7 @@ export async function registerPushDeviceOperation(firestore, request) {
 }
 
 export async function unregisterPushDeviceOperation(firestore, request) {
-  const uid = await requireActiveAccount(firestore, request);
+  requireSignedIn(request);
   const identity = validatePushDeviceIdentity(request);
   const ref = firestore.collection(PUSH_DEVICES).doc(pushTokenHash(identity.token));
   await firestore.runTransaction(async (transaction) => {

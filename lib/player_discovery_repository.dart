@@ -1,5 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'player_discovery.dart';
+import 'account_access.dart';
 
 abstract class PlayerDiscoveryRepository {
   Future<PlayerDiscoveryPage> discover(
@@ -17,9 +18,15 @@ class FirebasePlayerDiscoveryRepository implements PlayerDiscoveryRepository {
     PlayerDiscoveryFilters filters, {
     Object? cursor,
   }) async {
-    final response = await functions
-        .httpsCallable('discoverPlayers')
-        .call(filters.toMap(cursor: cursor));
+    late HttpsCallableResult<dynamic> response;
+    try {
+      response = await functions
+          .httpsCallable('discoverPlayers')
+          .call(filters.toMap(cursor: cursor));
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
     final data = Map<dynamic, dynamic>.from(response.data as Map);
     return PlayerDiscoveryPage(
       players: (data['players'] as List? ?? const [])

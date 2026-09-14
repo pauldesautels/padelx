@@ -45,6 +45,7 @@ import 'eligibility.dart';
 import 'report_flow.dart';
 import 'report_repository.dart';
 import 'reporting.dart';
+import 'account_access.dart';
 
 PushNotificationService? _pushNotificationService;
 StreamSubscription<User?>? _pushAuthSubscription;
@@ -148,6 +149,8 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
+  final AccountAccessRepository _accountAccessRepository =
+      FirebaseAccountAccessRepository();
   int _eligibilityGeneration = 0;
 
   void _eligibilityRecorded() {
@@ -221,35 +224,14 @@ class _AuthGateState extends State<AuthGate> {
         // reload() updates FirebaseAuth.currentUser without guaranteeing a new
         // authStateChanges event, so prefer that refreshed instance here.
         final user = FirebaseAuth.instance.currentUser;
-        if (user != null && !user.emailVerified) {
-          return AgeEligibilityGate(
-            key: ValueKey('eligibility-${user.uid}-$_eligibilityGeneration'),
-            repository: EligibilityRepository.firebase(),
-            onSignOut: _signOutWithPushCleanup,
-            eligibleBuilder: (_) => EmailVerificationScreen(
-              email: user.email ?? '',
-              onContinue: () async {
-                await user.reload();
-                final refreshedUser = FirebaseAuth.instance.currentUser;
-                if (refreshedUser?.emailVerified != true) return false;
-                await refreshedUser!.getIdToken(true);
-                _continueAfterVerification();
-                return true;
-              },
-              onResend: user.sendEmailVerification,
-              onSignOut: _signOutWithPushCleanup,
-              onDeleteAccount: _openDeletion,
-            ),
-          );
-        }
-
         if (user != null) {
-          return AgeEligibilityGate(
-            key: ValueKey('eligibility-${user.uid}-$_eligibilityGeneration'),
-            repository: EligibilityRepository.firebase(),
+          return AccountAccessGate(
+            key: ValueKey('account-access-${user.uid}'),
+            uid: user.uid,
+            repository: _accountAccessRepository,
+            onDeleteAccount: _openDeletion,
             onSignOut: _signOutWithPushCleanup,
-            eligibleBuilder: (_) =>
-                ProfileGate(user: user, onDeleteAccount: _openDeletion),
+            allowedBuilder: (_) => _buildAdmittedUser(user),
           );
         }
 
@@ -265,6 +247,37 @@ class _AuthGateState extends State<AuthGate> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildAdmittedUser(User user) {
+    if (!user.emailVerified) {
+      return AgeEligibilityGate(
+        key: ValueKey('eligibility-${user.uid}-$_eligibilityGeneration'),
+        repository: EligibilityRepository.firebase(),
+        onSignOut: _signOutWithPushCleanup,
+        eligibleBuilder: (_) => EmailVerificationScreen(
+          email: user.email ?? '',
+          onContinue: () async {
+            await user.reload();
+            final refreshedUser = FirebaseAuth.instance.currentUser;
+            if (refreshedUser?.emailVerified != true) return false;
+            await refreshedUser!.getIdToken(true);
+            _continueAfterVerification();
+            return true;
+          },
+          onResend: user.sendEmailVerification,
+          onSignOut: _signOutWithPushCleanup,
+          onDeleteAccount: _openDeletion,
+        ),
+      );
+    }
+    return AgeEligibilityGate(
+      key: ValueKey('eligibility-${user.uid}-$_eligibilityGeneration'),
+      repository: EligibilityRepository.firebase(),
+      onSignOut: _signOutWithPushCleanup,
+      eligibleBuilder: (_) =>
+          ProfileGate(user: user, onDeleteAccount: _openDeletion),
     );
   }
 }

@@ -53,6 +53,21 @@ test('suppresses blocks in both directions', async () => {
   assert.deepEqual((await discover({ area: 'roma' })).players, []);
 });
 
+test('excludes effectively enforced targets without exposing enforcement', async () => {
+  await account('suspended', { displayName: 'Suspended' });
+  await account('expired', { displayName: 'Expired' });
+  await account('banned', { displayName: 'Banned' });
+  const common = { schemaVersion: 1, reasonCode: 'harassment_abuse' };
+  await db.doc('accountEnforcement/suspended').set({ ...common, uid: 'suspended',
+    status: 'suspended', expiresAt: new Date(Date.now() + 86_400_000) });
+  await db.doc('accountEnforcement/expired').set({ ...common, uid: 'expired',
+    status: 'suspended', expiresAt: new Date(Date.now() - 1) });
+  await db.doc('accountEnforcement/banned').set({ ...common, uid: 'banned', status: 'banned' });
+  const result = await discover();
+  assert.deepEqual(result.players.map((player) => player.uid), ['expired']);
+  assert.equal(JSON.stringify(result).includes('harassment_abuse'), false);
+});
+
 test('area, level, side compatibility, and Either-only semantics are explicit', async () => {
   await account('left', { displayName: 'Left', preferredSide: 'left' });
   await account('right', { displayName: 'Right', preferredSide: 'right' });

@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 
 import 'friends.dart';
 import 'played_with.dart';
+import 'account_access.dart';
 
 class FriendsPage {
   final List<FriendView> views;
@@ -49,7 +50,12 @@ class FirebaseFriendsRepository implements FriendsRepository {
        functions = functions ?? FirebaseFunctions.instance;
 
   Future<void> _call(String name, Map<String, Object> data) async {
-    await functions.httpsCallable(name).call(data);
+    try {
+      await functions.httpsCallable(name).call(data);
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
   }
 
   @override
@@ -57,10 +63,16 @@ class FirebaseFriendsRepository implements FriendsRepository {
     Object? cursor,
     int pageSize = 20,
   }) async {
-    final response = await functions.httpsCallable('listBlockedPlayers').call({
-      'limit': pageSize,
-      if (cursor is String) 'cursor': cursor,
-    });
+    late HttpsCallableResult<dynamic> response;
+    try {
+      response = await functions.httpsCallable('listBlockedPlayers').call({
+        'limit': pageSize,
+        if (cursor is String) 'cursor': cursor,
+      });
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
     final data = Map<dynamic, dynamic>.from(response.data as Map);
     return BlockedPlayersPage(
       players: (data['players'] as List? ?? const [])
@@ -140,11 +152,15 @@ class FirebaseFriendsRepository implements FriendsRepository {
 
   @override
   Future<RelationshipPolicy> policy(String targetUid) async {
-    final response = await functions
-        .httpsCallable('getRelationshipPolicies')
-        .call({
-          'targetUids': [targetUid],
-        });
+    late HttpsCallableResult<dynamic> response;
+    try {
+      response = await functions.httpsCallable('getRelationshipPolicies').call({
+        'targetUids': [targetUid],
+      });
+    } catch (error) {
+      signalAccountAccessRestriction(error);
+      rethrow;
+    }
     final root = Map<dynamic, dynamic>.from(response.data as Map);
     final policies = Map<dynamic, dynamic>.from(
       root['policies'] as Map? ?? const {},

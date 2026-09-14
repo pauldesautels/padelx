@@ -15,8 +15,25 @@ A named safety owner and backup must be assigned operationally before beta.
 - A report count alone never triggers enforcement.
 - PadelX reporting and support are not emergency services. Direct immediate
   danger to local emergency services.
-- Beta moderation remains manual. Suspension and enforcement architecture is
-  deferred to Safety Phase 4B.
+- Beta moderation remains manual. Safety Phase 4B provides internal enforcement
+  services and access controls only; privileged operator tooling remains Phase 4C.
+
+## Account enforcement operations
+
+- Normal suspension and ban state is stored in the server-only
+  `accountEnforcement` collection. It must not disable the Firebase Auth user.
+- Refresh tokens are revoked after enforcement is applied or revoked to shorten
+  the lifetime of an existing session. Firestore rules and callable admission
+  remain the authoritative boundary.
+- An expired suspension stops restricting access based on authoritative time even
+  if cleanup has not run. Recording `suspension_expired` and removing stale active
+  records remains a future reconciliation task; Firestore TTL must not be enabled.
+- A future match involving an enforced organizer can require manual Phase 4C
+  remediation. Enforcement does not automatically cancel or rewrite matches.
+- Emergency Firebase Auth disable is a separate exceptional operator action for
+  an immediate incident response, not a normal suspension or ban. It requires an
+  explicitly authorized operator, an incident record, and a recovery plan; it
+  must not be automated from reports, ratings, blocks, or report counts.
 
 ## Internal privacy
 
