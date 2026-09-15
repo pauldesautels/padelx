@@ -57,12 +57,81 @@
   },
   "hosting": {
     "public": "build/web",
+    "predeploy": [
+      "npm run prepare:hosting"
+    ],
     "ignore": [
       "firebase-debug.log",
       "firebase-debug.*.log",
       "**/.*"
     ],
+    "headers": [
+      {
+        "source": "/privacy{,/**}",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      },
+      {
+        "source": "/terms{,/**}",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      },
+      {
+        "source": "/community-guidelines{,/**}",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      },
+      {
+        "source": "/account-deletion{,/**}",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      },
+      {
+        "source": "/es-MX/privacy{,/**}",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      },
+      {
+        "source": "/es-MX/terms{,/**}",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      },
+      {
+        "source": "/es-MX/community-guidelines{,/**}",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      },
+      {
+        "source": "/es-MX/account-deletion{,/**}",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      }
+    ],
     "rewrites": [
+      {
+        "source": "/privacy{,/**}",
+        "destination": "/privacy/index.html"
+      },
+      {
+        "source": "/terms{,/**}",
+        "destination": "/terms/index.html"
+      },
+      {
+        "source": "/community-guidelines{,/**}",
+        "destination": "/community-guidelines/index.html"
+      },
+      {
+        "source": "/account-deletion{,/**}",
+        "destination": "/account-deletion/index.html"
+      },
+      {
+        "source": "/es-MX/privacy{,/**}",
+        "destination": "/es-MX/privacy/index.html"
+      },
+      {
+        "source": "/es-MX/terms{,/**}",
+        "destination": "/es-MX/terms/index.html"
+      },
+      {
+        "source": "/es-MX/community-guidelines{,/**}",
+        "destination": "/es-MX/community-guidelines/index.html"
+      },
+      {
+        "source": "/es-MX/account-deletion{,/**}",
+        "destination": "/es-MX/account-deletion/index.html"
+      },
       {
         "source": "**",
         "destination": "/index.html"

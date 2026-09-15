@@ -19,6 +19,9 @@
     "test:phase9-safety": "node --test test/*safety.test.mjs",
     "test:safety-admin": "node --test test/report_review_policy.test.mjs test/safety_admin.test.mjs",
     "test:report-review": "firebase emulators:exec --project demo-padelx-review --only firestore \"node --test --test-concurrency=1 test/report_review.test.mjs\"",
+    "prepare:hosting": "node tool/prepare_hosting.mjs",
+    "test:hosting": "node --test test/legal_hosting.test.mjs",
+    "test:hosting:emulator": "firebase emulators:exec --project demo-padelx-hosting --only hosting \"node --test test/legal_hosting_emulator.test.mjs\"",
     "prepare:deletion": "node tool/prepare_account_deletion.mjs"
   },
   "devDependencies": {
