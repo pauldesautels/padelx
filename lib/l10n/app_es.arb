@@ -1,0 +1,33 @@
+{
+  "@@locale": "es",
+  "language": "Idioma",
+  "useDeviceLanguage": "Usar idioma del dispositivo",
+  "english": "English",
+  "spanishMexico": "Español (México)",
+  "cancel": "Cancelar",
+  "done": "Listo",
+  "retry": "Reintentar",
+  "loading": "Cargando",
+  "somethingWentWrong": "Algo salió mal",
+  "settings": "Configuración",
+  "authHeadline": "Encuentra tu próximo partido.",
+  "authSubtitle": "Juega más pádel con jugadores cerca de ti.",
+  "continueWithEmail": "Continuar con correo",
+  "termsOfUse": "Términos de uso",
+  "privacyPolicy": "Aviso de privacidad",
+  "chooseLanguage": "Elegir idioma",
+  "languageSelectorTooltip": "Cambiar idioma",
+  "languageSelectorSemantics": "Cambiar el idioma de la aplicación",
+  "welcomePlayer": "Te damos la bienvenida, {name}",
+  "@welcomePlayer": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "matchCount": "{count, plural, =0{No hay partidos} =1{1 partido} other{{count} partidos}}",
+  "@matchCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  }
+}

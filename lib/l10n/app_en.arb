@@ -1,0 +1,33 @@
+{
+  "@@locale": "en",
+  "language": "Language",
+  "useDeviceLanguage": "Use device language",
+  "english": "English",
+  "spanishMexico": "Español (México)",
+  "cancel": "Cancel",
+  "done": "Done",
+  "retry": "Retry",
+  "loading": "Loading",
+  "somethingWentWrong": "Something went wrong",
+  "settings": "Settings",
+  "authHeadline": "Find your next match.",
+  "authSubtitle": "Play more padel with players near you.",
+  "continueWithEmail": "Continue with email",
+  "termsOfUse": "Terms of Use",
+  "privacyPolicy": "Privacy Policy",
+  "chooseLanguage": "Choose language",
+  "languageSelectorTooltip": "Change language",
+  "languageSelectorSemantics": "Change application language",
+  "welcomePlayer": "Welcome, {name}",
+  "@welcomePlayer": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "matchCount": "{count, plural, =0{No matches} =1{1 match} other{{count} matches}}",
+  "@matchCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  }
+}

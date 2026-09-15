@@ -5,6 +5,8 @@ import 'friends_repository.dart';
 import 'push_notifications.dart';
 import 'safety_policy.dart';
 import 'legal.dart';
+import 'l10n/app_localizations.dart';
+import 'locale_controller.dart';
 
 class SettingsScreen extends StatelessWidget {
   final FriendsRepository friendsRepository;
@@ -23,106 +25,117 @@ class SettingsScreen extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Settings')),
-    body: ListView(
-      children: [
-        const _SettingsHeader('Account'),
-        ListTile(
-          key: const Key('settings-account'),
-          leading: const Icon(Icons.manage_accounts_outlined),
-          title: const Text('Account'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  AccountSettingsScreen(onDeleteAccount: onDeleteAccount),
+  Widget build(BuildContext context) {
+    final localeController = PadelXLocaleScope.maybeOf(context);
+    final strings = localeController == null
+        ? null
+        : AppLocalizations.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(strings?.settings ?? 'Settings')),
+      body: ListView(
+        children: [
+          if (localeController != null) ...[
+            _SettingsHeader(strings!.language),
+            const PadelXLanguageSettingsTile(),
+            const Divider(),
+          ],
+          const _SettingsHeader('Account'),
+          ListTile(
+            key: const Key('settings-account'),
+            leading: const Icon(Icons.manage_accounts_outlined),
+            title: const Text('Account'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    AccountSettingsScreen(onDeleteAccount: onDeleteAccount),
+              ),
             ),
           ),
-        ),
-        const Divider(),
-        const _SettingsHeader('Notifications'),
-        ListTile(
-          key: const Key('settings-notifications'),
-          leading: const Icon(Icons.notifications_outlined),
-          title: const Text('Notifications'),
-          subtitle: const Text('Push permission and notification categories'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap:
-              currentUid.isEmpty ||
-                  notificationPreferencesRepository == null ||
-                  pushSettingsService == null
-              ? null
-              : () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => NotificationSettingsScreen(
-                      uid: currentUid,
-                      repository: notificationPreferencesRepository!,
-                      pushService: pushSettingsService!,
+          const Divider(),
+          const _SettingsHeader('Notifications'),
+          ListTile(
+            key: const Key('settings-notifications'),
+            leading: const Icon(Icons.notifications_outlined),
+            title: const Text('Notifications'),
+            subtitle: const Text('Push permission and notification categories'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap:
+                currentUid.isEmpty ||
+                    notificationPreferencesRepository == null ||
+                    pushSettingsService == null
+                ? null
+                : () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => NotificationSettingsScreen(
+                        uid: currentUid,
+                        repository: notificationPreferencesRepository!,
+                        pushService: pushSettingsService!,
+                      ),
                     ),
                   ),
-                ),
-        ),
-        const Divider(),
-        const _SettingsHeader('Help & Safety'),
-        ListTile(
-          key: const Key('settings-help-safety'),
-          leading: const Icon(Icons.health_and_safety_outlined),
-          title: const Text('Help & Safety'),
-          subtitle: const Text('Reporting, blocking, and age eligibility'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  HelpSafetyScreen(friendsRepository: friendsRepository),
-            ),
           ),
-        ),
-        const Divider(),
-        const _SettingsHeader('Privacy'),
-        ListTile(
-          key: const Key('settings-blocked-players'),
-          leading: const Icon(Icons.block_outlined),
-          title: const Text('Blocked Players'),
-          subtitle: const Text('Review and unblock players'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  BlockedPlayersScreen(repository: friendsRepository),
-            ),
-          ),
-        ),
-        const Divider(),
-        const _SettingsHeader('Legal'),
-        for (final entry in const [
-          ('settings-terms', 'Terms of Use', '/terms'),
-          ('settings-privacy', 'Privacy Policy', '/privacy'),
-          (
-            'settings-community-legal',
-            'Community Guidelines',
-            '/community-guidelines',
-          ),
-          (
-            'settings-account-deletion-info',
-            'Account Deletion',
-            '/account-deletion',
-          ),
-        ])
+          const Divider(),
+          const _SettingsHeader('Help & Safety'),
           ListTile(
-            key: Key(entry.$1),
-            leading: const Icon(Icons.open_in_new),
-            title: Text(entry.$2),
+            key: const Key('settings-help-safety'),
+            leading: const Icon(Icons.health_and_safety_outlined),
+            title: const Text('Help & Safety'),
+            subtitle: const Text('Reporting, blocking, and age eligibility'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => openLegalLink(context, entry.$3),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    HelpSafetyScreen(friendsRepository: friendsRepository),
+              ),
+            ),
           ),
-      ],
-    ),
-  );
+          const Divider(),
+          const _SettingsHeader('Privacy'),
+          ListTile(
+            key: const Key('settings-blocked-players'),
+            leading: const Icon(Icons.block_outlined),
+            title: const Text('Blocked Players'),
+            subtitle: const Text('Review and unblock players'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    BlockedPlayersScreen(repository: friendsRepository),
+              ),
+            ),
+          ),
+          const Divider(),
+          const _SettingsHeader('Legal'),
+          for (final entry in const [
+            ('settings-terms', 'Terms of Use', '/terms'),
+            ('settings-privacy', 'Privacy Policy', '/privacy'),
+            (
+              'settings-community-legal',
+              'Community Guidelines',
+              '/community-guidelines',
+            ),
+            (
+              'settings-account-deletion-info',
+              'Account Deletion',
+              '/account-deletion',
+            ),
+          ])
+            ListTile(
+              key: Key(entry.$1),
+              leading: const Icon(Icons.open_in_new),
+              title: Text(entry.$2),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => openLegalLink(context, entry.$3),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class HelpSafetyScreen extends StatelessWidget {

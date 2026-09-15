@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'current_location.dart';
 import 'location.dart';
 import 'places.dart';
@@ -49,6 +50,9 @@ import 'report_flow.dart';
 import 'report_repository.dart';
 import 'reporting.dart';
 import 'account_access.dart';
+import 'auth_language.dart';
+import 'l10n/app_localizations.dart';
+import 'locale_controller.dart';
 
 PushNotificationService? _pushNotificationService;
 StreamSubscription<User?>? _pushAuthSubscription;
@@ -76,10 +80,15 @@ Future<void> main() async {
   _startupClock.start();
   _logStartupTiming('main entered');
   WidgetsFlutterBinding.ensureInitialized();
+  final localeController = PadelXLocaleController(
+    store: SharedPreferencesLocalePreferenceStore(),
+    systemLocales: WidgetsBinding.instance.platformDispatcher.locales,
+  );
+  await localeController.load();
   WidgetsBinding.instance.addPostFrameCallback((_) {
     _logStartupTiming('first Flutter frame');
   });
-  runApp(const PadelXApp());
+  runApp(PadelXApp(localeController: localeController));
   _logStartupTiming('runApp returned');
 }
 
@@ -112,33 +121,71 @@ Future<void> initializePadelX(ValueChanged<double> reportProgress) async {
   _logStartupTiming('initialization completed');
 }
 
-class PadelXApp extends StatelessWidget {
-  const PadelXApp({super.key});
+class PadelXApp extends StatefulWidget {
+  const PadelXApp({super.key, required this.localeController});
+
+  final PadelXLocaleController localeController;
+
+  @override
+  State<PadelXApp> createState() => _PadelXAppState();
+}
+
+class _PadelXAppState extends State<PadelXApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeLocales(List<Locale>? locales) {
+    widget.localeController.updateSystemLocales(locales);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'PadelX',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.greenAccent,
-          brightness: Brightness.dark,
-        ),
-        scaffoldBackgroundColor: const Color(0xFF0F1412),
-        cardTheme: CardThemeData(
-          color: const Color(0xFF18211D),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+    return PadelXLocaleScope(
+      controller: widget.localeController,
+      child: AnimatedBuilder(
+        animation: widget.localeController,
+        builder: (context, _) => MaterialApp(
+          title: 'PadelX',
+          debugShowCheckedModeBanner: false,
+          locale: widget.localeController.locale,
+          supportedLocales: supportedPadelXLocales,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          theme: ThemeData(
+            brightness: Brightness.dark,
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.greenAccent,
+              brightness: Brightness.dark,
+            ),
+            scaffoldBackgroundColor: const Color(0xFF0F1412),
+            cardTheme: CardThemeData(
+              color: const Color(0xFF18211D),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+          ),
+          home: StartupCoordinator(
+            initialize: initializePadelX,
+            destinationBuilder: (_) => const AuthGate(),
           ),
         ),
-      ),
-      home: StartupCoordinator(
-        initialize: initializePadelX,
-        destinationBuilder: (_) => const AuthGate(),
       ),
     );
   }
@@ -279,7 +326,13 @@ class _AuthGateState extends State<AuthGate> {
               _continueAfterVerification();
               return true;
             },
-            onResend: user.sendEmailVerification,
+            onResend: () async {
+              await configureFirebaseAuthLanguage(
+                FirebaseAuth.instance,
+                Localizations.localeOf(context),
+              );
+              await user.sendEmailVerification();
+            },
             onSignOut: _signOutWithPushCleanup,
             onDeleteAccount: _openDeletion,
           ),
@@ -825,6 +878,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _submit() async {
     if (_isLoading) return;
+    final authLocale = Localizations.localeOf(context);
     if (!_isLogin && (!_ageConfirmed || !_legalAcknowledged)) {
       setState(() {
         _eligibilityError = !_ageConfirmed
@@ -916,6 +970,10 @@ class _AuthScreenState extends State<AuthScreen> {
         } else {
           final currentUser = FirebaseAuth.instance.currentUser;
           if (currentUser != null && !currentUser.emailVerified) {
+            await configureFirebaseAuthLanguage(
+              FirebaseAuth.instance,
+              authLocale,
+            );
             await currentUser.sendEmailVerification();
           }
         }
@@ -969,14 +1027,20 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _showPasswordResetDialog() async {
+    final authLocale = Localizations.localeOf(context);
     final emailSent = await showDialog<bool>(
       context: context,
       builder: (_) => PasswordResetDialog(
         initialEmail: _emailController.text.trim(),
         sender:
             widget.passwordResetSender ??
-            (email) =>
-                FirebaseAuth.instance.sendPasswordResetEmail(email: email),
+            (email) async {
+              await configureFirebaseAuthLanguage(
+                FirebaseAuth.instance,
+                authLocale,
+              );
+              await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+            },
       ),
     );
 
