@@ -53,10 +53,25 @@ import 'account_access.dart';
 import 'auth_language.dart';
 import 'l10n/app_localizations.dart';
 import 'locale_controller.dart';
+import 'l10n/l10n.dart';
 
 PushNotificationService? _pushNotificationService;
 StreamSubscription<User?>? _pushAuthSubscription;
 final Stopwatch _startupClock = Stopwatch();
+
+String _localizedPreferredSide(BuildContext context, PreferredSide side) =>
+    switch (side) {
+      PreferredSide.left => context.l10n.leftSide,
+      PreferredSide.right => context.l10n.rightSide,
+      PreferredSide.either => context.l10n.eitherSide,
+    };
+
+String _localizedPlayFrequency(BuildContext context, PlayFrequency frequency) =>
+    switch (frequency) {
+      PlayFrequency.occasional => context.l10n.occasional,
+      PlayFrequency.weekly => context.l10n.weekly,
+      PlayFrequency.severalPerWeek => context.l10n.severalPerWeek,
+    };
 const bool _startupTimingEnabled = bool.fromEnvironment(
   'PADELX_STARTUP_TIMING',
 );
@@ -259,7 +274,7 @@ class _AuthGateState extends State<AuthGate> {
                 Text(_deletionMessage!),
                 TextButton(
                   onPressed: () => setState(() => _deletionMessage = null),
-                  child: const Text('Continue'),
+                  child: Text(context.l10n.continueLabel),
                 ),
               ],
             ),
@@ -543,21 +558,21 @@ class _ProfileLoadErrorState extends State<ProfileLoadError> {
             children: [
               const Icon(Icons.cloud_off, size: 48),
               const SizedBox(height: 16),
-              const Text(
-                'Could not load your profile.',
+              Text(
+                context.l10n.loadProfileFailed,
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              const Text('Check your connection and try again.'),
+              Text(context.l10n.connectionRetry),
               const SizedBox(height: 20),
               FilledButton(
                 onPressed: widget.onRetry,
-                child: const Text('Try Again'),
+                child: Text(context.l10n.tryAgain),
               ),
               TextButton(
                 onPressed: _signOutWithPushCleanup,
-                child: const Text('Log out'),
+                child: Text(context.l10n.logOut),
               ),
             ],
           ),
@@ -626,18 +641,17 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
 
   Future<void> _continue() async {
     if (_isChecking || _isResending || _isSigningOut) return;
+    final strings = context.l10n;
     setState(() => _isChecking = true);
     try {
       final verified = await widget.onContinue();
       if (!verified) {
-        _showMessage(
-          'Your email is not verified yet. Open the link in your email, then try again.',
-        );
+        _showMessage(strings.emailNotVerified);
       }
     } on FirebaseAuthException catch (error) {
-      _showMessage(_verificationErrorMessage(error));
+      _showMessage(_verificationErrorMessage(error, strings));
     } catch (_) {
-      _showMessage('Could not check your email yet. Please try again.');
+      _showMessage(strings.emailCheckFailed);
     } finally {
       if (mounted) setState(() => _isChecking = false);
     }
@@ -647,16 +661,17 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     if (_isChecking || _isResending || _isSigningOut || _cooldownSeconds > 0) {
       return;
     }
+    final strings = context.l10n;
     setState(() => _isResending = true);
     try {
       await widget.onResend();
       if (!mounted) return;
       setState(_startCooldown);
-      _showMessage('A new verification email was sent.');
+      _showMessage(strings.verificationEmailSent);
     } on FirebaseAuthException catch (error) {
-      _showMessage(_verificationErrorMessage(error));
+      _showMessage(_verificationErrorMessage(error, strings));
     } catch (_) {
-      _showMessage('Could not resend the email. Please try again.');
+      _showMessage(strings.verificationResendFailed);
     } finally {
       if (mounted) setState(() => _isResending = false);
     }
@@ -664,30 +679,34 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
 
   Future<void> _signOut() async {
     if (_isChecking || _isResending || _isSigningOut) return;
+    final strings = context.l10n;
     setState(() => _isSigningOut = true);
     try {
       await widget.onSignOut();
     } on FirebaseAuthException catch (error) {
-      _showMessage(_verificationErrorMessage(error));
+      _showMessage(_verificationErrorMessage(error, strings));
     } catch (_) {
-      _showMessage('Could not sign out. Please try again.');
+      _showMessage(strings.signOutFailed);
     } finally {
       if (mounted) setState(() => _isSigningOut = false);
     }
   }
 
-  String _verificationErrorMessage(FirebaseAuthException error) {
+  String _verificationErrorMessage(
+    FirebaseAuthException error,
+    AppLocalizations strings,
+  ) {
     switch (error.code) {
       case 'too-many-requests':
-        return 'Too many attempts. Please wait a moment and try again.';
+        return strings.tooManyAttemptsWait;
       case 'network-request-failed':
-        return 'Check your internet connection and try again.';
+        return strings.networkRetry;
       case 'user-disabled':
-        return 'This account is unavailable. Contact PadelX support.';
+        return strings.accountUnavailableSupport;
       case 'requires-recent-login':
-        return 'Please sign out, log in again, and retry.';
+        return strings.recentLoginRequired;
       default:
-        return 'Could not complete that request. Please try again.';
+        return strings.requestFailedGeneric;
     }
   }
 
@@ -729,8 +748,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    const Text(
-                      'Verify your email',
+                    Text(
+                      context.l10n.verifyEmail,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 26,
@@ -738,15 +757,15 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    const Text(
-                      'We sent a verification link to',
+                    Text(
+                      context.l10n.verificationSent,
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white70),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       widget.email.isEmpty
-                          ? 'your email address'
+                          ? context.l10n.emailAddressFallback
                           : widget.email,
                       key: const Key('verification-email'),
                       textAlign: TextAlign.center,
@@ -756,8 +775,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    const Text(
-                      'Open the link in that message, then return here to continue.',
+                    Text(
+                      context.l10n.openVerificationLink,
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white70),
                     ),
@@ -776,8 +795,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                         ),
                         child: Text(
                           _isChecking
-                              ? 'Checking...'
-                              : "I've verified my email",
+                              ? context.l10n.checkingEllipsis
+                              : context.l10n.verifiedMyEmail,
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
@@ -791,10 +810,10 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                       ),
                       child: Text(
                         _isResending
-                            ? 'Sending...'
+                            ? context.l10n.sendingEllipsis
                             : _cooldownSeconds > 0
-                            ? 'Resend available in ${_cooldownSeconds}s'
-                            : 'Resend verification email',
+                            ? context.l10n.resendAvailableIn(_cooldownSeconds)
+                            : context.l10n.resendVerificationEmail,
                       ),
                     ),
                     if (widget.onDeleteAccount != null)
@@ -805,13 +824,15 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                           foregroundColor: Colors.white60,
                           textStyle: const TextStyle(fontSize: 13),
                         ),
-                        child: const Text('Delete account'),
+                        child: Text(context.l10n.deleteAccountLower),
                       ),
                     TextButton(
                       key: const Key('verification-sign-out'),
                       onPressed: busy ? null : _signOut,
                       child: Text(
-                        _isSigningOut ? 'Signing out...' : 'Sign Out',
+                        _isSigningOut
+                            ? context.l10n.signingOutEllipsis
+                            : context.l10n.signOut,
                       ),
                     ),
                   ],
@@ -879,11 +900,12 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _submit() async {
     if (_isLoading) return;
     final authLocale = Localizations.localeOf(context);
+    final strings = context.l10n;
     if (!_isLogin && (!_ageConfirmed || !_legalAcknowledged)) {
       setState(() {
         _eligibilityError = !_ageConfirmed
-            ? 'Confirm that you are 18 years of age or older to continue.'
-            : 'Agree to the Terms of Use and acknowledge the Privacy Policy to continue.';
+            ? strings.ageConfirmContinue
+            : strings.legalAgreeContinue;
       });
       return;
     }
@@ -893,9 +915,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
     setState(() {
       _emailError = email.isEmpty
-          ? 'Enter your email.'
-          : (!_looksLikeEmail(email) ? 'Enter a valid email address.' : null);
-      _passwordError = password.isEmpty ? 'Enter your password.' : null;
+          ? strings.enterEmailPeriod
+          : (!_looksLikeEmail(email) ? strings.validEmailRequired : null);
+      _passwordError = password.isEmpty ? strings.enterPasswordPeriod : null;
     });
     if (_emailError != null || _passwordError != null) {
       return;
@@ -940,8 +962,7 @@ class _AuthScreenState extends State<AuthScreen> {
         } catch (_) {
           if (mounted) {
             setState(() {
-              _eligibilityError =
-                  'Your account was created, but age eligibility could not be confirmed. Try again to continue.';
+              _eligibilityError = strings.ageRecordAfterCreateFailed;
             });
           }
           return;
@@ -958,8 +979,7 @@ class _AuthScreenState extends State<AuthScreen> {
         } catch (_) {
           if (mounted) {
             setState(() {
-              _eligibilityError =
-                  'Your account was created, but legal acknowledgement could not be recorded. Try again to continue.';
+              _eligibilityError = strings.legalRecordAfterCreateFailed;
             });
           }
           return;
@@ -984,39 +1004,40 @@ class _AuthScreenState extends State<AuthScreen> {
 
       switch (error.code) {
         case 'invalid-email':
-          message = 'Please enter a valid email address.';
+          message = strings.validEmailRequired;
           break;
         case 'user-not-found':
-          message = 'No account was found with that email.';
+          message = strings.accountNotFound;
           break;
         case 'wrong-password':
         case 'invalid-credential':
-          message = 'Incorrect email or password.';
+          message = strings.incorrectCredentials;
           break;
         case 'admin-restricted-operation':
         case 'operation-not-allowed':
-          message = 'Could not create your account. Please try again.';
+          message = strings.createAccountFailed;
           break;
         case 'email-already-in-use':
-          message = 'An account already uses that email. Try logging in.';
+          message = strings.emailAlreadyUsed;
           break;
         case 'weak-password':
-          message = 'Your password must be at least 6 characters.';
+          message = strings.weakPassword;
           break;
         case 'too-many-requests':
-          message = 'Too many attempts. Please try again later.';
+          message = strings.tooManyAttemptsLater;
           break;
         case 'network-request-failed':
-          message = 'Check your internet connection and try again.';
+          message = strings.networkRetry;
           break;
         default:
-          message =
-              'Could not ${_isLogin ? 'log in' : 'create your account'}. Please try again.';
+          message = _isLogin
+              ? strings.loginFailed
+              : strings.genericCreateAccountFailed;
       }
 
       _showMessage(message);
     } catch (_) {
-      _showMessage('Something went wrong. Please try again.');
+      _showMessage(strings.somethingWrongRetry);
     } finally {
       if (mounted) {
         setState(() {
@@ -1028,6 +1049,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _showPasswordResetDialog() async {
     final authLocale = Localizations.localeOf(context);
+    final strings = context.l10n;
     final emailSent = await showDialog<bool>(
       context: context,
       builder: (_) => PasswordResetDialog(
@@ -1045,7 +1067,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
 
     if (emailSent == true) {
-      _showMessage('Password reset email sent. Check your inbox.');
+      _showMessage(strings.passwordResetSent);
     }
   }
 
@@ -1098,8 +1120,8 @@ class _AuthScreenState extends State<AuthScreen> {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Sign in or create your account.',
+                  Text(
+                    context.l10n.signInOrCreate,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 18,
@@ -1175,7 +1197,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Text(
-                            _isLogin ? 'Log In' : 'Sign Up',
+                            _isLogin ? context.l10n.logIn : context.l10n.signUp,
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               fontSize: 24,
@@ -1185,9 +1207,8 @@ class _AuthScreenState extends State<AuthScreen> {
                           const SizedBox(height: 8),
                           Text(
                             _isLogin
-                                ? 'Welcome back. Your next match is waiting.'
-                                : 'Create your account, then verify your email '
-                                      'to get started.',
+                                ? context.l10n.welcomeBackAuth
+                                : context.l10n.createVerifyAuth,
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.white70),
                           ),
@@ -1206,8 +1227,8 @@ class _AuthScreenState extends State<AuthScreen> {
                               }
                             },
                             decoration: InputDecoration(
-                              labelText: 'Email',
-                              hintText: 'Enter your email',
+                              labelText: context.l10n.email,
+                              hintText: context.l10n.enterEmail,
                               prefixIcon: Icon(Icons.email_outlined),
                               errorText: _emailError,
                             ),
@@ -1238,17 +1259,17 @@ class _AuthScreenState extends State<AuthScreen> {
                               _submit();
                             },
                             decoration: InputDecoration(
-                              labelText: 'Password',
+                              labelText: context.l10n.password,
                               hintText: _isLogin
-                                  ? 'Enter your password'
-                                  : 'Create a password',
+                                  ? context.l10n.enterPasswordHint
+                                  : context.l10n.createPassword,
                               prefixIcon: const Icon(Icons.lock_outline),
                               errorText: _passwordError,
                               suffixIcon: IconButton(
                                 key: const Key('toggle-password-visibility'),
                                 tooltip: _obscurePassword
-                                    ? 'Show password'
-                                    : 'Hide password',
+                                    ? context.l10n.showPassword
+                                    : context.l10n.hidePassword,
                                 onPressed: () {
                                   setState(() {
                                     _obscurePassword = !_obscurePassword;
@@ -1269,7 +1290,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                 onPressed: _isLoading
                                     ? null
                                     : _showPasswordResetDialog,
-                                child: const Text('Forgot password?'),
+                                child: Text(context.l10n.forgotPassword),
                               ),
                             ),
                           if (!_isLogin) ...[
@@ -1289,9 +1310,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                 contentPadding: EdgeInsets.zero,
                                 controlAffinity:
                                     ListTileControlAffinity.leading,
-                                title: const Text(
-                                  'I confirm that I am 18 years of age or older.',
-                                ),
+                                title: Text(context.l10n.ageConfirmation),
                               ),
                             ),
                             Material(
@@ -1311,29 +1330,29 @@ class _AuthScreenState extends State<AuthScreen> {
                                     ListTileControlAffinity.leading,
                                 title: Wrap(
                                   children: [
-                                    const Text('I agree to the '),
+                                    Text(context.l10n.legalAgreePrefix),
                                     InkWell(
                                       onTap: () =>
                                           openLegalLink(context, '/terms'),
-                                      child: const Text(
-                                        'Terms of Use',
+                                      child: Text(
+                                        context.l10n.termsOfUse,
                                         style: TextStyle(
                                           decoration: TextDecoration.underline,
                                         ),
                                       ),
                                     ),
-                                    const Text(' and acknowledge the '),
+                                    Text(context.l10n.legalAgreeMiddle),
                                     InkWell(
                                       onTap: () =>
                                           openLegalLink(context, '/privacy'),
-                                      child: const Text(
-                                        'Privacy Policy',
+                                      child: Text(
+                                        context.l10n.privacyPolicy,
                                         style: TextStyle(
                                           decoration: TextDecoration.underline,
                                         ),
                                       ),
                                     ),
-                                    const Text('.'),
+                                    Text(context.l10n.period),
                                   ],
                                 ),
                               ),
@@ -1379,13 +1398,15 @@ class _AuthScreenState extends State<AuthScreen> {
                               child: Text(
                                 _isLoading
                                     ? (_isLogin
-                                          ? 'Logging in...'
-                                          : 'Creating account...')
+                                          ? context.l10n.loggingIn
+                                          : context.l10n.creatingAccount)
                                     : (_isLogin
-                                          ? 'Log In'
+                                          ? context.l10n.logIn
                                           : (_eligibilitySetupPending
-                                                ? 'Retry age confirmation'
-                                                : 'Create Account')),
+                                                ? context
+                                                      .l10n
+                                                      .retryAgeConfirmation
+                                                : context.l10n.createAccount)),
                               ),
                             ),
                           ),
@@ -1397,8 +1418,8 @@ class _AuthScreenState extends State<AuthScreen> {
                                 : _switchMode,
                             child: Text(
                               _isLogin
-                                  ? 'Don’t have an account? Sign Up'
-                                  : 'Already have an account? Log in',
+                                  ? context.l10n.switchToSignUp
+                                  : context.l10n.switchToLogin,
                             ),
                           ),
                         ],
@@ -1448,10 +1469,11 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
 
   Future<void> _sendResetEmail() async {
     final email = _emailController.text.trim();
+    final strings = context.l10n;
 
     if (email.isEmpty) {
       setState(() {
-        _errorMessage = 'Enter your email.';
+        _errorMessage = strings.enterEmailPeriod;
       });
       return;
     }
@@ -1473,45 +1495,46 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
           return;
         }
         setState(() {
-          _errorMessage = _passwordResetErrorMessage(error);
+          _errorMessage = _passwordResetErrorMessage(error, strings);
           _isSending = false;
         });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Could not send the reset email. Please try again.';
+          _errorMessage = strings.resetEmailFailed;
           _isSending = false;
         });
       }
     }
   }
 
-  String _passwordResetErrorMessage(FirebaseAuthException error) {
+  String _passwordResetErrorMessage(
+    FirebaseAuthException error,
+    AppLocalizations strings,
+  ) {
     switch (error.code) {
       case 'invalid-email':
-        return 'Enter a valid email address.';
+        return strings.validEmailRequired;
       case 'too-many-requests':
-        return 'Too many requests. Please try again later.';
+        return strings.tooManyRequestsLater;
       case 'network-request-failed':
-        return 'Check your internet connection and try again.';
+        return strings.networkRetry;
       default:
-        return 'Could not send the reset email. Please try again.';
+        return strings.resetEmailFailed;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Reset password'),
+      title: Text(context.l10n.resetPassword),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Enter your email and we’ll send you a link to reset your password.',
-            ),
+            Text(context.l10n.resetEmailHelp),
             const SizedBox(height: 20),
             TextField(
               controller: _emailController,
@@ -1525,7 +1548,7 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
                 }
               },
               decoration: InputDecoration(
-                labelText: 'Email',
+                labelText: context.l10n.email,
                 prefixIcon: const Icon(Icons.email_outlined),
                 border: const OutlineInputBorder(),
                 errorText: _errorMessage,
@@ -1537,7 +1560,7 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
       actions: [
         TextButton(
           onPressed: _isSending ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.cancel),
         ),
         FilledButton(
           onPressed: _isSending ? null : _sendResetEmail,
@@ -1547,7 +1570,7 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Send reset email'),
+              : Text(context.l10n.sendResetEmail),
         ),
       ],
     );
@@ -2205,6 +2228,74 @@ class AppNotification {
   }
 }
 
+String localizedNotificationTitle(
+  AppNotification notification,
+  AppLocalizations strings,
+) {
+  final recognizedStoredTitle = switch (notification.type) {
+    AppNotificationType.joinRequest => notification.title == 'New join request',
+    AppNotificationType.joinApproved =>
+      notification.title == 'Request approved',
+    AppNotificationType.joinDeclined =>
+      notification.title == 'Request declined',
+    AppNotificationType.directMessage => notification.title == 'New message',
+    AppNotificationType.matchMessage =>
+      notification.title == 'New match message',
+    AppNotificationType.friendRequest =>
+      notification.title == 'New friend request',
+    AppNotificationType.friendAccepted =>
+      notification.title == 'Friend request accepted',
+    AppNotificationType.playAgainInvite => notification.title == 'Play again',
+    AppNotificationType.unknown => false,
+  };
+  if (!recognizedStoredTitle) return notification.title;
+  return switch (notification.type) {
+    AppNotificationType.joinRequest => strings.newJoinRequest,
+    AppNotificationType.joinApproved => strings.requestApproved,
+    AppNotificationType.joinDeclined => strings.requestDeclined,
+    AppNotificationType.directMessage => strings.newDirectMessage,
+    AppNotificationType.matchMessage => strings.newMatchMessage,
+    AppNotificationType.friendRequest => strings.newFriendRequest,
+    AppNotificationType.friendAccepted => strings.friendRequestAccepted,
+    AppNotificationType.playAgainInvite => strings.playAgainInvite,
+    AppNotificationType.unknown => notification.title,
+  };
+}
+
+String localizedNotificationMessage(
+  AppNotification notification,
+  AppLocalizations strings,
+) {
+  if (localizedNotificationTitle(notification, strings) == notification.title &&
+      notification.type != AppNotificationType.unknown) {
+    return notification.message;
+  }
+  return switch (notification.type) {
+    AppNotificationType.joinRequest => strings.joinRequestBody(
+      notification.actorDisplayName,
+      notification.matchClubName,
+    ),
+    AppNotificationType.joinApproved => strings.requestApprovedBody(
+      notification.matchClubName,
+    ),
+    AppNotificationType.joinDeclined => strings.requestDeclinedBody(
+      notification.matchClubName,
+    ),
+    AppNotificationType.directMessage => strings.newDirectMessageBody,
+    AppNotificationType.matchMessage => strings.newMatchMessageBody,
+    AppNotificationType.friendRequest => strings.friendRequestBody(
+      notification.actorDisplayName,
+    ),
+    AppNotificationType.friendAccepted => strings.friendAcceptedBody(
+      notification.actorDisplayName,
+    ),
+    AppNotificationType.playAgainInvite => strings.playAgainBody(
+      notification.actorDisplayName,
+    ),
+    AppNotificationType.unknown => notification.message,
+  };
+}
+
 String notificationDocumentId(
   AppNotificationType type,
   String matchId,
@@ -2397,11 +2488,9 @@ class _NotificationsTabState extends State<NotificationsTab> {
       await widget.onMarkAllRead!();
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not mark notifications as read.'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.markAllReadFailed)));
       }
     } finally {
       if (mounted) setState(() => _markingAllRead = false);
@@ -2413,9 +2502,9 @@ class _NotificationsTabState extends State<NotificationsTab> {
       await widget.onMarkRead(notification);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not mark notification as read.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.markReadFailed)));
       }
     }
   }
@@ -2447,22 +2536,22 @@ class _NotificationsTabState extends State<NotificationsTab> {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Text('Mark all as read'),
+                            : Text(context.l10n.markAllRead),
                       )
                     : null;
-                const title = Column(
+                final title = Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Notifications',
-                      style: TextStyle(
+                      context.l10n.notifications,
+                      style: const TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    SizedBox(height: 3),
+                    const SizedBox(height: 3),
                     Text(
-                      'Updates about your matches and requests.',
+                      context.l10n.matchUpdates,
                       style: TextStyle(color: Colors.white60),
                     ),
                   ],
@@ -2480,7 +2569,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Expanded(child: title),
+                    Expanded(child: title),
                     if (action != null) ...[const SizedBox(width: 8), action],
                   ],
                 );
@@ -2498,7 +2587,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
     if (widget.isLoading) {
       return Center(
         child: Semantics(
-          label: 'Loading notifications',
+          label: context.l10n.loadingNotifications,
           child: const CircularProgressIndicator(),
         ),
       );
@@ -2516,13 +2605,13 @@ class _NotificationsTabState extends State<NotificationsTab> {
                 color: Colors.white54,
               ),
               const SizedBox(height: 14),
-              const Text(
-                'Notifications are unavailable right now.',
+              Text(
+                context.l10n.notificationsUnavailable,
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 6),
-              const Text(
-                'Check your connection and try again.',
+              Text(
+                context.l10n.connectionRetry,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white60),
               ),
@@ -2531,7 +2620,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
                 OutlinedButton.icon(
                   onPressed: widget.onRetry,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Try again'),
+                  label: Text(context.l10n.tryAgainLower),
                 ),
               ],
             ],
@@ -2540,21 +2629,28 @@ class _NotificationsTabState extends State<NotificationsTab> {
       );
     }
     if (ordered.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.notifications_none, size: 52, color: Colors.white54),
-              SizedBox(height: 14),
-              Text(
-                'No notifications yet',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              const Icon(
+                Icons.notifications_none,
+                size: 52,
+                color: Colors.white54,
               ),
-              SizedBox(height: 6),
+              const SizedBox(height: 14),
               Text(
-                'Match, message, and social updates will appear here.',
+                context.l10n.noNotifications,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                context.l10n.notificationEmptyBody,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white60),
               ),
@@ -2573,7 +2669,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
             child: OutlinedButton(
               key: const Key('load-older-notifications'),
               onPressed: widget.onLoadMore,
-              child: const Text('Load older notifications'),
+              child: Text(context.l10n.loadOlderNotifications),
             ),
           );
         }
@@ -2616,16 +2712,17 @@ class NotificationCard extends StatelessWidget {
       return StreamBuilder<Map<String, dynamic>?>(
         stream: requestStream,
         builder: (context, snapshot) => _buildCard(
+          context,
           snapshot.connectionState == ConnectionState.waiting
               ? null
               : joinRequestNotificationStatus(notification, snapshot.data),
         ),
       );
     }
-    return _buildCard(null);
+    return _buildCard(context, null);
   }
 
-  Widget _buildCard(String? status) {
+  Widget _buildCard(BuildContext context, String? status) {
     final unread = !notification.read;
     final icon = switch (notification.type) {
       AppNotificationType.unknown => Icons.notifications_none,
@@ -2650,11 +2747,20 @@ class NotificationCard extends StatelessWidget {
         : category > 0
         ? const Color(0xFF74E8A0)
         : const Color(0xFF8EB9A1);
-    final timestamp = relativeNotificationTime(notification.createdAt, now);
+    final title = localizedNotificationTitle(notification, context.l10n);
+    final message = localizedNotificationMessage(notification, context.l10n);
+    final timestamp = notification.createdAt == null
+        ? context.l10n.timeUnavailable
+        : messagingInboxTime(
+            notification.createdAt,
+            now: now,
+            locale: Localizations.localeOf(context),
+            yesterdayLabel: context.l10n.yesterday,
+          );
     final semanticsLabel = [
-      unread ? 'Unread' : 'Read',
-      notification.title,
-      notification.message,
+      unread ? context.l10n.unread : context.l10n.read,
+      title,
+      message,
       status ?? '',
       timestamp,
     ].where((value) => value.isNotEmpty).join(', ');
@@ -2705,7 +2811,7 @@ class NotificationCard extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              notification.title,
+                              title,
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: unread
@@ -2717,7 +2823,7 @@ class NotificationCard extends StatelessWidget {
                           if (unread) ...[
                             const SizedBox(width: 8),
                             Semantics(
-                              label: 'Unread notification',
+                              label: context.l10n.unreadNotification,
                               child: Container(
                                 key: const ValueKey('unread-indicator'),
                                 width: 8,
@@ -2734,7 +2840,7 @@ class NotificationCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        notification.message,
+                        message,
                         style: TextStyle(
                           height: 1.35,
                           color: unread ? Colors.white : Colors.white70,
@@ -2757,7 +2863,7 @@ class NotificationCard extends StatelessWidget {
                           ),
                           if (unread)
                             Tooltip(
-                              message: 'Mark as read',
+                              message: context.l10n.markAsRead,
                               child: TextButton(
                                 style: TextButton.styleFrom(
                                   foregroundColor: Colors.white60,
@@ -2769,7 +2875,7 @@ class NotificationCard extends StatelessWidget {
                                 onPressed: () => unawaited(
                                   Future.sync(() => onMarkRead(notification)),
                                 ),
-                                child: const Text('Mark read'),
+                                child: Text(context.l10n.markRead),
                               ),
                             ),
                         ],
@@ -2808,14 +2914,14 @@ class NotificationCard extends StatelessWidget {
                             TextButton(
                               key: const Key('view-play-again-match'),
                               onPressed: () => onOpen(notification),
-                              child: const Text('View Match'),
+                              child: Text(context.l10n.viewMatch),
                             ),
                             TextButton(
                               key: const Key('dismiss-play-again-invite'),
                               onPressed: onDismiss == null
                                   ? null
                                   : () => onDismiss!(notification),
-                              child: const Text('Dismiss'),
+                              child: Text(context.l10n.dismiss),
                             ),
                           ],
                         ),
@@ -3610,9 +3716,9 @@ class _HomeScreenState extends State<HomeScreen> {
           .update(notificationReadUpdate());
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not mark notification as read.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.markReadFailed)));
       }
     }
   }
@@ -3642,7 +3748,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not dismiss this invitation.')),
+          SnackBar(content: Text(context.l10n.dismissInviteFailed)),
         );
       }
     }
@@ -3823,7 +3929,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       currentUid.isEmpty
-          ? const Center(child: Text('Sign in to discover players.'))
+          ? Center(child: Text(context.l10n.signInDiscoverPlayers))
           : PlayersScreen(
               repository: FirebasePlayerDiscoveryRepository(),
               friendsRepository: _friendsRepository,
@@ -3879,9 +3985,7 @@ class _HomeScreenState extends State<HomeScreen> {
           unawaited(_markNotificationRead(notification));
           if (notification.type == AppNotificationType.unknown) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('This notification is unavailable.'),
-              ),
+              SnackBar(content: Text(context.l10n.notificationUnavailable)),
             );
             return;
           }
@@ -3900,8 +4004,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   conversationId: notification.conversationId,
                   currentUid: currentUid,
                   title: notification.type == AppNotificationType.matchMessage
-                      ? 'Match chat'
-                      : 'Messages',
+                      ? context.l10n.matchChat
+                      : context.l10n.messages,
                   repository: _messagingRepository,
                   conversationType:
                       notification.type == AppNotificationType.matchMessage
@@ -3935,9 +4039,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('This match is no longer available.'),
-              ),
+              SnackBar(content: Text(context.l10n.thisMatchUnavailable)),
             );
           }
         },
@@ -3964,12 +4066,12 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           if (_selectedIndex <= 1)
             IconButton(
-              tooltip: 'Refresh matches',
+              tooltip: context.l10n.refreshMatches,
               onPressed: _refreshDiscovery,
               icon: const Icon(Icons.refresh),
             ),
           IconButton(
-            tooltip: 'Log out',
+            tooltip: context.l10n.logOut,
             onPressed: _logout,
             icon: const Icon(Icons.logout),
           ),
@@ -3980,38 +4082,160 @@ class _HomeScreenState extends State<HomeScreen> {
           ? FloatingActionButton.extended(
               onPressed: _openCreateMatchScreen,
               icon: const Icon(Icons.add),
-              label: const Text('Create'),
+              label: Text(context.l10n.create),
             )
           : null,
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: PadelXBottomNavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: _onItemTapped,
-        backgroundColor: const Color(0xFF121A16),
-        destinations: [
-          const NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
-          const NavigationDestination(
-            icon: Icon(Icons.sports_tennis),
-            label: 'Matches',
+        notificationCount: unreadNotificationCount(notifications),
+      ),
+    );
+  }
+}
+
+class PadelXBottomNavigationBar extends StatelessWidget {
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final int notificationCount;
+
+  const PadelXBottomNavigationBar({
+    super.key,
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    this.notificationCount = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget destination({
+      required int index,
+      required Widget icon,
+      Widget? selectedIcon,
+      required String label,
+    }) => _PadelXNavigationDestination(
+      icon: icon,
+      selectedIcon: selectedIcon,
+      label: label,
+      selected: selectedIndex == index,
+      onTap: () => onDestinationSelected(index),
+    );
+
+    return NavigationBar(
+      selectedIndex: selectedIndex,
+      onDestinationSelected: onDestinationSelected,
+      backgroundColor: const Color(0xFF121A16),
+      destinations: [
+        destination(
+          index: 0,
+          icon: const Icon(Icons.home),
+          label: context.l10n.home,
+        ),
+        destination(
+          index: 1,
+          icon: const Icon(Icons.sports_tennis),
+          label: context.l10n.matches,
+        ),
+        destination(
+          index: 2,
+          icon: const Icon(Icons.group_outlined),
+          label: context.l10n.players,
+        ),
+        destination(
+          index: 3,
+          icon: NotificationBadge(count: notificationCount),
+          selectedIcon: NotificationBadge(
+            count: notificationCount,
+            selected: true,
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.group_outlined),
-            label: 'Players',
+          label: context.l10n.notifications,
+        ),
+        destination(
+          index: 4,
+          icon: const Icon(Icons.person),
+          label: context.l10n.profile,
+        ),
+      ],
+    );
+  }
+}
+
+class _PadelXNavigationDestination extends StatelessWidget {
+  final Widget icon;
+  final Widget? selectedIcon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PadelXNavigationDestination({
+    required this.icon,
+    this.selectedIcon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final foreground = selected
+        ? colors.onSecondaryContainer
+        : colors.onSurfaceVariant;
+    return Semantics(
+      label: label,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: label,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 64,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: selected ? colors.secondaryContainer : null,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: IconTheme(
+                  data: IconThemeData(size: 24, color: foreground),
+                  child: Center(child: selected ? selectedIcon ?? icon : icon),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 14,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.topCenter,
+                    child: MediaQuery.withClampedTextScaling(
+                      maxScaleFactor: 1.3,
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: selected
+                                  ? colors.onSurface
+                                  : colors.onSurfaceVariant,
+                              fontSize: 10,
+                              height: 1.1,
+                            ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: NotificationBadge(
-              count: unreadNotificationCount(notifications),
-            ),
-            selectedIcon: NotificationBadge(
-              count: unreadNotificationCount(notifications),
-              selected: true,
-            ),
-            label: 'Notifications',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -4074,8 +4298,8 @@ class HomeTab extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Find padel matches near you.',
+              Text(
+                context.l10n.findPadelMatches,
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
@@ -4113,7 +4337,7 @@ class HomeTab extends StatelessWidget {
                     foregroundColor: const Color(0xFF10271D),
                   ),
                   icon: const Icon(Icons.search),
-                  label: const Text('Find a Match'),
+                  label: Text(context.l10n.findMatch),
                 ),
               ),
               SizedBox(
@@ -4124,7 +4348,7 @@ class HomeTab extends StatelessWidget {
                   onPressed: onCreateMatch,
                   style: TextButton.styleFrom(foregroundColor: Colors.white70),
                   icon: const Icon(Icons.add, size: 19),
-                  label: const Text('Create a Match'),
+                  label: Text(context.l10n.createAMatch),
                 ),
               ),
             ],
@@ -4138,7 +4362,7 @@ class HomeTab extends StatelessWidget {
                 key: const Key('home-find-players'),
                 onPressed: onFindPlayers,
                 icon: const Icon(Icons.group_outlined),
-                label: const Text('Find Players'),
+                label: Text(context.l10n.findPlayers),
               ),
             ),
             const SizedBox(width: 10),
@@ -4147,7 +4371,7 @@ class HomeTab extends StatelessWidget {
                 key: const Key('home-messages'),
                 onPressed: onMessages,
                 icon: const Icon(Icons.chat_bubble_outline),
-                label: const Text('Messages'),
+                label: Text(context.l10n.messages),
               ),
             ),
           ],
@@ -4156,39 +4380,45 @@ class HomeTab extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
-                'Upcoming matches',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                context.l10n.upcomingMatches,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-            TextButton(onPressed: onFindMatch, child: const Text('See all')),
+            TextButton(
+              onPressed: onFindMatch,
+              child: Text(context.l10n.seeAll),
+            ),
           ],
         ),
         const SizedBox(height: 14),
         if (isLoading)
-          const _HomeStatusCard(
-            key: Key('home-loading-state'),
+          _HomeStatusCard(
+            key: const Key('home-loading-state'),
             icon: Icons.sports_tennis,
-            title: 'Finding nearby matches…',
+            title: context.l10n.findingMatches,
             showProgress: true,
           )
         else if (error)
           _HomeStatusCard(
             key: const Key('home-error-state'),
             icon: Icons.cloud_off_outlined,
-            title: 'Matches are unavailable right now.',
-            message: 'Check your connection and try again.',
-            actionLabel: 'Browse Matches',
+            title: context.l10n.matchesUnavailable,
+            message: context.l10n.connectionRetry,
+            actionLabel: context.l10n.browseMatches,
             onAction: onFindMatch,
           )
         else if (relevantMatches.isEmpty)
           _HomeStatusCard(
             key: const Key('home-empty-state'),
             icon: Icons.event_available_outlined,
-            title: 'No matches nearby yet.',
-            message: 'Create a match and get a game started.',
-            actionLabel: 'Create a Match',
+            title: context.l10n.noMatchesNearby,
+            message: context.l10n.createMatchGetStarted,
+            actionLabel: context.l10n.createAMatch,
             onAction: onCreateMatch,
           )
         else
@@ -4510,20 +4740,20 @@ class _MatchesTabState extends State<MatchesTab> {
   @override
   Widget build(BuildContext context) {
     if (widget.isLoading) {
-      return const _MatchesStatusState(
-        key: Key('matches-loading-state'),
+      return _MatchesStatusState(
+        key: const Key('matches-loading-state'),
         icon: Icons.sports_tennis,
-        title: 'Finding open matches…',
+        title: context.l10n.findingOpenMatches,
         showProgress: true,
       );
     }
 
     if (widget.error) {
-      return const _MatchesStatusState(
-        key: Key('matches-error-state'),
+      return _MatchesStatusState(
+        key: const Key('matches-error-state'),
         icon: Icons.cloud_off_outlined,
-        title: 'Matches are unavailable right now.',
-        message: 'Check your connection and try again.',
+        title: context.l10n.matchesUnavailable,
+        message: context.l10n.connectionRetry,
       );
     }
 
@@ -4548,13 +4778,13 @@ class _MatchesTabState extends State<MatchesTab> {
       key: const Key('matches-scroll-view'),
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 104),
       children: [
-        const Text(
-          'Open matches',
+        Text(
+          context.l10n.openMatches,
           style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        const Text(
-          'Join games that need players.',
+        Text(
+          context.l10n.joinGames,
           style: TextStyle(fontSize: 16, color: Colors.white70),
         ),
         const SizedBox(height: 20),
@@ -4569,8 +4799,8 @@ class _MatchesTabState extends State<MatchesTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Find matches near',
+              Text(
+                context.l10n.findMatchesNear,
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 10),
@@ -4580,10 +4810,10 @@ class _MatchesTabState extends State<MatchesTab> {
                       ? 'current-location'
                       : (_discoveryCenter?.placeId ?? 'discovery-location'),
                 ),
-                labelText: 'City or area',
-                hintText: 'Search for a city or area',
+                labelText: context.l10n.cityOrArea,
+                hintText: context.l10n.searchCityArea,
                 initialText: _usingCurrentLocation
-                    ? 'Current location'
+                    ? context.l10n.currentLocation
                     : (_discoveryCenter?.localityLabel ?? ''),
                 onSelected: (location) {
                   if (!hasUsableCoordinates(
@@ -4591,8 +4821,8 @@ class _MatchesTabState extends State<MatchesTab> {
                     location.longitude,
                   )) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('That location has no coordinates.'),
+                      SnackBar(
+                        content: Text(context.l10n.locationNoCoordinates),
                       ),
                     );
                     return;
@@ -4621,8 +4851,8 @@ class _MatchesTabState extends State<MatchesTab> {
                     : const Icon(Icons.my_location, size: 19),
                 label: Text(
                   _findingCurrentLocation
-                      ? 'Finding your location…'
-                      : 'Use my current location',
+                      ? context.l10n.findingYourLocation
+                      : context.l10n.useCurrentLocation,
                 ),
               ),
             ],
@@ -4646,8 +4876,8 @@ class _MatchesTabState extends State<MatchesTab> {
               Expanded(
                 child: Text(
                   _usingCurrentLocation
-                      ? 'Current location · ${_radiusKm.round()} km radius'
-                      : 'Search radius: ${_radiusKm.round()} km',
+                      ? context.l10n.currentLocationRadius(_radiusKm.round())
+                      : context.l10n.searchRadius(_radiusKm.round()),
                 ),
               ),
               TextButton(
@@ -4657,7 +4887,7 @@ class _MatchesTabState extends State<MatchesTab> {
                   _currentLocationError = null;
                   widget.onDiscoveryQueryChanged?.call(null, _radiusKm);
                 }),
-                child: const Text('Clear location'),
+                child: Text(context.l10n.clearLocation),
               ),
             ],
           ),
@@ -4666,7 +4896,9 @@ class _MatchesTabState extends State<MatchesTab> {
             children: [25.0, 50.0, 100.0]
                 .map(
                   (radius) => ChoiceChip(
-                    label: Text('${radius.round()} km'),
+                    label: Text(
+                      context.l10n.radiusKm(radius.round().toString()),
+                    ),
                     selected: _radiusKm == radius,
                     onSelected: (_) {
                       setState(() => _radiusKm = radius);
@@ -4681,8 +4913,8 @@ class _MatchesTabState extends State<MatchesTab> {
           ),
         ],
         const SizedBox(height: 18),
-        const Text(
-          'Filter matches',
+        Text(
+          context.l10n.filterMatches,
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 10),
@@ -4690,10 +4922,10 @@ class _MatchesTabState extends State<MatchesTab> {
           key: const Key('match-search-field'),
           controller: _searchController,
           onChanged: (_) => setState(() {}),
-          decoration: const InputDecoration(
-            hintText: 'Search club or location',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            hintText: context.l10n.searchClubLocation,
+            prefixIcon: const Icon(Icons.search),
+            border: const OutlineInputBorder(),
             isDense: true,
           ),
         ),
@@ -4703,10 +4935,10 @@ class _MatchesTabState extends State<MatchesTab> {
           runSpacing: 6,
           children: MatchDateFilter.values.map((filter) {
             final label = switch (filter) {
-              MatchDateFilter.all => 'All',
-              MatchDateFilter.today => 'Today',
-              MatchDateFilter.tomorrow => 'Tomorrow',
-              MatchDateFilter.thisWeek => 'This Week',
+              MatchDateFilter.all => context.l10n.all,
+              MatchDateFilter.today => context.l10n.today,
+              MatchDateFilter.tomorrow => context.l10n.tomorrow,
+              MatchDateFilter.thisWeek => context.l10n.thisWeek,
             };
             return ChoiceChip(
               label: Text(label),
@@ -4726,10 +4958,10 @@ class _MatchesTabState extends State<MatchesTab> {
                 key: _levelFieldKey,
                 initialValue: _levelFilter,
                 isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Player level',
-                  prefixIcon: Icon(Icons.leaderboard),
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: context.l10n.playerLevel,
+                  prefixIcon: const Icon(Icons.leaderboard),
+                  border: const OutlineInputBorder(),
                   isDense: true,
                 ),
                 items: levels
@@ -4737,7 +4969,7 @@ class _MatchesTabState extends State<MatchesTab> {
                       (level) => DropdownMenuItem(
                         value: level,
                         child: Text(
-                          'Level $level',
+                          context.l10n.levelValue(level),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -4749,7 +4981,7 @@ class _MatchesTabState extends State<MatchesTab> {
             final spots = FilterChip(
               key: const Key('available-spots-filter'),
               avatar: const Icon(Icons.group, size: 18),
-              label: const Text('Spots'),
+              label: Text(context.l10n.spots),
               selected: _availableOnly,
               onSelected: (selected) =>
                   setState(() => _availableOnly = selected),
@@ -4780,7 +5012,7 @@ class _MatchesTabState extends State<MatchesTab> {
               key: const Key('clear-match-filters'),
               onPressed: _clearFilters,
               icon: const Icon(Icons.clear_all),
-              label: const Text('Clear filters'),
+              label: Text(context.l10n.clearFilters),
             ),
           )
         else
@@ -4795,18 +5027,18 @@ class _MatchesTabState extends State<MatchesTab> {
                 const SizedBox(height: 12),
                 Text(
                   widget.matches.isEmpty
-                      ? 'No open matches yet'
+                      ? context.l10n.noOpenMatches
                       : (_hasFilters
-                            ? 'No matches match your filters'
+                            ? context.l10n.noMatchesFilters
                             : _discoveryCenter != null &&
                                   matchesNearLocation.isEmpty
-                            ? 'No matches within ${_radiusKm.round()} km'
-                            : 'No open matches yet'),
+                            ? context.l10n.noMatchesRadius(_radiusKm.round())
+                            : context.l10n.noOpenMatches),
                 ),
                 if (widget.matches.isEmpty) ...[
                   const SizedBox(height: 6),
-                  const Text(
-                    'Be the first to get a game started.',
+                  Text(
+                    context.l10n.beFirstMatch,
                     style: TextStyle(color: Colors.white70),
                   ),
                 ] else if (_hasFilters) ...[
@@ -4814,26 +5046,26 @@ class _MatchesTabState extends State<MatchesTab> {
                   TextButton.icon(
                     onPressed: _clearFilters,
                     icon: const Icon(Icons.clear_all),
-                    label: const Text('Clear filters'),
+                    label: Text(context.l10n.clearFilters),
                   ),
                 ] else if (_discoveryCenter != null &&
                     matchesNearLocation.isEmpty) ...[
                   const SizedBox(height: 6),
-                  const Text(
-                    'Try a wider radius or change location.',
+                  Text(
+                    context.l10n.widerRadius,
                     style: TextStyle(color: Colors.white70),
                   ),
                   const SizedBox(height: 8),
                   TextButton(
                     onPressed: () => setState(() => _radiusKm = 100),
-                    child: const Text('Expand to 100 km'),
+                    child: Text(context.l10n.expand100),
                   ),
                 ],
                 if (widget.matches.isEmpty && widget.onCreateMatch != null)
                   FilledButton.icon(
                     onPressed: widget.onCreateMatch,
                     icon: const Icon(Icons.add),
-                    label: const Text('Create Match'),
+                    label: Text(context.l10n.createMatch),
                   ),
               ],
             ),
@@ -4842,14 +5074,14 @@ class _MatchesTabState extends State<MatchesTab> {
           ...filteredMatches.map((match) {
             final state =
                 _isMatchOrganizer(match, widget.currentUid, widget.currentEmail)
-                ? 'Organizer'
+                ? context.l10n.organizer
                 : match.players.any((player) => player.uid == widget.currentUid)
-                ? 'Joined'
+                ? context.l10n.joined
                 : widget.pendingMatchIds.contains(match.id)
-                ? 'Pending'
+                ? context.l10n.pending
                 : match.spotsLeft <= 0
-                ? 'Full'
-                : 'Open';
+                ? context.l10n.full
+                : context.l10n.open;
             final center = _discoveryCenter;
             final distance = center == null
                 ? null
@@ -4873,7 +5105,7 @@ class _MatchesTabState extends State<MatchesTab> {
             child: OutlinedButton(
               key: const Key('load-more-nearby-matches'),
               onPressed: widget.onLoadMoreNearby,
-              child: const Text('Load more nearby matches'),
+              child: Text(context.l10n.loadMoreNearby),
             ),
           ),
         ],
@@ -4941,9 +5173,9 @@ class MatchCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (historical) ...[
-                const Chip(
-                  avatar: Icon(Icons.history, size: 18),
-                  label: Text('Completed'),
+                Chip(
+                  avatar: const Icon(Icons.history, size: 18),
+                  label: Text(context.l10n.completed),
                   backgroundColor: Color(0xFF3A403D),
                   visualDensity: VisualDensity.compact,
                 ),
@@ -5132,14 +5364,14 @@ class _MatchesDestinationState extends State<MatchesDestination> {
           child: SegmentedButton<MatchesDestinationView>(
             key: const Key('matches-destination-control'),
             showSelectedIcon: false,
-            segments: const [
+            segments: [
               ButtonSegment(
                 value: MatchesDestinationView.discover,
-                label: Text('Discover'),
+                label: Text(context.l10n.discover),
               ),
               ButtonSegment(
                 value: MatchesDestinationView.mine,
-                label: Text('My Matches'),
+                label: Text(context.l10n.myMatches),
               ),
             ],
             selected: {selected},
@@ -5209,13 +5441,13 @@ class _MyMatchesTabState extends State<MyMatchesTab> {
       key: const Key('my-matches-scroll-view'),
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 104),
       children: [
-        const Text(
-          'My Matches',
+        Text(
+          context.l10n.myMatches,
           style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        const Text(
-          'Matches you organize or have joined.',
+        Text(
+          context.l10n.organizedJoinedMatches,
           style: TextStyle(fontSize: 16, color: Colors.white70),
         ),
         const SizedBox(height: 18),
@@ -5224,16 +5456,16 @@ class _MyMatchesTabState extends State<MyMatchesTab> {
           child: SegmentedButton<MyMatchesView>(
             key: const Key('my-matches-view-control'),
             showSelectedIcon: false,
-            segments: const [
+            segments: [
               ButtonSegment(
                 value: MyMatchesView.upcoming,
-                label: Text('Upcoming'),
-                icon: Icon(Icons.upcoming_outlined, size: 18),
+                label: Text(context.l10n.upcoming),
+                icon: const Icon(Icons.upcoming_outlined, size: 18),
               ),
               ButtonSegment(
                 value: MyMatchesView.past,
-                label: Text('Past'),
-                icon: Icon(Icons.history, size: 18),
+                label: Text(context.l10n.past),
+                icon: const Icon(Icons.history, size: 18),
               ),
             ],
             selected: {_selectedView},
@@ -5244,30 +5476,30 @@ class _MyMatchesTabState extends State<MyMatchesTab> {
         ),
         const SizedBox(height: 18),
         if (widget.isLoading)
-          const _MatchesStatusState(
-            key: Key('my-matches-loading-state'),
+          _MatchesStatusState(
+            key: const Key('my-matches-loading-state'),
             icon: Icons.event_available_outlined,
-            title: 'Loading your matches…',
+            title: context.l10n.loadingYourMatches,
             showProgress: true,
           )
         else if (widget.error)
-          const _MatchesStatusState(
-            key: Key('my-matches-error-state'),
+          _MatchesStatusState(
+            key: const Key('my-matches-error-state'),
             icon: Icons.cloud_off_outlined,
-            title: 'Your matches are unavailable right now.',
-            message: 'Check your connection and try again.',
+            title: context.l10n.yourMatchesUnavailable,
+            message: context.l10n.connectionRetry,
           )
         else if (_selectedView == MyMatchesView.upcoming) ...[
           if (widget.pendingMatches.isNotEmpty) ...[
-            const Text(
-              'Pending Requests',
+            Text(
+              context.l10n.pendingRequests,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             ...sortedMatches(widget.pendingMatches).map(
               (match) => MatchCard(
                 match: match,
-                relationshipLabel: 'Request Pending',
+                relationshipLabel: context.l10n.requestPending,
                 dateTimeHeadline: true,
                 explicitLevelLabel: true,
               ),
@@ -5278,8 +5510,8 @@ class _MyMatchesTabState extends State<MyMatchesTab> {
             _MyMatchesEmptyState(
               key: const Key('no-upcoming-matches'),
               icon: Icons.calendar_today_outlined,
-              title: 'No upcoming matches.',
-              message: 'Find an open match or organize your next game.',
+              title: context.l10n.noUpcomingMatches,
+              message: context.l10n.findOpenOrOrganize,
               onFindMatch: widget.onFindMatch,
               onCreateMatch: widget.onCreateMatch,
             )
@@ -5293,18 +5525,18 @@ class _MyMatchesTabState extends State<MyMatchesTab> {
                       widget.currentUid,
                       widget.currentEmail,
                     )
-                    ? 'Organizing'
-                    : 'Joined',
+                    ? context.l10n.organizing
+                    : context.l10n.joined,
                 dateTimeHeadline: true,
                 explicitLevelLabel: true,
               ),
             ),
         ] else if (pastMatches.isEmpty)
-          const _MyMatchesEmptyState(
-            key: Key('no-past-matches'),
+          _MyMatchesEmptyState(
+            key: const Key('no-past-matches'),
             icon: Icons.history,
-            title: 'No past matches yet.',
-            message: 'Completed matches will appear here.',
+            title: context.l10n.noPastMatches,
+            message: context.l10n.completedAppearHere,
           )
         else
           ...pastMatches.map(
@@ -5317,8 +5549,8 @@ class _MyMatchesTabState extends State<MyMatchesTab> {
                     widget.currentUid,
                     widget.currentEmail,
                   )
-                  ? 'Organizing'
-                  : 'Joined',
+                  ? context.l10n.organizing
+                  : context.l10n.joined,
               dateTimeHeadline: true,
               explicitLevelLabel: true,
             ),
@@ -5329,7 +5561,7 @@ class _MyMatchesTabState extends State<MyMatchesTab> {
             child: OutlinedButton(
               key: const Key('load-older-matches'),
               onPressed: widget.onLoadMore,
-              child: const Text('Load older matches'),
+              child: Text(context.l10n.loadOlderMatches),
             ),
           ),
         ],
@@ -5385,14 +5617,14 @@ class _MyMatchesEmptyState extends StatelessWidget {
                     key: const Key('find-match-empty-action'),
                     onPressed: onFindMatch,
                     icon: const Icon(Icons.search),
-                    label: const Text('Find a Match'),
+                    label: Text(context.l10n.findMatch),
                   ),
                 if (onCreateMatch != null)
                   OutlinedButton.icon(
                     key: const Key('create-match-empty-action'),
                     onPressed: onCreateMatch,
                     icon: const Icon(Icons.add),
-                    label: const Text('Create Match'),
+                    label: Text(context.l10n.createMatch),
                   ),
               ],
             ),
@@ -5481,10 +5713,10 @@ class _ProfileTabState extends State<ProfileTab> {
     if (profile == null || !profile.isComplete) {
       return _ProfileMessageState(
         icon: Icons.person_off_outlined,
-        title: 'Your profile needs a little more information',
-        message: 'Add your display name and level to finish setting it up.',
+        title: context.l10n.profileNeedsInfo,
+        message: context.l10n.addNameLevel,
         actionLabel: widget.onEdit != null || user != null
-            ? 'Complete Profile'
+            ? context.l10n.completeProfile
             : null,
         onAction: widget.onEdit != null || user != null ? edit : null,
       );
@@ -5512,10 +5744,9 @@ class _ProfileTabState extends State<ProfileTab> {
         if (snapshot.hasError || snapshot.data == null) {
           return _ProfileMessageState(
             icon: Icons.cloud_off_outlined,
-            title: 'Could not load your profile stats',
-            message:
-                'Your profile details are safe. Check your connection and try again.',
-            actionLabel: 'Try Again',
+            title: context.l10n.profileStatsFailed,
+            message: context.l10n.profileDetailsSafe,
+            actionLabel: context.l10n.tryAgain,
             onAction: _retry,
           );
         }
@@ -5560,7 +5791,7 @@ class _ProfileOverview extends StatelessWidget {
     final ratingText = loadingStats
         ? '—'
         : summary == null || summary.count == 0
-        ? 'Not rated'
+        ? context.l10n.notRated
         : '${summary.average.toStringAsFixed(1)} ★';
     final countText = loadingStats ? '—' : '${summary?.count ?? 0}';
     final matchesText = loadingStats ? '—' : '${stats?.matches.length ?? 0}';
@@ -5646,11 +5877,11 @@ class _ProfileOverview extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
             child: Row(
               children: [
-                _ProfileStat(label: 'Rating', value: ratingText),
+                _ProfileStat(label: context.l10n.rating, value: ratingText),
                 const _ProfileStatDivider(),
-                _ProfileStat(label: 'Ratings', value: countText),
+                _ProfileStat(label: context.l10n.ratings, value: countText),
                 const _ProfileStatDivider(),
-                _ProfileStat(label: 'Matches', value: matchesText),
+                _ProfileStat(label: context.l10n.matches, value: matchesText),
               ],
             ),
           ),
@@ -5668,11 +5899,21 @@ class _ProfileOverview extends StatelessWidget {
                   children: [
                     Chip(
                       label: Text(
-                        '${profile.socialProfile.preferredSide.label} side',
+                        context.l10n.preferredSideDisplay(
+                          _localizedPreferredSide(
+                            context,
+                            profile.socialProfile.preferredSide,
+                          ),
+                        ),
                       ),
                     ),
                     Chip(
-                      label: Text(profile.socialProfile.playFrequency.label),
+                      label: Text(
+                        _localizedPlayFrequency(
+                          context,
+                          profile.socialProfile.playFrequency,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -5683,8 +5924,8 @@ class _ProfileOverview extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   profile.socialProfile.discoverable
-                      ? 'Visible in Players discovery'
-                      : 'Hidden from Players discovery',
+                      ? context.l10n.visibleDiscovery
+                      : context.l10n.hiddenDiscovery,
                   style: const TextStyle(color: Colors.white60, fontSize: 13),
                 ),
               ],
@@ -5699,7 +5940,7 @@ class _ProfileOverview extends StatelessWidget {
                 Icons.location_on_outlined,
                 color: Colors.greenAccent,
               ),
-              title: const Text('Match discovery'),
+              title: Text(context.l10n.matchDiscovery),
               subtitle: Text(
                 '${profile.discoveryLocation.city}, ${profile.discoveryLocation.country}',
                 maxLines: 2,
@@ -5714,7 +5955,7 @@ class _ProfileOverview extends StatelessWidget {
             key: const Key('open-friends'),
             onPressed: onFriends,
             icon: const Icon(Icons.people_outline),
-            label: const Text('Friends'),
+            label: Text(context.l10n.friends),
           ),
           const SizedBox(height: 8),
         ],
@@ -5723,7 +5964,7 @@ class _ProfileOverview extends StatelessWidget {
             key: const Key('open-messages'),
             onPressed: onMessages,
             icon: const Icon(Icons.chat_bubble_outline),
-            label: const Text('Messages'),
+            label: Text(context.l10n.messages),
           ),
           const SizedBox(height: 8),
         ],
@@ -5731,7 +5972,7 @@ class _ProfileOverview extends StatelessWidget {
           key: const Key('edit-profile-action'),
           onPressed: onEdit,
           icon: const Icon(Icons.edit_outlined),
-          label: const Text('Edit Profile'),
+          label: Text(context.l10n.editProfile),
         ),
         if (onSettings != null) ...[
           const SizedBox(height: 8),
@@ -5739,7 +5980,7 @@ class _ProfileOverview extends StatelessWidget {
             key: const Key('open-settings'),
             onPressed: onSettings,
             icon: const Icon(Icons.settings_outlined),
-            label: const Text('Settings'),
+            label: Text(context.l10n.settings),
           ),
         ],
       ],
@@ -5978,20 +6219,20 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
     );
     final bio = _bioController.text.trim();
     if (displayName.length < 2) {
-      _showMessage('Please enter a display name with at least 2 characters.');
+      _showMessage(context.l10n.displayNameTooShort);
       return;
     }
     if (displayName.length > 40) {
-      _showMessage('Display name must be 40 characters or fewer.');
+      _showMessage(context.l10n.displayNameTooLong);
       return;
     }
     if (level == null) {
-      setState(() => _levelError = 'Choose a level from 1 to 7.');
-      _showMessage('Choose a level from 1 to 7.');
+      setState(() => _levelError = context.l10n.chooseLevelRange);
+      _showMessage(context.l10n.chooseLevelRange);
       return;
     }
     if (bio.length > socialProfileBioMaxLength) {
-      _showMessage('Bio must be 160 characters or fewer.');
+      _showMessage(context.l10n.bioTooLong);
       return;
     }
     final hasDiscoveryValue =
@@ -6003,9 +6244,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
         (discovery.country.isEmpty ||
             discovery.countryCode.length != 2 ||
             discovery.city.isEmpty)) {
-      _showMessage(
-        'Enter a country, 2-letter country code, and city for discovery.',
-      );
+      _showMessage(context.l10n.discoveryLocationRequired);
       return;
     }
 
@@ -6040,16 +6279,16 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
         final messenger = ScaffoldMessenger.of(context);
         Navigator.pop(context);
         messenger.showSnackBar(
-          const SnackBar(content: Text('Profile updated.')),
+          SnackBar(content: Text(context.l10n.profileUpdated)),
         );
       }
     } on FirebaseException catch (error, stackTrace) {
       debugPrint(
         'Profile save failed [${error.code}]: ${error.message}\n$stackTrace',
       );
-      _showMessage('Could not save your profile. Please try again.');
+      _showMessage(context.l10n.profileSaveFailed);
     } catch (_) {
-      _showMessage('Could not save your profile. Please try again.');
+      _showMessage(context.l10n.profileSaveFailed);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -6120,13 +6359,15 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
       appBar: AppBar(
         automaticallyImplyLeading: !widget.isRequired,
         title: Text(
-          widget.isRequired ? 'Complete Your Profile' : 'Edit Profile',
+          widget.isRequired
+              ? context.l10n.completeYourProfile
+              : context.l10n.editProfile,
         ),
         backgroundColor: const Color(0xFF0F1412),
         actions: widget.isRequired
             ? [
                 IconButton(
-                  tooltip: 'Log out',
+                  tooltip: context.l10n.logOut,
                   onPressed: _isSaving
                       ? null
                       : widget.onSignOut ??
@@ -6148,8 +6389,8 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
           const SizedBox(height: 24),
           Text(
             widget.isRequired
-                ? 'Tell other players who they will be sharing the court with.'
-                : 'Keep your player details accurate so matches are a better fit.',
+                ? context.l10n.profileRequiredIntro
+                : context.l10n.profileEditIntro,
             style: const TextStyle(color: Colors.white70, fontSize: 16),
           ),
           const SizedBox(height: 24),
@@ -6158,10 +6399,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             enabled: !_isSaving,
             textCapitalization: TextCapitalization.words,
             maxLength: 40,
-            decoration: const InputDecoration(
-              labelText: 'Display name',
-              prefixIcon: Icon(Icons.person_outline),
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: context.l10n.displayName,
+              prefixIcon: const Icon(Icons.person_outline),
+              border: const OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 16),
@@ -6177,12 +6418,12 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
                     _legacyLevel = null;
                     _levelError = null;
                   }),
-            labelText: 'Level',
+            labelText: context.l10n.level,
             icon: Icons.trending_up,
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Your padel profile',
+          Text(
+            context.l10n.padelProfile,
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
@@ -6190,10 +6431,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             key: const Key('preferred-side-field'),
             isExpanded: true,
             initialValue: _preferredSide,
-            decoration: const InputDecoration(
-              labelText: 'Preferred side',
-              prefixIcon: Icon(Icons.swap_horiz),
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: context.l10n.preferredSide,
+              prefixIcon: const Icon(Icons.swap_horiz),
+              border: const OutlineInputBorder(),
             ),
             items: PreferredSide.values
                 .map(
@@ -6210,10 +6451,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             key: const Key('play-frequency-field'),
             isExpanded: true,
             initialValue: _playFrequency,
-            decoration: const InputDecoration(
-              labelText: 'How often do you play?',
+            decoration: InputDecoration(
+              labelText: context.l10n.playFrequency,
               prefixIcon: Icon(Icons.calendar_month_outlined),
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
             ),
             items: PlayFrequency.values
                 .map(
@@ -6232,32 +6473,30 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             enabled: !_isSaving,
             maxLength: socialProfileBioMaxLength,
             maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Short bio (optional)',
-              hintText: 'Tell players a little about your game',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: context.l10n.shortBio,
+              hintText: context.l10n.tellPlayersGame,
+              border: const OutlineInputBorder(),
             ),
           ),
           SwitchListTile(
             key: const Key('profile-discoverable-field'),
             value: _discoverable,
             contentPadding: EdgeInsets.zero,
-            title: const Text('Let other players find me'),
-            subtitle: const Text(
-              'When off, your profile will not appear in Find Players. Players may still see it through matches, friendships, messages, invitations, or shared history.',
-            ),
+            title: Text(context.l10n.discoverability),
+            subtitle: Text(context.l10n.profileVisibilityHelp),
             onChanged: _isSaving
                 ? null
                 : (value) => setState(() => _discoverable = value),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Preferred discovery location',
+          Text(
+            context.l10n.preferredLocation,
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'City',
+          Text(
+            context.l10n.city,
             key: Key('profile-city-heading'),
             style: TextStyle(fontWeight: FontWeight.w600),
           ),
@@ -6266,9 +6505,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             PlacesAutocompleteField(
               key: const Key('profile-city-selector'),
               labelText: _discoveryCityController.text.trim().isEmpty
-                  ? 'Choose city'
-                  : 'Change city',
-              hintText: 'Search cities only',
+                  ? context.l10n.chooseCity
+                  : context.l10n.changeCity,
+              hintText: context.l10n.searchCitiesOnly,
               initialText: _discoveryCityController.text,
               citiesOnly: true,
               enabled: !_isSaving,
@@ -6290,8 +6529,8 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
               }),
             )
           else ...[
-            const Text(
-              'City suggestions are unavailable. Enter your city details below; Area can remain blank.',
+            Text(
+              context.l10n.citySuggestionsUnavailable,
               key: Key('profile-city-fallback-message'),
             ),
             const SizedBox(height: 12),
@@ -6305,9 +6544,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
                 _discoveryLatitude = null;
                 _discoveryLongitude = null;
               }),
-              decoration: const InputDecoration(
-                labelText: 'Country',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.l10n.country,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
@@ -6323,11 +6562,11 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
               }),
               textCapitalization: TextCapitalization.characters,
               maxLength: 2,
-              decoration: const InputDecoration(
-                labelText: 'ISO country code',
+              decoration: InputDecoration(
+                labelText: context.l10n.isoCountryCode,
                 hintText: 'ES',
                 counterText: '',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
@@ -6341,9 +6580,9 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
                 _discoveryLatitude = null;
                 _discoveryLongitude = null;
               }),
-              decoration: const InputDecoration(
-                labelText: 'City',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.l10n.city,
+                border: const OutlineInputBorder(),
               ),
             ),
           ],
@@ -6363,10 +6602,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
             ),
             placesClient: widget.placesClient,
             enabled: !_isSaving,
-            labelText: 'Area / Neighborhood (optional)',
+            labelText: context.l10n.areaOptional,
             helperText: _discoveryAreaController.text.trim().isEmpty
-                ? 'Optional neighborhood within your city'
-                : 'Current area; clear or replace it with a search result',
+                ? context.l10n.optionalNeighborhoodCity
+                : context.l10n.legacyAreaHelp,
             onChanged: (value) => setState(() {
               _discoveryAreaController.text = value.label;
               _discoveryAreaId = value.id;
@@ -6381,7 +6620,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Save Profile'),
+                : Text(context.l10n.saveProfile),
           ),
         ],
       ),
@@ -6497,14 +6736,16 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       longitude: _longitude,
     );
 
-    final locationError = !location.isValid ? 'Select a padel club.' : null;
+    final locationError = !location.isValid
+        ? context.l10n.selectPadelClub
+        : null;
     final now = widget.nowProvider();
     final dateTimeError = dateTime.isEmpty || _scheduledAt == null
-        ? 'Choose a date and time.'
+        ? context.l10n.chooseDateTimePeriod
         : !_scheduledAt!.isAfter(now)
-        ? 'Please choose a future date and time.'
+        ? context.l10n.chooseFutureDate
         : null;
-    final levelError = level == null ? 'Choose a player level.' : null;
+    final levelError = level == null ? context.l10n.choosePlayerLevel : null;
     if (locationError != null || dateTimeError != null || levelError != null) {
       setState(() {
         _locationError = locationError;
@@ -6577,10 +6818,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         SnackBar(
           content: Text(
             invitationSent
-                ? 'Match created and invitation sent.'
+                ? context.l10n.matchCreatedInvited
                 : invitationFailed
-                ? 'Match created, but the invitation could not be sent.'
-                : 'Match created successfully.',
+                ? context.l10n.matchCreatedInviteFailed
+                : context.l10n.matchCreated,
           ),
         ),
       );
@@ -6592,9 +6833,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     } catch (_) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not create the match.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.createMatchFailed)));
     } finally {
       if (mounted) {
         setState(() {
@@ -6613,9 +6854,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     );
     if (selected == null || !mounted) return;
     if (!selected.isAfter(now)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please choose a future date and time.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.chooseFutureDate)));
       return;
     }
 
@@ -6652,25 +6893,27 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Create Match'),
+        title: Text(context.l10n.createMatch),
         backgroundColor: const Color(0xFF0F1412),
       ),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         children: [
-          const Text(
-            'Set up your game',
+          Text(
+            context.l10n.setUpGame,
             style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Choose a club, time, and who the game is for.',
+          Text(
+            context.l10n.chooseClubTimePlayers,
             style: TextStyle(color: Colors.white70),
           ),
           if (widget.playAgainTarget != null) ...[
             const SizedBox(height: 12),
             Text(
-              'Invite ${widget.playAgainTarget!.displayName} after creating',
+              context.l10n.inviteAfterCreate(
+                widget.playAgainTarget!.displayName,
+              ),
               key: const Key('play-again-create-context'),
               style: const TextStyle(
                 color: Color(0xFF74E8A0),
@@ -6679,11 +6922,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
             ),
           ],
           const SizedBox(height: 24),
-          _sectionTitle('Where'),
+          _sectionTitle(context.l10n.where),
           PlacesAutocompleteField(
             client: widget.placesClient,
-            labelText: 'Search for a padel club',
-            hintText: 'Club name or address',
+            labelText: context.l10n.searchPadelClub,
+            hintText: context.l10n.clubNameAddress,
             enabled: !_isCreating,
             onSelected: _useLocation,
           ),
@@ -6727,8 +6970,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                     ),
               child: Text(
                 _editingLocationDetails
-                    ? 'Hide location details'
-                    : 'Edit location details',
+                    ? context.l10n.hideLocationDetails
+                    : context.l10n.editLocationDetails,
               ),
             ),
           ),
@@ -6740,10 +6983,10 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 _latitude = null;
                 _longitude = null;
               },
-              decoration: const InputDecoration(
-                labelText: 'Club name',
+              decoration: InputDecoration(
+                labelText: context.l10n.clubName,
                 prefixIcon: Icon(Icons.location_on),
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -6755,9 +6998,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 _longitude = null;
               },
               textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Country',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.l10n.country,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -6770,11 +7013,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
               },
               textCapitalization: TextCapitalization.characters,
               maxLength: 2,
-              decoration: const InputDecoration(
-                labelText: 'Country code',
+              decoration: InputDecoration(
+                labelText: context.l10n.countryCode,
                 hintText: 'US',
                 counterText: '',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -6786,9 +7029,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 _longitude = null;
               },
               textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Region / State / Province (optional)',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.l10n.regionOptional,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -6800,9 +7043,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 _longitude = null;
               },
               textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'City',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.l10n.city,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -6814,25 +7057,25 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 _longitude = null;
               },
               textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Area / Neighborhood (optional)',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.l10n.areaOptional,
+                border: const OutlineInputBorder(),
               ),
             ),
           ],
           const SizedBox(height: 20),
-          _sectionTitle('When'),
+          _sectionTitle(context.l10n.when),
           const SizedBox(height: 16),
           TextField(
             key: const Key('create-date-time-field'),
             controller: _dateTimeController,
             readOnly: true,
             onTap: _selectDateTime,
-            decoration: const InputDecoration(
-              labelText: 'Date and time',
-              hintText: 'Choose a date and time',
-              prefixIcon: Icon(Icons.calendar_month),
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: context.l10n.dateTime,
+              hintText: context.l10n.chooseDateTime,
+              prefixIcon: const Icon(Icons.calendar_month),
+              border: const OutlineInputBorder(),
               errorText: null,
             ),
           ),
@@ -6846,7 +7089,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
               ),
             ),
           const SizedBox(height: 24),
-          _sectionTitle('Match details'),
+          _sectionTitle(context.l10n.matchDetailsSection),
           const SizedBox(height: 16),
           PadelLevelSelector(
             fieldKey: const Key('player-level-field'),
@@ -6864,15 +7107,24 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           DropdownButtonFormField<int>(
             key: const Key('total-players-field'),
             initialValue: _totalPlayers,
-            decoration: const InputDecoration(
-              labelText: 'Total players',
-              border: OutlineInputBorder(),
-              helperText: 'You count as one player · maximum 4',
+            decoration: InputDecoration(
+              labelText: context.l10n.totalPlayers,
+              border: const OutlineInputBorder(),
+              helperText: context.l10n.capacityHelp,
             ),
-            items: const [
-              DropdownMenuItem(value: 2, child: Text('2 players')),
-              DropdownMenuItem(value: 3, child: Text('3 players')),
-              DropdownMenuItem(value: 4, child: Text('4 players')),
+            items: [
+              DropdownMenuItem(
+                value: 2,
+                child: Text(context.l10n.playerCountChoice(2)),
+              ),
+              DropdownMenuItem(
+                value: 3,
+                child: Text(context.l10n.playerCountChoice(3)),
+              ),
+              DropdownMenuItem(
+                value: 4,
+                child: Text(context.l10n.playerCountChoice(4)),
+              ),
             ],
             onChanged: _isCreating
                 ? null
@@ -6892,7 +7144,11 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.add),
-              label: Text(_isCreating ? 'Creating...' : 'Create Match'),
+              label: Text(
+                _isCreating
+                    ? context.l10n.creatingMatch
+                    : context.l10n.createMatch,
+              ),
             ),
           ),
         ],
@@ -6969,7 +7225,7 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
     );
     if (selected == null || !mounted) return;
     if (!selected.isAfter(now)) {
-      _showMessage('Please choose a future date and time.');
+      _showMessage(context.l10n.chooseFutureDate);
       return;
     }
     setState(() {
@@ -6992,7 +7248,7 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
       }
       final level = _level;
       if (level == null) {
-        setState(() => _levelError = 'Choose a level from 1 to 7.');
+        setState(() => _levelError = context.l10n.chooseLevelRange);
         throw const MatchActionException('Choose a level from 1 to 7.');
       }
       final capacity = int.tryParse(_capacityController.text.trim());
@@ -7022,9 +7278,9 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
       debugPrint(
         'Match edit failed [${error.code}]: ${error.message}\n$stackTrace',
       );
-      _showMessage('Could not save match changes. Please try again.');
+      _showMessage(context.l10n.saveMatchFailed);
     } catch (_) {
-      _showMessage('Could not save match changes. Please try again.');
+      _showMessage(context.l10n.saveMatchFailed);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -7084,26 +7340,26 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
     final confirmedCount = 1 + widget.match.players.length;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Edit Match'),
+        title: Text(context.l10n.editMatch),
         backgroundColor: const Color(0xFF0F1412),
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text(
-            'Update match details',
+          Text(
+            context.l10n.updateMatchDetails,
             style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Confirmed players and join requests will be preserved.',
+          Text(
+            context.l10n.preservePlayersRequests,
             style: TextStyle(color: Colors.white70),
           ),
           const SizedBox(height: 24),
           PlacesAutocompleteField(
             initialText: widget.match.club,
-            labelText: 'Search for a padel club',
-            hintText: 'Club name or address',
+            labelText: context.l10n.searchPadelClub,
+            hintText: context.l10n.clubNameAddress,
             enabled: !_isSaving,
             onSelected: (location) => setState(() {
               _location = location;
@@ -7116,9 +7372,9 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
             controller: _clubController,
             readOnly: true,
             decoration: InputDecoration(
-              labelText: 'Club',
+              labelText: context.l10n.club,
               helperText: _location.localityLabel.isEmpty
-                  ? 'Legacy location — search above to choose a structured location.'
+                  ? context.l10n.legacyLocationHelp
                   : _location.localityLabel,
               prefixIcon: const Icon(Icons.location_on),
               border: const OutlineInputBorder(),
@@ -7131,10 +7387,10 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
             readOnly: true,
             enabled: !_isSaving,
             onTap: _selectDateTime,
-            decoration: const InputDecoration(
-              labelText: 'Date and time',
-              prefixIcon: Icon(Icons.calendar_month),
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: context.l10n.dateTime,
+              prefixIcon: const Icon(Icons.calendar_month),
+              border: const OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 16),
@@ -7150,7 +7406,7 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
                     _legacyLevel = null;
                     _levelError = null;
                   }),
-            labelText: 'Level',
+            labelText: context.l10n.level,
           ),
           const SizedBox(height: 16),
           TextField(
@@ -7159,9 +7415,8 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
             enabled: !_isSaving,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              labelText: 'Total player capacity',
-              helperText:
-                  '$confirmedCount player${confirmedCount == 1 ? '' : 's'} currently confirmed · maximum 4',
+              labelText: context.l10n.totalCapacity,
+              helperText: context.l10n.confirmedPlayersCapacity(confirmedCount),
               prefixIcon: const Icon(Icons.group),
               border: const OutlineInputBorder(),
             ),
@@ -7178,7 +7433,11 @@ class _EditMatchScreenState extends State<EditMatchScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.save_outlined),
-              label: Text(_isSaving ? 'Saving...' : 'Save Changes'),
+              label: Text(
+                _isSaving
+                    ? context.l10n.savingEllipsis
+                    : context.l10n.saveChanges,
+              ),
             ),
           ),
         ],
@@ -7236,7 +7495,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
         repository: widget.reportRepository ?? FirebaseReportRepository(),
         subjectType: ReportSubjectType.player,
         subjectId: widget.uid,
-        subjectLabel: name.isEmpty ? 'Player' : name,
+        subjectLabel: name.isEmpty ? context.l10n.player : name,
         onBlockPlayer: () =>
             (widget.friendsRepository ?? FirebaseFriendsRepository()).block(
               widget.uid,
@@ -7255,7 +7514,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
           builder: (_) => ConversationScreen(
             conversationId: id,
             currentUid: _viewerUid,
-            title: name.isEmpty ? 'Player' : name,
+            title: name.isEmpty ? context.l10n.player : name,
             repository: repository,
             otherUid: widget.uid,
             avatarVersion: avatarVersion,
@@ -7266,9 +7525,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Messaging is available to accepted friends.'),
-          ),
+          SnackBar(content: Text(context.l10n.acceptedFriendsMessaging)),
         );
       }
     }
@@ -7320,7 +7577,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Player Profile'),
+        title: Text(context.l10n.playerProfile),
         backgroundColor: const Color(0xFF0F1412),
       ),
       body: FutureBuilder<PublicPlayerProfile>(
@@ -7332,9 +7589,9 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
           if (snapshot.hasError) {
             return _ProfileMessageState(
               icon: Icons.cloud_off_outlined,
-              title: 'Could not load this player profile',
-              message: 'Check your connection and try again.',
-              actionLabel: 'Try Again',
+              title: context.l10n.playerProfileFailed,
+              message: context.l10n.connectionRetry,
+              actionLabel: context.l10n.tryAgain,
               onAction: _retry,
             );
           }
@@ -7372,7 +7629,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                name.isEmpty ? 'Player' : name,
+                name.isEmpty ? context.l10n.player : name,
                 key: const Key('public-profile-name'),
                 style: const TextStyle(
                   fontSize: 32,
@@ -7392,10 +7649,22 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                 children: [
                   Chip(
                     label: Text(
-                      '${profile.socialProfile.preferredSide.label} side',
+                      context.l10n.preferredSideDisplay(
+                        _localizedPreferredSide(
+                          context,
+                          profile.socialProfile.preferredSide,
+                        ),
+                      ),
                     ),
                   ),
-                  Chip(label: Text(profile.socialProfile.playFrequency.label)),
+                  Chip(
+                    label: Text(
+                      _localizedPlayFrequency(
+                        context,
+                        profile.socialProfile.playFrequency,
+                      ),
+                    ),
+                  ),
                 ],
               ),
               if (profile.socialProfile.bio.isNotEmpty) ...[
@@ -7428,12 +7697,14 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                       onPressed: () => widget.onPlayAgain!(
                         PlayAgainTarget(
                           uid: widget.uid,
-                          displayName: name.isEmpty ? 'Player' : name,
+                          displayName: name.isEmpty
+                              ? context.l10n.player
+                              : name,
                           sourceMatchId: eligibility.data?.$2?.lastMatchId,
                         ),
                       ),
                       icon: const Icon(Icons.replay),
-                      label: const Text('Play Again'),
+                      label: Text(context.l10n.playAgain),
                     ),
                   );
                 },
@@ -7463,7 +7734,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                             onPressed: () =>
                                 _message(name, profile.avatarVersion),
                             icon: const Icon(Icons.chat_bubble_outline),
-                            label: const Text('Message'),
+                            label: Text(context.l10n.message),
                           ),
                         )
                       : const SizedBox.shrink(),
@@ -7480,11 +7751,15 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                     key: const Key('public-profile-played-together'),
                     child: ListTile(
                       leading: const Icon(Icons.group_outlined),
-                      title: Text(
-                        'Played together $count ${count == 1 ? 'time' : 'times'}',
-                      ),
+                      title: Text(context.l10n.playedTogetherCount(count)),
                       subtitle: Text(
-                        'Last played ${playedWithShortDate(relationship.lastPlayedAt)}',
+                        context.l10n.lastPlayed(
+                          playedWithShortDate(
+                            relationship.lastPlayedAt,
+                            locale: Localizations.localeOf(context),
+                            unavailableLabel: context.l10n.dateUnavailable,
+                          ),
+                        ),
                       ),
                     ),
                   );
@@ -7497,18 +7772,18 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                   child: Row(
                     children: [
                       _ProfileStat(
-                        label: 'Completed matches',
+                        label: context.l10n.completedMatches,
                         value: '${profile.completedMatchCount}',
                       ),
                       const _ProfileStatDivider(),
                       _ProfileStat(
-                        label: 'Repeat players',
+                        label: context.l10n.repeatPlayers,
                         value: '${profile.repeatPlayerCount}',
                       ),
                       if (profile.matches.isNotEmpty) ...[
                         const _ProfileStatDivider(),
                         _ProfileStat(
-                          label: 'Shared matches',
+                          label: context.l10n.sharedMatches,
                           value: '${profile.matches.length}',
                         ),
                       ],
@@ -7521,8 +7796,8 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: summary.count == 0
-                      ? const Text(
-                          'No ratings yet',
+                      ? Text(
+                          context.l10n.noRatings,
                           key: Key('public-profile-no-ratings'),
                         )
                       : Column(
@@ -7542,9 +7817,10 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              '${summary.average.toStringAsFixed(1)} ★ '
-                              '(${summary.count} '
-                              '${summary.count == 1 ? 'rating' : 'ratings'})',
+                              context.l10n.ratingSummary(
+                                summary.average.toStringAsFixed(1),
+                                summary.count,
+                              ),
                               key: const Key('public-profile-rating-summary'),
                             ),
                           ],
@@ -7553,8 +7829,8 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
               ),
               if (recentMatches.isNotEmpty) ...[
                 const SizedBox(height: 24),
-                const Text(
-                  'Shared match ratings',
+                Text(
+                  context.l10n.sharedMatchRatings,
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
@@ -7574,20 +7850,20 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                   return Card(
                     child: ListTile(
                       title: Text(
-                        match.club.isEmpty ? 'Padel match' : match.club,
+                        match.club.isEmpty ? context.l10n.match : match.club,
                       ),
                       trailing: existing != null
                           ? Text(
                               existing.rating > 0
-                                  ? 'Submitted · ${existing.rating} stars'
-                                  : 'Rating submitted',
+                                  ? context.l10n.submittedStars(existing.rating)
+                                  : context.l10n.ratingSubmitted,
                               key: Key('existing-rating-${match.id}'),
                             )
                           : eligible
                           ? TextButton(
                               key: Key('rate-player-${match.id}'),
                               onPressed: null,
-                              child: const Text('Rate in match details'),
+                              child: Text(context.l10n.rateInDetails),
                             )
                           : null,
                     ),
@@ -7774,7 +8050,11 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: Text(
-            'Rate ${player.displayName.isEmpty ? 'player' : player.displayName}',
+            context.l10n.rateNamedPlayer(
+              player.displayName.isEmpty
+                  ? context.l10n.player.toLowerCase()
+                  : player.displayName,
+            ),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -7802,7 +8082,9 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
               Semantics(
                 liveRegion: true,
                 child: Text(
-                  selected == 0 ? 'Select a rating' : '$selected of 5',
+                  selected == 0
+                      ? context.l10n.selectRating
+                      : context.l10n.ratingSelected(selected),
                   key: const Key('rating-selection-label'),
                   style: const TextStyle(color: Colors.white70),
                 ),
@@ -7812,13 +8094,13 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
+              child: Text(context.l10n.cancel),
             ),
             FilledButton(
               onPressed: selected == 0
                   ? null
                   : () => Navigator.pop(dialogContext, selected),
-              child: const Text('Submit rating'),
+              child: Text(context.l10n.submitRating),
             ),
           ],
         ),
@@ -7849,7 +8131,7 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
       unawaited(_loadRatings());
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Rating submitted.')));
+      ).showSnackBar(SnackBar(content: Text(context.l10n.ratingSubmitted)));
     } on FirebaseException catch (error) {
       if (!mounted) return;
       setState(() => _submitting.remove(player.uid));
@@ -7857,8 +8139,8 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
         SnackBar(
           content: Text(
             error.code == 'permission-denied'
-                ? 'This rating was already submitted or is not eligible.'
-                : 'Could not submit rating.',
+                ? context.l10n.ratingNotEligible
+                : context.l10n.ratingSubmitFailed,
           ),
         ),
       );
@@ -7867,7 +8149,7 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
       setState(() => _submitting.remove(player.uid));
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Could not submit rating.')));
+      ).showSnackBar(SnackBar(content: Text(context.l10n.ratingSubmitFailed)));
     }
   }
 
@@ -7878,14 +8160,14 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
       key: const Key('rate-players-section'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Rate players',
+        Text(
+          context.l10n.ratePlayers,
           style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
         if (candidates.isEmpty)
-          const Text(
-            'No other players from this match to rate.',
+          Text(
+            context.l10n.noOtherPlayersRate,
             style: TextStyle(color: Colors.white70),
           )
         else if (_loadedRatings == null && _loadingRatings)
@@ -7893,14 +8175,14 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
             padding: const EdgeInsets.symmetric(vertical: 20),
             child: Center(
               child: Semantics(
-                label: 'Loading submitted ratings',
+                label: context.l10n.loadingSubmittedRatings,
                 child: CircularProgressIndicator(),
               ),
             ),
           )
         else if (_loadedRatings == null && _ratingLoadError != null)
           _InlineLoadError(
-            message: 'Could not load submitted ratings.',
+            message: context.l10n.submittedRatingsFailed,
             onRetry: _retry,
           )
         else ...[
@@ -7911,8 +8193,8 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
             return _RatingPlayerCard(
               player: player,
               role: player.uid == widget.match.creatorUid
-                  ? 'Organizer'
-                  : 'Confirmed',
+                  ? context.l10n.organizer
+                  : context.l10n.confirmedRole,
               prior: prior,
               submitting: _submitting.contains(player.uid),
               profile: _profiles.putIfAbsent(
@@ -7940,12 +8222,12 @@ class _RatePlayersSectionState extends State<RatePlayersSection> {
                   (rating) => rating.ratedUid == player.uid,
                 ),
               ))
-            const Padding(
-              padding: EdgeInsets.only(top: 6),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
               child: Text(
-                'All players rated.',
+                context.l10n.allPlayersRated,
                 key: Key('all-players-rated'),
-                style: TextStyle(color: Colors.white60),
+                style: const TextStyle(color: Colors.white60),
               ),
             ),
         ],
@@ -7975,7 +8257,9 @@ class _RatingPlayerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = player.displayName.isEmpty ? 'Player' : player.displayName;
+    final name = player.displayName.isEmpty
+        ? context.l10n.player
+        : player.displayName;
     final metadata = _playerSubtitle(role, player.level);
     final resolved = prior != null;
     return Semantics(
@@ -8054,8 +8338,8 @@ class _RatingPlayerCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         prior!.rating > 0
-                            ? 'Rating submitted · ${prior!.rating} stars'
-                            : 'Rating submitted',
+                            ? context.l10n.ratingSubmittedStars(prior!.rating)
+                            : context.l10n.ratingSubmitted,
                         style: const TextStyle(color: Colors.white70),
                       ),
                     ),
@@ -8063,7 +8347,7 @@ class _RatingPlayerCard extends StatelessWidget {
                 )
               else ...[
                 Text(
-                  'How was playing with $name?',
+                  context.l10n.howWasPlaying(name),
                   style: const TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(height: 10),
@@ -8077,7 +8361,7 @@ class _RatingPlayerCard extends StatelessWidget {
                             dimension: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Rate player'),
+                        : Text(context.l10n.ratePlayer),
                   ),
                 ),
               ],
@@ -8112,7 +8396,7 @@ class _InlineLoadError extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: onRetry,
           icon: const Icon(Icons.refresh),
-          label: const Text('Try Again'),
+          label: Text(context.l10n.tryAgain),
         ),
       ],
     ),
@@ -8148,7 +8432,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
     repository: widget.reportRepository ?? FirebaseReportRepository(),
     subjectType: ReportSubjectType.match,
     subjectId: match.id,
-    subjectLabel: match.club.isEmpty ? 'Padel match' : match.club,
+    subjectLabel: match.club.isEmpty ? context.l10n.match : match.club,
   );
 
   Future<void> _playAgain(Match match, String uid, String name) async {
@@ -8179,25 +8463,26 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
           builder: (_) => ConversationScreen(
             conversationId: ensured.conversationId,
             currentUid: uid,
-            title: match.club.isEmpty ? 'Match chat' : match.club,
+            title: match.club.isEmpty ? context.l10n.matchChat : match.club,
             repository: repository,
             conversationType: 'match',
           ),
         ),
       );
     } catch (_) {
-      if (mounted) _showMessage('Match chat is unavailable.');
+      if (mounted) _showMessage(context.l10n.matchChatUnavailable);
     }
   }
 
   Future<void> _requestToJoin() async {
+    final strings = context.l10n;
     if (!matchAllowsChanges(widget.match, DateTime.now())) {
-      _showMessage('This match has already been completed.');
+      _showMessage(strings.completedMatchNoChanges);
       return;
     }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showMessage('Please log in to request to join a match.');
+      _showMessage(strings.loginJoinMatch);
       return;
     }
 
@@ -8266,24 +8551,25 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         );
       });
 
-      _showMessage('Join request sent.');
+      _showMessage(strings.joinRequestSent);
     } on MatchActionException catch (error) {
       _showMessage(error.message);
     } on FirebaseException catch (error, stackTrace) {
       debugPrint(
         'Join request failed [${error.code}]: ${error.message}\n$stackTrace',
       );
-      _showMessage('Could not send your join request. Please try again.');
+      _showMessage(strings.joinRequestFailed);
     } catch (_) {
-      _showMessage('Could not send your join request. Please try again.');
+      _showMessage(strings.joinRequestFailed);
     } finally {
       if (mounted) setState(() => _isRequesting = false);
     }
   }
 
   Future<void> _reviewRequest(JoinRequest request, bool approve) async {
+    final strings = context.l10n;
     if (!matchAllowsChanges(widget.match, DateTime.now())) {
-      _showMessage('Completed matches cannot be changed.');
+      _showMessage(strings.completedMatchesNoChanges);
       return;
     }
     final user = FirebaseAuth.instance.currentUser;
@@ -8411,7 +8697,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       });
       logCheckpoint('transaction completion');
       _showMessage(
-        approve ? 'Join request approved.' : 'Join request declined.',
+        approve ? strings.joinRequestApproved : strings.joinRequestDeclined,
       );
     } on MatchActionException catch (error) {
       _showMessage(error.message);
@@ -8421,8 +8707,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         '[${error.code}]: ${error.message}\n$stackTrace',
       );
       _showMessage(
-        'Could not ${approve ? 'approve' : 'decline'} request. '
-        'Please try again.',
+        approve ? strings.approveRequestFailed : strings.declineRequestFailed,
       );
     } catch (error, stackTrace) {
       final unboxed = _unboxWebError(error, stackTrace);
@@ -8432,8 +8717,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         '${unboxed.stackTrace}',
       );
       _showMessage(
-        'Could not ${approve ? 'approve' : 'decline'} request. '
-        'Please try again.',
+        approve ? strings.approveRequestFailed : strings.declineRequestFailed,
       );
     } finally {
       if (mounted) {
@@ -8443,30 +8727,31 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   }
 
   Future<void> _leaveMatch() async {
+    final strings = context.l10n;
     if (!matchAllowsChanges(widget.match, DateTime.now())) {
-      _showMessage('Completed matches cannot be changed.');
+      _showMessage(context.l10n.completedMatchesNoChanges);
       return;
     }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showMessage('Please log in to leave a match.');
+      _showMessage(strings.loginLeaveMatch);
       return;
     }
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Leave match?'),
-        content: const Text('Your confirmed spot will become available.'),
+        title: Text(context.l10n.leaveMatchQuestion),
+        content: Text(context.l10n.spotAvailable),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Stay'),
+            child: Text(context.l10n.stay),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Leave Match'),
+            child: Text(context.l10n.leaveMatch),
           ),
         ],
       ),
@@ -8526,48 +8811,47 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         }
       });
 
-      _showMessage('You left the match.');
+      _showMessage(strings.leftMatch);
     } on MatchActionException catch (error) {
       _showMessage(error.message);
     } on FirebaseException catch (error, stackTrace) {
       debugPrint(
         'Leave match failed [${error.code}]: ${error.message}\n$stackTrace',
       );
-      _showMessage('Could not leave the match. Please try again.');
+      _showMessage(strings.leaveMatchFailed);
     } catch (_) {
-      _showMessage('Could not leave the match. Please try again.');
+      _showMessage(strings.leaveMatchFailed);
     } finally {
       if (mounted) setState(() => _isLeaving = false);
     }
   }
 
   Future<void> _cancelMatch() async {
+    final strings = context.l10n;
     if (!matchAllowsChanges(widget.match, DateTime.now())) {
-      _showMessage('Completed matches cannot be changed.');
+      _showMessage(strings.completedMatchesNoChanges);
       return;
     }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showMessage('Please log in to cancel a match.');
+      _showMessage(strings.loginCancelMatch);
       return;
     }
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Cancel match?'),
-        content: const Text(
-          'This will remove the match for everyone and cannot be undone.',
-        ),
+        title: Text(context.l10n.cancelMatchQuestion),
+        content: Text(context.l10n.cancelMatchWarning),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Keep Match'),
+            child: Text(context.l10n.keepMatch),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Cancel Match'),
+            child: Text(context.l10n.cancelMatch),
           ),
         ],
       ),
@@ -8601,16 +8885,18 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       widget.onMatchDeleted?.call(widget.match.id);
       final messenger = ScaffoldMessenger.of(context);
       Navigator.pop(context);
-      messenger.showSnackBar(const SnackBar(content: Text('Match cancelled.')));
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.matchCancelled)),
+      );
     } on MatchActionException catch (error) {
       _showMessage(error.message);
     } on FirebaseException catch (error, stackTrace) {
       debugPrint(
         'Cancel match failed [${error.code}]: ${error.message}\n$stackTrace',
       );
-      _showMessage('Could not cancel the match. Please try again.');
+      _showMessage(strings.cancelMatchFailed);
     } catch (_) {
-      _showMessage('Could not cancel the match. Please try again.');
+      _showMessage(strings.cancelMatchFailed);
     } finally {
       if (mounted) setState(() => _isCancelling = false);
     }
@@ -8634,7 +8920,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Match Details')),
+            appBar: AppBar(title: Text(context.l10n.matchDetails)),
             body: const Center(child: CircularProgressIndicator()),
           );
         }
@@ -8706,7 +8992,7 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
 
             return Scaffold(
               appBar: AppBar(
-                title: const Text('Match Details'),
+                title: Text(context.l10n.matchDetails),
                 backgroundColor: const Color(0xFF0F1412),
                 actions: [
                   if (isOrganizer && !completed)
@@ -8724,33 +9010,31 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                                   );
                               if (updated != null && context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Match updated successfully.',
-                                    ),
+                                  SnackBar(
+                                    content: Text(context.l10n.matchUpdated),
                                   ),
                                 );
                                 await widget.onMatchUpdated?.call(updated);
                               }
                             },
                       icon: const Icon(Icons.edit_outlined),
-                      label: const Text('Edit Match'),
+                      label: Text(context.l10n.editMatch),
                     ),
                   if (!isOrganizer)
                     PopupMenuButton<String>(
                       key: const Key('match-safety-actions'),
-                      tooltip: 'More safety actions',
+                      tooltip: context.l10n.moreSafetyActions,
                       onSelected: (value) {
                         if (value == 'report') _reportMatch(match);
                       },
-                      itemBuilder: (_) => const [
+                      itemBuilder: (_) => [
                         PopupMenuItem(
                           value: 'report',
                           child: Row(
                             children: [
-                              Icon(Icons.flag_outlined),
-                              SizedBox(width: 12),
-                              Text('Report match'),
+                              const Icon(Icons.flag_outlined),
+                              const SizedBox(width: 12),
+                              Text(context.l10n.reportMatch),
                             ],
                           ),
                         ),
@@ -8768,12 +9052,14 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                       key: const Key('open-match-chat'),
                       onPressed: () => _openMatchChat(match),
                       icon: const Icon(Icons.forum_outlined),
-                      label: const Text('Match Chat'),
+                      label: Text(context.l10n.matchChat),
                     ),
                   ],
                   const SizedBox(height: 28),
                   Text(
-                    completed ? 'Players from this match' : 'Players',
+                    completed
+                        ? context.l10n.playersFromMatch
+                        : context.l10n.players,
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -8788,16 +9074,16 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                       uid: match.creatorUid,
                       fallbackName: match.creatorDisplayName.isNotEmpty
                           ? match.creatorDisplayName
-                          : 'Organizer',
+                          : context.l10n.organizer,
                       fallbackLevel: match.creatorLevel,
-                      role: 'Organizer',
+                      role: context.l10n.organizer,
                       historical: completed,
                       onPlayAgain: completed && match.creatorUid.isNotEmpty
                           ? () => _playAgain(
                               match,
                               match.creatorUid,
                               match.creatorDisplayName.isEmpty
-                                  ? 'Organizer'
+                                  ? context.l10n.organizer
                                   : match.creatorDisplayName,
                             )
                           : null,
@@ -8811,16 +9097,16 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                             uid: player.uid,
                             fallbackName: player.displayName.isNotEmpty
                                 ? player.displayName
-                                : 'Player',
+                                : context.l10n.player,
                             fallbackLevel: player.level,
-                            role: 'Confirmed',
+                            role: context.l10n.confirmedRole,
                             historical: completed,
                             onPlayAgain: completed && player.uid.isNotEmpty
                                 ? () => _playAgain(
                                     match,
                                     player.uid,
                                     player.displayName.isEmpty
-                                        ? 'Player'
+                                        ? context.l10n.player
                                         : player.displayName,
                                   )
                                 : null,
@@ -8881,7 +9167,9 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                               )
                             : const Icon(Icons.cancel_outlined),
                         label: Text(
-                          _isCancelling ? 'Cancelling...' : 'Cancel Match',
+                          _isCancelling
+                              ? context.l10n.cancellingEllipsis
+                              : context.l10n.cancelMatch,
                         ),
                       ),
                     )
@@ -8905,7 +9193,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                                 ),
                               )
                             : const Icon(Icons.logout),
-                        label: Text(_isLeaving ? 'Leaving...' : 'Leave Match'),
+                        label: Text(
+                          _isLeaving
+                              ? context.l10n.leavingEllipsis
+                              : context.l10n.leaveMatch,
+                        ),
                       ),
                     )
                   else if (requestIsLoading || requestReadFailed)
@@ -8914,8 +9206,8 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                           ? Icons.error_outline
                           : Icons.hourglass_top,
                       label: requestReadFailed
-                          ? 'Could not load request status'
-                          : 'Loading request status…',
+                          ? context.l10n.requestStatusFailed
+                          : context.l10n.loadingRequestStatus,
                     )
                   else if (participationState ==
                           MatchParticipationState.pending ||
@@ -8927,8 +9219,8 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                           : Icons.group_off_outlined,
                       label:
                           participationState == MatchParticipationState.pending
-                          ? 'Request Pending'
-                          : 'Match Full',
+                          ? context.l10n.requestPending
+                          : context.l10n.matchFull,
                     )
                   else
                     SizedBox(
@@ -8950,11 +9242,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                             : const Icon(Icons.group_add),
                         label: Text(
                           _isRequesting
-                              ? 'Requesting...'
+                              ? context.l10n.requestingEllipsis
                               : requestIsLoading
-                              ? 'Loading request...'
+                              ? context.l10n.loadingRequest
                               : requestReadFailed
-                              ? 'Could not load request'
+                              ? context.l10n.loadRequestFailed
                               : matchParticipationButtonLabel(
                                   participationState,
                                   spotsLeft: match.spotsLeft,
@@ -8985,7 +9277,7 @@ class MatchDetailsSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dateTime = match.scheduledAt == null
-        ? 'Date and time unavailable'
+        ? context.l10n.dateTimeUnavailable
         : _friendlyDateTime(match.scheduledAt!);
     return Card(
       key: const Key('match-details-summary'),
@@ -9024,7 +9316,9 @@ class MatchDetailsSummary extends StatelessWidget {
                     icon: Icons.leaderboard,
                   ),
                 _InfoChip(
-                  text: completed ? 'Completed' : match.spotsLeftLabel,
+                  text: completed
+                      ? context.l10n.completed
+                      : match.spotsLeftLabel,
                   icon: completed ? Icons.history : Icons.group,
                 ),
               ],
@@ -9067,22 +9361,26 @@ class _UnavailableMatchView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Match Details')),
-    body: const Center(
+    appBar: AppBar(title: Text(context.l10n.matchDetails)),
+    body: Center(
       child: Padding(
-        padding: EdgeInsets.all(32),
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.event_busy_outlined, size: 52, color: Colors.white54),
-            SizedBox(height: 14),
-            Text(
-              'Match unavailable',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            const Icon(
+              Icons.event_busy_outlined,
+              size: 52,
+              color: Colors.white54,
             ),
-            SizedBox(height: 6),
+            const SizedBox(height: 14),
             Text(
-              'This match may have been cancelled or removed.',
+              context.l10n.matchUnavailable,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              context.l10n.matchMayRemoved,
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white60),
             ),
@@ -9116,34 +9414,34 @@ class JoinRequestsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Join Requests',
+        Text(
+          context.l10n.joinRequests,
           style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
         if (loading)
-          const Row(
+          Row(
             children: [
-              SizedBox(
+              const SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
-              SizedBox(width: 12),
-              Text('Loading join requests...'),
+              const SizedBox(width: 12),
+              Text(context.l10n.loadingJoinRequests),
             ],
           )
         else if (errorMessage != null)
           Text(errorMessage!, style: const TextStyle(color: Colors.redAccent))
         else if (requests.isEmpty)
-          const Row(
+          Row(
             children: [
-              Icon(Icons.inbox_outlined, color: Colors.white54),
-              SizedBox(width: 10),
+              const Icon(Icons.inbox_outlined, color: Colors.white54),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'No pending requests',
-                  style: TextStyle(color: Colors.white60),
+                  context.l10n.noPendingRequests,
+                  style: const TextStyle(color: Colors.white60),
                 ),
               ),
             ],
@@ -9159,7 +9457,7 @@ class JoinRequestsSection extends StatelessWidget {
                   children: [
                     TextButton(
                       onPressed: isProcessing ? null : () => onDecline(request),
-                      child: const Text('Decline'),
+                      child: Text(context.l10n.decline),
                     ),
                     FilledButton(
                       onPressed: isProcessing ? null : () => onApprove(request),
@@ -9169,14 +9467,14 @@ class JoinRequestsSection extends StatelessWidget {
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('Approve'),
+                          : Text(context.l10n.approve),
                     ),
                   ],
                 );
                 return ListTile(
                   title: Text(
                     request.displayName.isEmpty
-                        ? 'Player'
+                        ? context.l10n.player
                         : request.displayName,
                   ),
                   subtitle: constraints.maxWidth < 380
@@ -9185,7 +9483,7 @@ class JoinRequestsSection extends StatelessWidget {
                           children: [
                             Text(
                               explicitLevel(request.level).isEmpty
-                                  ? 'Level not set'
+                                  ? context.l10n.levelNotSet
                                   : explicitLevel(request.level),
                             ),
                             actions,
@@ -9193,7 +9491,7 @@ class JoinRequestsSection extends StatelessWidget {
                         )
                       : Text(
                           explicitLevel(request.level).isEmpty
-                              ? 'Level not set'
+                              ? context.l10n.levelNotSet
                               : explicitLevel(request.level),
                         ),
                   trailing: constraints.maxWidth < 380 ? null : actions,
@@ -9272,7 +9570,7 @@ class _PlayerTile extends StatelessWidget {
         trailing: onPlayAgain != null
             ? IconButton(
                 key: const Key('play-again-match-player'),
-                tooltip: 'Play Again',
+                tooltip: context.l10n.playAgain,
                 onPressed: onPlayAgain,
                 icon: const Icon(Icons.replay),
               )
@@ -9368,9 +9666,9 @@ class ProfilePlayerTile extends StatelessWidget {
             snapshot.connectionState != ConnectionState.waiting &&
             (snapshot.hasError || snapshot.data?.exists != true);
         if (missing) {
-          return const _PlayerTile(
-            name: 'Deleted player',
-            subtitle: 'Player unavailable',
+          return _PlayerTile(
+            name: context.l10n.deletedPlayer,
+            subtitle: context.l10n.playerUnavailable,
             deleted: true,
           );
         }

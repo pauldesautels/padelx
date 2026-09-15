@@ -6,6 +6,7 @@ import 'firebase_diagnostics.dart';
 import 'messaging.dart';
 import 'messaging_repository.dart';
 import 'profile_avatar.dart';
+import 'l10n/l10n.dart';
 
 class MessagesScreen extends StatefulWidget {
   final String currentUid;
@@ -156,8 +157,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
   }
 
   String _title(ConversationSummary c) => c.type == 'direct'
-      ? (_players[c.otherUid]?.displayName ?? 'Player')
-      : (_matches[c.matchId] ?? 'Match chat');
+      ? (_players[c.otherUid]?.displayName ?? context.l10n.player)
+      : (_matches[c.matchId] ?? context.l10n.matchChat);
   void _retry() {
     setState(() {
       _loading = true;
@@ -168,7 +169,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Messages')),
+    appBar: AppBar(title: Text(context.l10n.messages)),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _initialLoadFailed
@@ -177,16 +178,19 @@ class _MessagesScreenState extends State<MessagesScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Messages are unavailable right now.'),
+                Text(context.l10n.messagesUnavailable),
                 const SizedBox(height: 12),
-                FilledButton(onPressed: _retry, child: const Text('Try Again')),
+                FilledButton(
+                  onPressed: _retry,
+                  child: Text(context.l10n.tryAgain),
+                ),
               ],
             ),
           )
         : _items.isEmpty
-        ? const Center(
-            key: Key('conversation-list-empty'),
-            child: Text('No conversations yet.'),
+        ? Center(
+            key: const Key('conversation-list-empty'),
+            child: Text(context.l10n.noConversations),
           )
         : ListView(
             children: [
@@ -194,13 +198,19 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 final title = _title(c);
                 final unread = c.unreadCount > 0;
                 final identity = _players[c.otherUid];
-                final timestamp = messagingInboxTime(c.lastMessageAt);
+                final timestamp = messagingInboxTime(
+                  c.lastMessageAt,
+                  locale: Localizations.localeOf(context),
+                  yesterdayLabel: context.l10n.yesterday,
+                );
                 return Semantics(
                   label: [
-                    c.type == 'match' ? '$title, Match Chat' : title,
-                    c.preview.isEmpty ? 'No messages yet' : c.preview,
+                    c.type == 'match'
+                        ? '$title, ${context.l10n.matchChat}'
+                        : title,
+                    c.preview.isEmpty ? context.l10n.noMessagesYet : c.preview,
                     if (timestamp.isNotEmpty) timestamp,
-                    if (unread) '${c.unreadCount} unread messages',
+                    if (unread) context.l10n.unreadMessages(c.unreadCount),
                   ].join(', '),
                   button: true,
                   excludeSemantics: true,
@@ -246,8 +256,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (c.type == 'match')
-                          const Text(
-                            'Match Chat',
+                          Text(
+                            context.l10n.matchChat,
                             style: TextStyle(
                               color: Color(0xFF72F58B),
                               fontSize: 12,
@@ -258,7 +268,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                             Expanded(
                               child: Text(
                                 c.preview.isEmpty
-                                    ? 'No messages yet'
+                                    ? context.l10n.noMessagesYet
                                     : c.preview,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -304,7 +314,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 TextButton(
                   key: const Key('load-older-conversations'),
                   onPressed: _loadingOlder ? null : _loadOlder,
-                  child: Text(_loadingOlder ? 'Loading…' : 'Load older'),
+                  child: Text(
+                    _loadingOlder
+                        ? context.l10n.loadingEllipsis
+                        : context.l10n.loadOlder,
+                  ),
                 ),
             ],
           ),

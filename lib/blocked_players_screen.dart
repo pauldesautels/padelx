@@ -4,6 +4,7 @@ import 'friends.dart';
 import 'friends_repository.dart';
 import 'level.dart';
 import 'profile_avatar.dart';
+import 'l10n/l10n.dart';
 
 class BlockedPlayersScreen extends StatefulWidget {
   final FriendsRepository repository;
@@ -64,18 +65,14 @@ class _BlockedPlayersScreenState extends State<BlockedPlayersScreen> {
       await widget.repository.unblock(player.uid);
       if (!mounted) return;
       setState(() => _players.removeWhere((item) => item.uid == player.uid));
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Player unblocked. Friendship is not restored automatically.',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.unblockedNotice)));
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('This social action is unavailable.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.socialUnavailable)));
       }
     } finally {
       if (mounted) setState(() => _unblocking.remove(player.uid));
@@ -84,7 +81,7 @@ class _BlockedPlayersScreenState extends State<BlockedPlayersScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Blocked Players')),
+    appBar: AppBar(title: Text(context.l10n.blockedPlayers)),
     body: _players.isEmpty && _loading
         ? const Center(child: CircularProgressIndicator())
         : _players.isEmpty && _error != null
@@ -94,18 +91,18 @@ class _BlockedPlayersScreenState extends State<BlockedPlayersScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Blocked players are unavailable right now.'),
+                  Text(context.l10n.blockedPlayersUnavailable),
                   const SizedBox(height: 12),
                   OutlinedButton(
                     onPressed: () => _load(reset: true),
-                    child: const Text('Try Again'),
+                    child: Text(context.l10n.tryAgain),
                   ),
                 ],
               ),
             ),
           )
         : _players.isEmpty
-        ? const Center(child: Text('You have not blocked any players.'))
+        ? Center(child: Text(context.l10n.noBlockedPlayers))
         : ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: _players.length + (_hasMore ? 1 : 0),
@@ -115,7 +112,11 @@ class _BlockedPlayersScreenState extends State<BlockedPlayersScreen> {
                   child: TextButton(
                     key: const Key('blocked-players-load-more'),
                     onPressed: _loading ? null : _load,
-                    child: Text(_loading ? 'Loading…' : 'Load more'),
+                    child: Text(
+                      _loading
+                          ? context.l10n.loadingEllipsis
+                          : context.l10n.loadMore,
+                    ),
                   ),
                 );
               }
@@ -137,15 +138,19 @@ class _BlockedPlayersScreenState extends State<BlockedPlayersScreen> {
                 title: Text(player.displayName),
                 subtitle: Text(
                   player.unavailable
-                      ? 'Profile unavailable'
+                      ? context.l10n.profileUnavailable
                       : player.level.isEmpty
-                      ? 'Level not set'
+                      ? context.l10n.levelNotSet
                       : padelLevelLabel(player.level),
                 ),
                 trailing: OutlinedButton(
                   key: ValueKey('unblock-${player.uid}'),
                   onPressed: busy ? null : () => _unblock(player),
-                  child: Text(busy ? 'Unblocking…' : 'Unblock'),
+                  child: Text(
+                    busy
+                        ? context.l10n.unblockingEllipsis
+                        : context.l10n.unblock,
+                  ),
                 ),
               );
             },

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'branding.dart';
+import 'l10n/l10n.dart';
 
 typedef StartupInitializer =
     Future<void> Function(ValueChanged<double> reportProgress);
@@ -159,7 +160,9 @@ class _BrandedStartupScreenState extends State<BrandedStartupScreen>
       body: SafeArea(
         child: Center(
           child: Semantics(
-            label: widget.failed ? 'PadelX startup failed' : 'PadelX loading',
+            label: widget.failed
+                ? context.l10n.startupFailed
+                : context.l10n.startupLoadingSemantics,
             value: '${(widget.progress * 100).round()} percent',
             liveRegion: true,
             child: Padding(
@@ -200,16 +203,16 @@ class _BrandedStartupScreenState extends State<BrandedStartupScreen>
                   ),
                   const SizedBox(height: 34),
                   if (widget.failed) ...[
-                    const Text(
-                      'PadelX could not start.',
-                      style: TextStyle(
+                    Text(
+                      context.l10n.startupFailed,
+                      style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Check your connection and try again.',
+                    Text(
+                      context.l10n.connectionRetry,
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white70),
                     ),
@@ -219,7 +222,7 @@ class _BrandedStartupScreenState extends State<BrandedStartupScreen>
                       child: FilledButton(
                         key: const Key('startup-retry'),
                         onPressed: widget.onRetry,
-                        child: const Text('Try Again'),
+                        child: Text(context.l10n.tryAgain),
                       ),
                     ),
                   ] else ...[
@@ -234,10 +237,10 @@ class _BrandedStartupScreenState extends State<BrandedStartupScreen>
                       ),
                     ),
                     const SizedBox(height: 13),
-                    const ExcludeSemantics(
+                    ExcludeSemantics(
                       child: Text(
-                        'LOADING PADELX',
-                        style: TextStyle(
+                        context.l10n.loadingPadelX,
+                        style: const TextStyle(
                           color: Colors.white60,
                           fontSize: 11,
                           letterSpacing: 3,

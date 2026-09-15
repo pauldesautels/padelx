@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'location.dart';
 import 'places.dart';
+import 'l10n/l10n.dart';
 
 class PlacesAutocompleteField extends StatefulWidget {
   final String labelText;
@@ -116,7 +117,7 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
         debugPrint('Place autocomplete failed: $error\n$stackTrace');
         setState(() {
           _predictions = const [];
-          _error = 'Location suggestions are temporarily unavailable.';
+          _error = context.l10n.locationSuggestionsUnavailable;
         });
       } finally {
         if (mounted && request == _requestNumber) {
@@ -151,7 +152,7 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
       debugPrint('Place details failed: $error\n$stackTrace');
       if (mounted) {
         messenger.showSnackBar(
-          const SnackBar(content: Text('Could not load that location.')),
+          SnackBar(content: Text(context.l10n.loadLocationFailed)),
         );
       }
     } finally {

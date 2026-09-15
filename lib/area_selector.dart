@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'location.dart';
 import 'places.dart';
 import 'places_autocomplete.dart';
+import 'l10n/l10n.dart';
 
 class AreaSelection {
   final String id;
@@ -102,14 +103,14 @@ class _AreaPicker extends StatelessWidget {
             children: [
               IconButton(
                 key: const Key('area-selector-cancel'),
-                tooltip: 'Close area selector',
+                tooltip: context.l10n.closeAreaSelector,
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
               ),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  'Choose an area in ${location.city}',
+                  context.l10n.chooseAreaIn(location.city),
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
@@ -118,7 +119,7 @@ class _AreaPicker extends StatelessWidget {
           ListTile(
             key: const Key('area-selector-any'),
             leading: const Icon(Icons.public_outlined),
-            title: const Text('Any area'),
+            title: Text(context.l10n.anyArea),
             trailing: currentValue.trim().isEmpty
                 ? const Icon(Icons.check)
                 : null,
@@ -129,20 +130,23 @@ class _AreaPicker extends StatelessWidget {
           if (client.isConfigured)
             PlacesAutocompleteField(
               key: const Key('area-places-autocomplete'),
-              labelText: 'Search areas',
-              hintText: 'Neighborhood or area',
+              labelText: context.l10n.searchAreas,
+              hintText: context.l10n.neighborhoodArea,
               client: client,
               areasOnly: true,
               countryCode: location.countryCode,
               biasLatitude: location.latitude,
               biasLongitude: location.longitude,
-              emptyMessage: 'No areas found.',
+              emptyMessage: context.l10n.noAreasFound,
               onSelected: (candidate) {
                 if (!isAreaInDiscoveryLocation(candidate, location)) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        'Choose an area in ${location.city}, ${location.countryCode.toUpperCase()}.',
+                        context.l10n.chooseAreaInCountry(
+                          location.city,
+                          location.countryCode.toUpperCase(),
+                        ),
                       ),
                     ),
                   );
@@ -160,15 +164,15 @@ class _AreaPicker extends StatelessWidget {
           else
             Semantics(
               liveRegion: true,
-              child: const Text(
-                'Area suggestions are unavailable. You can choose Any area.',
+              child: Text(
+                context.l10n.areaSuggestionsUnavailable,
                 key: Key('area-selector-unavailable'),
               ),
             ),
           if (currentValue.trim().isNotEmpty) ...[
             const SizedBox(height: 12),
             Text(
-              'Current area: ${currentValue.trim()}',
+              context.l10n.currentArea(currentValue.trim()),
               key: const Key('area-selector-current'),
               style: Theme.of(context).textTheme.bodySmall,
             ),

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'branding.dart';
 import 'account_access.dart';
+import 'l10n/l10n.dart';
 
 const ageEligibilityVersion = '18-plus-v1';
 
@@ -163,8 +164,7 @@ class _AgeEligibilityScreenState extends State<AgeEligibilityScreen> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _error =
-              'Could not confirm eligibility. Check your connection and try again.';
+          _error = context.l10n.eligibilityConfirmFailed;
         });
       }
     }
@@ -192,14 +192,14 @@ class _AgeEligibilityScreenState extends State<AgeEligibilityScreen> {
                 children: [
                   const PadelXBrandMark(size: 64),
                   const SizedBox(height: 20),
-                  const Text(
-                    'PadelX is for adults 18 and older.',
+                  Text(
+                    context.l10n.adultOnly,
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 10),
-                  const Text(
-                    'To continue, confirm that you are at least 18 years old.',
+                  Text(
+                    context.l10n.ageRequired,
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white70),
                   ),
@@ -215,9 +215,7 @@ class _AgeEligibilityScreenState extends State<AgeEligibilityScreen> {
                                 setState(() => _confirmed = value == true),
                       contentPadding: EdgeInsets.zero,
                       controlAffinity: ListTileControlAffinity.leading,
-                      title: const Text(
-                        'I confirm that I am 18 years of age or older.',
-                      ),
+                      title: Text(context.l10n.ageConfirmation),
                     ),
                   ),
                   if (_error != null) ...[
@@ -241,7 +239,11 @@ class _AgeEligibilityScreenState extends State<AgeEligibilityScreen> {
                         backgroundColor: padelXAuthPrimary,
                         foregroundColor: Colors.white,
                       ),
-                      child: Text(_busy ? 'Confirming...' : 'Continue'),
+                      child: Text(
+                        _busy
+                            ? context.l10n.confirmingEllipsis
+                            : context.l10n.continueLabel,
+                      ),
                     ),
                   ),
                   if (widget.onSignOut != null) ...[
@@ -249,7 +251,7 @@ class _AgeEligibilityScreenState extends State<AgeEligibilityScreen> {
                     TextButton(
                       key: const Key('age-eligibility-sign-out'),
                       onPressed: _busy ? null : widget.onSignOut,
-                      child: const Text('Sign Out'),
+                      child: Text(context.l10n.signOut),
                     ),
                   ],
                 ],
@@ -283,27 +285,24 @@ class EligibilityLoadErrorScreen extends StatelessWidget {
           children: [
             const Icon(Icons.cloud_off_outlined, size: 48),
             const SizedBox(height: 16),
-            const Text(
-              'Could not check age eligibility.',
+            Text(
+              context.l10n.ageCheckFailed,
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Check your connection and try again.',
-              textAlign: TextAlign.center,
-            ),
+            Text(context.l10n.connectionRetry, textAlign: TextAlign.center),
             const SizedBox(height: 20),
             FilledButton(
               key: const Key('age-eligibility-retry'),
               onPressed: onRetry,
-              child: const Text('Try Again'),
+              child: Text(context.l10n.tryAgain),
             ),
             if (onSignOut != null)
               TextButton(
                 key: const Key('age-eligibility-error-sign-out'),
                 onPressed: onSignOut,
-                child: const Text('Sign Out'),
+                child: Text(context.l10n.signOut),
               ),
           ],
         ),

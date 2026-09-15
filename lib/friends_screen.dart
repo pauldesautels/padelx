@@ -7,6 +7,7 @@ import 'friends.dart';
 import 'friends_repository.dart';
 import 'played_with.dart';
 import 'profile_avatar.dart';
+import 'l10n/l10n.dart';
 
 class FriendAction extends StatefulWidget {
   final String targetUid;
@@ -81,9 +82,9 @@ class _FriendActionState extends State<FriendAction> {
 
   void _showUnavailable() {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This social action is unavailable.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.socialUnavailable)));
     }
   }
 
@@ -101,7 +102,7 @@ class _FriendActionState extends State<FriendAction> {
             TextButton(
               key: const Key('cancel-social-confirmation'),
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
+              child: Text(context.l10n.cancel),
             ),
             FilledButton(
               key: const Key('confirm-social-action'),
@@ -122,10 +123,10 @@ class _FriendActionState extends State<FriendAction> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const ListTile(
+            ListTile(
               title: Text(
-                'Relationship actions',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                context.l10n.relationshipActions,
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
             if (canUnfriend)
@@ -133,10 +134,8 @@ class _FriendActionState extends State<FriendAction> {
                 key: const Key('unfriend-action'),
                 minVerticalPadding: 14,
                 leading: const Icon(Icons.person_remove_outlined),
-                title: const Text('Unfriend'),
-                subtitle: const Text(
-                  'End this friendship and direct social connection',
-                ),
+                title: Text(context.l10n.unfriend),
+                subtitle: Text(context.l10n.endFriendship),
                 onTap: () => Navigator.pop(sheetContext, 'unfriend'),
               ),
             ListTile(
@@ -146,10 +145,8 @@ class _FriendActionState extends State<FriendAction> {
                 Icons.block_outlined,
                 color: Theme.of(sheetContext).colorScheme.error,
               ),
-              title: const Text('Block player'),
-              subtitle: const Text(
-                'Prevent normal social discovery and contact',
-              ),
+              title: Text(context.l10n.blockPlayer),
+              subtitle: Text(context.l10n.preventSocialContact),
               onTap: () => Navigator.pop(sheetContext, 'block'),
             ),
             if (widget.onReport != null)
@@ -157,8 +154,8 @@ class _FriendActionState extends State<FriendAction> {
                 key: const Key('report-player-action'),
                 minVerticalPadding: 14,
                 leading: const Icon(Icons.flag_outlined),
-                title: const Text('Report player'),
-                subtitle: const Text('Send a private safety report'),
+                title: Text(context.l10n.reportPlayer),
+                subtitle: Text(context.l10n.sendPrivateReport),
                 onTap: () => Navigator.pop(sheetContext, 'report'),
               ),
             const SizedBox(height: 8),
@@ -173,9 +170,9 @@ class _FriendActionState extends State<FriendAction> {
     }
     if (action == 'unfriend') {
       final confirmed = await _confirmAction(
-        title: 'Unfriend this player?',
-        message: 'Your friendship and direct social connection will end.',
-        actionLabel: 'Unfriend',
+        title: context.l10n.unfriendQuestion,
+        message: context.l10n.unfriendExplanation,
+        actionLabel: context.l10n.unfriend,
       );
       if (confirmed && mounted) {
         await _run(
@@ -186,11 +183,11 @@ class _FriendActionState extends State<FriendAction> {
       return;
     }
     final confirmed = await _confirmAction(
-      title: 'Block this player?',
+      title: context.l10n.blockThisPlayer,
       message: canUnfriend
-          ? 'Your friendship will be removed and normal social discovery and contact will be prevented. Shared-match access still follows match membership.'
-          : 'Normal social discovery and contact with this player will be prevented. Shared-match access still follows match membership.',
-      actionLabel: 'Block player',
+          ? context.l10n.friendBlockExplanation
+          : context.l10n.nonFriendBlockExplanation,
+      actionLabel: context.l10n.blockPlayer,
     );
     if (confirmed && mounted) {
       await _run('block', () => widget.repository.block(widget.targetUid));
@@ -251,7 +248,7 @@ class _FriendActionState extends State<FriendAction> {
                   () => widget.repository.unblock(widget.targetUid),
                 ),
           icon: const Icon(Icons.lock_open_outlined),
-          label: const Text('Unblock'),
+          label: Text(context.l10n.unblock),
         );
       }
       if (policy.status == 'accepted') {
@@ -261,7 +258,7 @@ class _FriendActionState extends State<FriendAction> {
               ? null
               : () => _showRelationshipActions(canUnfriend: true),
           icon: const Icon(Icons.people_outline),
-          label: const Text('Friends'),
+          label: Text(context.l10n.friends),
         );
       }
       if (policy.direction == FriendDirection.incoming) {
@@ -277,7 +274,7 @@ class _FriendActionState extends State<FriendAction> {
                       'respondToFriendRequest',
                       () => widget.repository.respond(widget.targetUid, true),
                     ),
-              child: const Text('Accept'),
+              child: Text(context.l10n.accept),
             ),
             OutlinedButton(
               key: const Key('decline-friend'),
@@ -287,7 +284,7 @@ class _FriendActionState extends State<FriendAction> {
                       'respondToFriendRequest',
                       () => widget.repository.respond(widget.targetUid, false),
                     ),
-              child: const Text('Decline'),
+              child: Text(context.l10n.decline),
             ),
             if (widget.onReport != null)
               OutlinedButton.icon(
@@ -296,7 +293,7 @@ class _FriendActionState extends State<FriendAction> {
                     ? null
                     : () => _showRelationshipActions(canUnfriend: false),
                 icon: const Icon(Icons.more_horiz),
-                label: const Text('More actions'),
+                label: Text(context.l10n.moreActions),
               ),
           ],
         );
@@ -314,7 +311,7 @@ class _FriendActionState extends State<FriendAction> {
                       'cancelFriendRequest',
                       () => widget.repository.cancel(widget.targetUid),
                     ),
-              child: const Text('Requested'),
+              child: Text(context.l10n.requested),
             ),
             if (widget.onReport != null)
               OutlinedButton.icon(
@@ -323,7 +320,7 @@ class _FriendActionState extends State<FriendAction> {
                     ? null
                     : () => _showRelationshipActions(canUnfriend: false),
                 icon: const Icon(Icons.more_horiz),
-                label: const Text('More actions'),
+                label: Text(context.l10n.moreActions),
               ),
           ],
         );
@@ -341,7 +338,7 @@ class _FriendActionState extends State<FriendAction> {
                     reconcileAddFriend: true,
                   ),
             icon: const Icon(Icons.person_add_alt_1),
-            label: const Text('Add Friend'),
+            label: Text(context.l10n.addFriend),
           ),
           OutlinedButton.icon(
             key: const Key('more-social-actions'),
@@ -349,7 +346,7 @@ class _FriendActionState extends State<FriendAction> {
                 ? null
                 : () => _showRelationshipActions(canUnfriend: false),
             icon: const Icon(Icons.more_horiz),
-            label: const Text('More actions'),
+            label: Text(context.l10n.moreActions),
           ),
         ],
       );
@@ -466,7 +463,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Friends')),
+    appBar: AppBar(title: Text(context.l10n.friends)),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -565,19 +562,23 @@ class _FriendSectionState extends State<_FriendSection> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(
-        widget.section.title,
+        widget.section.direction == FriendDirection.incoming
+            ? context.l10n.incomingRequests
+            : widget.section.direction == FriendDirection.outgoing
+            ? context.l10n.outgoingRequests
+            : context.l10n.acceptedFriends,
         style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold),
       ),
       const SizedBox(height: 8),
       if (views.isEmpty && loading)
         const LinearProgressIndicator()
       else if (views.isEmpty && error != null)
-        TextButton(onPressed: _load, child: const Text('Try Again'))
+        TextButton(onPressed: _load, child: Text(context.l10n.tryAgain))
       else if (views.isEmpty)
         Text(
           widget.section.status == 'accepted'
-              ? 'No friends yet.'
-              : 'No requests.',
+              ? context.l10n.noFriendsYet
+              : context.l10n.noRequests,
         )
       else
         ...views.map((view) {
@@ -596,8 +597,8 @@ class _FriendSectionState extends State<_FriendSection> {
               title: Text(profile.displayName),
               subtitle: Text(
                 profile.level.isEmpty
-                    ? 'Level not set'
-                    : 'Level ${profile.level}',
+                    ? context.l10n.levelNotSet
+                    : context.l10n.levelValue(profile.level),
               ),
               trailing: FriendAction(
                 targetUid: view.otherUid,
@@ -611,7 +612,9 @@ class _FriendSectionState extends State<_FriendSection> {
         TextButton(
           key: Key('friends-load-more-${widget.section.title}'),
           onPressed: loading ? null : _load,
-          child: Text(loading ? 'Loading…' : 'Load more'),
+          child: Text(
+            loading ? context.l10n.loadingEllipsis : context.l10n.loadMore,
+          ),
         ),
       const SizedBox(height: 24),
     ],

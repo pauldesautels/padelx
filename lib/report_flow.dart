@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'report_repository.dart';
 import 'reporting.dart';
+import 'l10n/l10n.dart';
 
 const reportDetailsLimit = 500;
 
@@ -35,19 +36,19 @@ Future<void> showReportFlow({
     barrierDismissible: false,
     builder: (successContext) => AlertDialog(
       key: const Key('report-success-dialog'),
-      title: const Text('Report submitted'),
-      content: const Text('Thanks for helping keep PadelX safe.'),
+      title: Text(context.l10n.reportSubmitted),
+      content: Text(context.l10n.thanksForSafety),
       actions: [
         TextButton(
           key: const Key('report-success-done'),
           onPressed: () => Navigator.pop(successContext, 'done'),
-          child: const Text('Done'),
+          child: Text(context.l10n.done),
         ),
         if (onBlockPlayer != null)
           FilledButton(
             key: const Key('report-success-block'),
             onPressed: () => Navigator.pop(successContext, 'block'),
-            child: const Text('Block player'),
+            child: Text(context.l10n.blockPlayer),
           ),
       ],
     ),
@@ -56,23 +57,23 @@ Future<void> showReportFlow({
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (confirmationContext) => AlertDialog(
-      title: const Text('Block this player?'),
+      title: Text(context.l10n.blockThisPlayer),
       content: Text(
         sharedMatchBlockCopy
-            ? 'Blocking prevents normal social discovery and contact. Shared-match access still follows match membership.'
+            ? context.l10n.sharedMatchBlockExplanation
             : friendshipWillBeRemoved
-            ? 'Your friendship will be removed and normal social discovery and contact will be prevented. Shared-match access still follows match membership.'
-            : 'Normal social discovery and contact with this player will be prevented. Shared-match access still follows match membership.',
+            ? context.l10n.friendBlockExplanation
+            : context.l10n.nonFriendBlockExplanation,
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(confirmationContext, false),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.cancel),
         ),
         FilledButton(
           key: const Key('confirm-report-block'),
           onPressed: () => Navigator.pop(confirmationContext, true),
-          child: const Text('Block player'),
+          child: Text(context.l10n.blockPlayer),
         ),
       ],
     ),
@@ -83,13 +84,13 @@ Future<void> showReportFlow({
     if (context.mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Player blocked.')));
+      ).showSnackBar(SnackBar(content: Text(context.l10n.playerBlocked)));
     }
   } catch (_) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Player could not be blocked.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.playerBlockFailed)));
     }
   }
 }
@@ -122,18 +123,16 @@ class _ReportDialogState extends State<ReportDialog> {
   ReportFailureKind? _failure;
   bool _submitting = false;
 
-  String get _subjectName => switch (widget.subjectType) {
-    ReportSubjectType.player => 'player',
-    ReportSubjectType.message => 'message',
-    ReportSubjectType.match => 'match',
+  String _subjectName(BuildContext context) => switch (widget.subjectType) {
+    ReportSubjectType.player => context.l10n.player.toLowerCase(),
+    ReportSubjectType.message => context.l10n.message.toLowerCase(),
+    ReportSubjectType.match => context.l10n.matches.toLowerCase(),
   };
 
-  String get _failureMessage => switch (_failure) {
-    ReportFailureKind.alreadyReported => 'You already reported this.',
-    ReportFailureKind.rateLimited =>
-      'You’ve submitted several reports recently. Please try again later.',
-    ReportFailureKind.generic ||
-    null => 'Report could not be submitted. Please try again.',
+  String _failureMessage(BuildContext context) => switch (_failure) {
+    ReportFailureKind.alreadyReported => context.l10n.reportAlreadySubmitted,
+    ReportFailureKind.rateLimited => context.l10n.reportRateLimited,
+    ReportFailureKind.generic || null => context.l10n.reportFailed,
   };
 
   @override
@@ -177,7 +176,7 @@ class _ReportDialogState extends State<ReportDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     key: const Key('report-dialog'),
-    title: Text('Report $_subjectName'),
+    title: Text(context.l10n.reportSubject(_subjectName(context))),
     content: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 420),
       child: SingleChildScrollView(
@@ -192,7 +191,7 @@ class _ReportDialogState extends State<ReportDialog> {
               ),
               const SizedBox(height: 8),
             ],
-            const Text('Why are you reporting this?'),
+            Text(context.l10n.whyReporting),
             const SizedBox(height: 4),
             RadioGroup<ReportReason>(
               groupValue: _reason,
@@ -209,7 +208,19 @@ class _ReportDialogState extends State<ReportDialog> {
                         key: Key('report-reason-${reason.value}'),
                         value: reason,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(reason.label),
+                        title: Text(switch (reason) {
+                          ReportReason.harassmentBullying =>
+                            context.l10n.harassmentBullying,
+                          ReportReason.hateAbuse => context.l10n.hateAbuse,
+                          ReportReason.sexualInappropriate =>
+                            context.l10n.sexualInappropriate,
+                          ReportReason.threatsUnsafeBehavior =>
+                            context.l10n.threatsUnsafe,
+                          ReportReason.spamScam => context.l10n.spamScam,
+                          ReportReason.impersonation =>
+                            context.l10n.impersonation,
+                          ReportReason.other => context.l10n.other,
+                        }),
                         enabled: !_submitting,
                       ),
                     )
@@ -224,17 +235,17 @@ class _ReportDialogState extends State<ReportDialog> {
               maxLength: reportDetailsLimit,
               maxLines: 4,
               minLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Additional details (optional)',
+              decoration: InputDecoration(
+                labelText: context.l10n.additionalDetails,
                 alignLabelWithHint: true,
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
               ),
             ),
             if (_failure != null)
               Semantics(
                 liveRegion: true,
                 child: Text(
-                  _failureMessage,
+                  _failureMessage(context),
                   key: const Key('report-error'),
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
@@ -247,7 +258,7 @@ class _ReportDialogState extends State<ReportDialog> {
       TextButton(
         key: const Key('cancel-report'),
         onPressed: _submitting ? null : () => Navigator.pop(context, false),
-        child: const Text('Cancel'),
+        child: Text(context.l10n.cancel),
       ),
       FilledButton(
         key: const Key('submit-report'),
@@ -257,7 +268,7 @@ class _ReportDialogState extends State<ReportDialog> {
                 dimension: 20,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Text('Submit'),
+            : Text(context.l10n.submit),
       ),
     ],
   );

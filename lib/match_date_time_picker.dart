@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'l10n/l10n.dart';
 
 typedef MatchDateTimePicker =
     Future<DateTime?> Function(
@@ -39,13 +40,13 @@ Future<DateTime?> showAdaptiveMatchDateTimePicker(
                   Expanded(
                     child: TextButton(
                       onPressed: () => Navigator.pop(sheetContext),
-                      child: const Text('Cancel'),
+                      child: Text(sheetContext.l10n.cancel),
                     ),
                   ),
-                  const Expanded(
+                  Expanded(
                     flex: 2,
                     child: Text(
-                      'Choose date and time',
+                      sheetContext.l10n.chooseDateTime,
                       textAlign: TextAlign.center,
                       maxLines: 2,
                     ),
@@ -53,7 +54,7 @@ Future<DateTime?> showAdaptiveMatchDateTimePicker(
                   Expanded(
                     child: TextButton(
                       onPressed: () => Navigator.pop(sheetContext, selected),
-                      child: const Text('Done'),
+                      child: Text(sheetContext.l10n.done),
                     ),
                   ),
                 ],

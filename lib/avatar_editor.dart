@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'avatar_repository.dart';
 import 'profile_avatar.dart';
+import 'l10n/l10n.dart';
 
 class AvatarEditor extends StatefulWidget {
   final String uid;
@@ -127,24 +128,28 @@ class _AvatarEditorState extends State<AvatarEditor> {
             key: const Key('choose-avatar'),
             onPressed: _busy ? null : _choose,
             icon: const Icon(Icons.photo_library_outlined),
-            label: Text(_preview == null ? 'Choose photo' : 'Choose another'),
+            label: Text(
+              _preview == null
+                  ? context.l10n.choosePhoto
+                  : context.l10n.chooseAnotherPhoto,
+            ),
           ),
           if (_preview != null)
             FilledButton(
               key: const Key('upload-avatar'),
               onPressed: _busy ? null : _upload,
-              child: const Text('Use photo'),
+              child: Text(context.l10n.usePhoto),
             ),
           if (_preview == null && widget.avatarVersion > 0)
             TextButton(
               key: const Key('remove-avatar'),
               onPressed: _busy ? null : _remove,
-              child: const Text('Remove'),
+              child: Text(context.l10n.remove),
             ),
         ],
       ),
-      const Text(
-        'Photos are center-cropped and saved as a 512×512 JPEG.',
+      Text(
+        context.l10n.photoCropHelp,
         style: TextStyle(color: Colors.white60, fontSize: 12),
         textAlign: TextAlign.center,
       ),

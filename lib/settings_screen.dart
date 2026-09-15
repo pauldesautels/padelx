@@ -7,6 +7,7 @@ import 'safety_policy.dart';
 import 'legal.dart';
 import 'l10n/app_localizations.dart';
 import 'locale_controller.dart';
+import 'l10n/l10n.dart';
 
 class SettingsScreen extends StatelessWidget {
   final FriendsRepository friendsRepository;
@@ -39,11 +40,11 @@ class SettingsScreen extends StatelessWidget {
             const PadelXLanguageSettingsTile(),
             const Divider(),
           ],
-          const _SettingsHeader('Account'),
+          _SettingsHeader(context.l10n.account),
           ListTile(
             key: const Key('settings-account'),
             leading: const Icon(Icons.manage_accounts_outlined),
-            title: const Text('Account'),
+            title: Text(context.l10n.account),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(
               context,
@@ -54,12 +55,12 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const Divider(),
-          const _SettingsHeader('Notifications'),
+          _SettingsHeader(context.l10n.notifications),
           ListTile(
             key: const Key('settings-notifications'),
             leading: const Icon(Icons.notifications_outlined),
-            title: const Text('Notifications'),
-            subtitle: const Text('Push permission and notification categories'),
+            title: Text(context.l10n.notifications),
+            subtitle: Text(context.l10n.pushPermissionCategories),
             trailing: const Icon(Icons.chevron_right),
             onTap:
                 currentUid.isEmpty ||
@@ -78,12 +79,12 @@ class SettingsScreen extends StatelessWidget {
                   ),
           ),
           const Divider(),
-          const _SettingsHeader('Help & Safety'),
+          _SettingsHeader(context.l10n.helpSafety),
           ListTile(
             key: const Key('settings-help-safety'),
             leading: const Icon(Icons.health_and_safety_outlined),
-            title: const Text('Help & Safety'),
-            subtitle: const Text('Reporting, blocking, and age eligibility'),
+            title: Text(context.l10n.helpSafety),
+            subtitle: Text(context.l10n.reportingBlockingAge),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(
               context,
@@ -94,12 +95,12 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const Divider(),
-          const _SettingsHeader('Privacy'),
+          _SettingsHeader(context.l10n.privacy),
           ListTile(
             key: const Key('settings-blocked-players'),
             leading: const Icon(Icons.block_outlined),
-            title: const Text('Blocked Players'),
-            subtitle: const Text('Review and unblock players'),
+            title: Text(context.l10n.blockedPlayers),
+            subtitle: Text(context.l10n.reviewUnblock),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(
               context,
@@ -110,18 +111,18 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const Divider(),
-          const _SettingsHeader('Legal'),
-          for (final entry in const [
-            ('settings-terms', 'Terms of Use', '/terms'),
-            ('settings-privacy', 'Privacy Policy', '/privacy'),
+          _SettingsHeader(context.l10n.legal),
+          for (final entry in [
+            ('settings-terms', context.l10n.termsOfUse, '/terms'),
+            ('settings-privacy', context.l10n.privacyPolicy, '/privacy'),
             (
               'settings-community-legal',
-              'Community Guidelines',
+              context.l10n.communityGuidelines,
               '/community-guidelines',
             ),
             (
               'settings-account-deletion-info',
-              'Account Deletion',
+              context.l10n.accountDeletionInfo,
               '/account-deletion',
             ),
           ])
@@ -163,7 +164,7 @@ class HelpSafetyScreen extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Could not open your email app. You can contact us at ${supportConfiguration.displayLabel}.',
+            context.l10n.emailAppFailed(supportConfiguration.displayLabel),
           ),
         ),
       );
@@ -172,43 +173,37 @@ class HelpSafetyScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Help & Safety')),
+    appBar: AppBar(title: Text(context.l10n.helpSafety)),
     body: ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       children: [
         Semantics(
           header: true,
-          child: const Text(
-            'Safety',
+          child: Text(
+            context.l10n.safety,
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
         ),
         const SizedBox(height: 12),
-        const ListTile(
-          leading: Icon(Icons.person_outline),
-          title: Text('How to report a player'),
-          subtitle: Text(
-            'Open the player’s profile, tap More actions, then Report player.',
-          ),
+        ListTile(
+          leading: const Icon(Icons.person_outline),
+          title: Text(context.l10n.howReportPlayer),
+          subtitle: Text(context.l10n.openReportPlayerHelp),
         ),
-        const ListTile(
-          leading: Icon(Icons.chat_bubble_outline),
-          title: Text('How to report a message'),
-          subtitle: Text(
-            'Press and hold a message from another player, then choose Report message.',
-          ),
+        ListTile(
+          leading: const Icon(Icons.chat_bubble_outline),
+          title: Text(context.l10n.howReportMessage),
+          subtitle: Text(context.l10n.pressHoldReport),
         ),
-        const ListTile(
-          leading: Icon(Icons.sports_tennis_outlined),
-          title: Text('How to report a match'),
-          subtitle: Text(
-            'Open Match Details, then choose Report match from the safety actions.',
-          ),
+        ListTile(
+          leading: const Icon(Icons.sports_tennis_outlined),
+          title: Text(context.l10n.howReportMatch),
+          subtitle: Text(context.l10n.openReportMatchHelp),
         ),
         ListTile(
           key: const Key('help-safety-blocked-players'),
           leading: const Icon(Icons.block_outlined),
-          title: const Text('Blocked Players'),
+          title: Text(context.l10n.blockedPlayers),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.push(
             context,
@@ -221,50 +216,50 @@ class HelpSafetyScreen extends StatelessWidget {
         const Divider(height: 36),
         Semantics(
           header: true,
-          child: const Text(
-            '18+ eligibility',
+          child: Text(
+            context.l10n.ageEligibility,
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
         ),
         const SizedBox(height: 10),
-        const Text('PadelX is for adults 18 and older.'),
+        Text(context.l10n.adultOnly),
         const Divider(height: 36),
         Semantics(
           header: true,
-          child: const Text(
-            'Support & Safety',
+          child: Text(
+            context.l10n.supportSafety,
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
         ),
         const SizedBox(height: 10),
-        const Text('Need help or want to report a safety concern?'),
+        Text(context.l10n.needHelp),
         const SizedBox(height: 8),
         if (supportConfiguration.mailtoUri != null)
           ListTile(
             key: const Key('contact-padelx-support'),
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.email_outlined),
-            title: const Text('Contact PadelX Support'),
+            title: Text(context.l10n.contactSupport),
             subtitle: Text(supportConfiguration.displayLabel),
             onTap: () => _contactSupport(context),
           ),
         const SizedBox(height: 12),
         Semantics(
-          label: 'Emergency safety guidance',
-          child: const Card(
+          label: context.l10n.emergencySafetyGuidanceLabel,
+          child: Card(
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Immediate danger',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    context.l10n.immediateDanger,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   SizedBox(height: 6),
-                  Text(emergencySafetyGuidance),
+                  Text(context.l10n.immediateDangerBody),
                   SizedBox(height: 6),
-                  Text(notEmergencyServiceGuidance),
+                  Text(context.l10n.notEmergencyService),
                 ],
               ),
             ),
@@ -275,8 +270,8 @@ class HelpSafetyScreen extends StatelessWidget {
           key: const Key('help-safety-community-guidelines'),
           contentPadding: EdgeInsets.zero,
           leading: const Icon(Icons.gavel_outlined),
-          title: const Text('Community Guidelines'),
-          subtitle: const Text('Safety expectations for the PadelX beta'),
+          title: Text(context.l10n.communityGuidelines),
+          subtitle: Text(context.l10n.safetyExpectations),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.push(
             context,
@@ -316,7 +311,7 @@ class CommunityGuidelinesScreen extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Could not open your email app. You can contact us at ${supportConfiguration.displayLabel}.',
+            context.l10n.emailAppFailed(supportConfiguration.displayLabel),
           ),
         ),
       );
@@ -325,12 +320,14 @@ class CommunityGuidelinesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Community Guidelines')),
+    appBar: AppBar(title: Text(context.l10n.communityGuidelines)),
     body: ListView(
       key: const Key('community-guidelines-list'),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       children: [
-        for (final section in communityGuidelineSections) ...[
+        for (final section in localizedCommunityGuidelineSections(
+          context.l10n,
+        )) ...[
           Semantics(
             header: true,
             child: Text(
@@ -348,7 +345,7 @@ class CommunityGuidelinesScreen extends StatelessWidget {
         Semantics(
           header: true,
           child: Text(
-            'Questions or safety concerns',
+            context.l10n.questionsSafety,
             style: Theme.of(context).textTheme.titleLarge,
           ),
         ),
@@ -364,14 +361,14 @@ class CommunityGuidelinesScreen extends StatelessWidget {
         Semantics(
           header: true,
           child: Text(
-            'Emergency',
+            context.l10n.emergency,
             style: Theme.of(context).textTheme.titleLarge,
           ),
         ),
         const SizedBox(height: 6),
-        const Text(emergencySafetyGuidance),
+        Text(context.l10n.immediateDangerBody),
         const SizedBox(height: 6),
-        const Text(notEmergencyServiceGuidance),
+        Text(context.l10n.notEmergencyService),
       ],
     ),
   );
@@ -421,19 +418,16 @@ class _NotificationSettingsScreenState
         final permission = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Enable push notifications?'),
-            content: const Text(
-              'PadelX will ask iOS for permission and register this device. '
-              'You can change individual categories at any time.',
-            ),
+            title: Text(context.l10n.enablePushQuestion),
+            content: Text(context.l10n.pushPermissionExplanation),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Not now'),
+                child: Text(context.l10n.notNow),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Continue'),
+                child: Text(context.l10n.continueLabel),
               ),
             ],
           ),
@@ -442,25 +436,18 @@ class _NotificationSettingsScreenState
         final state = await widget.pushService.enable(widget.uid);
         if (mounted) setState(() => _permission = state);
         if (state == PushPermissionState.denied && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Notifications are blocked in device settings. Enable them there '
-                'to receive PadelX push notifications.',
-              ),
-            ),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(context.l10n.pushBlockedHelp)));
         }
       } else {
         await widget.pushService.disable(widget.uid);
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Push notification settings could not be updated.'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.pushUpdateFailed)));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -475,9 +462,7 @@ class _NotificationSettingsScreenState
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Notification preferences could not be saved.'),
-          ),
+          SnackBar(content: Text(context.l10n.notificationPreferencesFailed)),
         );
       }
     } finally {
@@ -485,25 +470,26 @@ class _NotificationSettingsScreenState
     }
   }
 
-  String _permissionLabel(NotificationPreferences preferences) {
+  String _permissionLabel(
+    BuildContext context,
+    NotificationPreferences preferences,
+  ) {
     return switch (_permission) {
       PushPermissionState.allowed =>
-        preferences.pushEnabled
-            ? 'Push notifications on'
-            : 'Push notifications off',
-      PushPermissionState.denied => 'Notifications blocked in device settings',
-      PushPermissionState.notDetermined => 'Push notifications off',
-      PushPermissionState.unsupported => 'Unavailable in this build',
+        preferences.pushEnabled ? context.l10n.pushOn : context.l10n.pushOff,
+      PushPermissionState.denied => context.l10n.notificationsBlockedSettings,
+      PushPermissionState.notDetermined => context.l10n.pushOff,
+      PushPermissionState.unsupported => context.l10n.pushUnavailableBuild,
       null =>
         preferences.pushEnabled
-            ? 'Checking device permission…'
-            : 'Push notifications off',
+            ? context.l10n.checkingDevicePermission
+            : context.l10n.pushOff,
     };
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Notifications')),
+    appBar: AppBar(title: Text(context.l10n.notifications)),
     body: StreamBuilder<NotificationPreferences>(
       stream: widget.repository.watch(widget.uid),
       initialData: const NotificationPreferences(),
@@ -514,8 +500,8 @@ class _NotificationSettingsScreenState
             SwitchListTile(
               key: const Key('push-notifications-toggle'),
               secondary: const Icon(Icons.notifications_active_outlined),
-              title: const Text('Push notifications'),
-              subtitle: Text(_permissionLabel(preferences)),
+              title: Text(context.l10n.pushNotifications),
+              subtitle: Text(_permissionLabel(context, preferences)),
               value:
                   _permission != PushPermissionState.unsupported &&
                   preferences.pushEnabled,
@@ -527,60 +513,53 @@ class _NotificationSettingsScreenState
                   : (value) => _togglePush(preferences, value),
             ),
             if (_permission == PushPermissionState.unsupported)
-              const Padding(
-                key: Key('push-build-unavailable'),
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: Text(
-                  'Push notifications are not configured for this build. '
-                  'Notification categories can still be prepared below.',
-                ),
+              Padding(
+                key: const Key('push-build-unavailable'),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Text(context.l10n.pushBuildUnavailable),
               ),
             if (_permission == PushPermissionState.denied)
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: Text(
-                  'Open your device Settings, select PadelX, then enable '
-                  'Notifications before trying again.',
-                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Text(context.l10n.pushSettingsHelp),
               ),
             const Divider(),
-            const _SettingsHeader('Categories'),
+            _SettingsHeader(context.l10n.categories),
             _category(
-              'Match messages',
+              context.l10n.matchMessages,
               preferences.matchMessages,
               (value) => preferences.copyWith(matchMessages: value),
             ),
             _category(
-              'Join requests',
+              context.l10n.joinRequestsCategory,
               preferences.joinRequests,
               (value) => preferences.copyWith(joinRequests: value),
             ),
             _category(
-              'Friend requests',
+              context.l10n.friendRequestsCategory,
               preferences.friendRequests,
               (value) => preferences.copyWith(friendRequests: value),
             ),
             _category(
-              'Friend accepted',
+              context.l10n.friendAcceptedCategory,
               preferences.friendAccepted,
               (value) => preferences.copyWith(friendAccepted: value),
             ),
             _category(
-              'Match updates',
+              context.l10n.matchUpdatesCategory,
               preferences.matchUpdates,
               (value) => preferences.copyWith(matchUpdates: value),
             ),
             _category(
-              'Play Again',
+              context.l10n.playAgain,
               preferences.playAgain,
               (value) => preferences.copyWith(playAgain: value),
             ),
-            const Padding(
-              padding: EdgeInsets.all(16),
+            Padding(
+              padding: const EdgeInsets.all(16),
               child: Text(
-                'These categories are saved now and will control push delivery '
-                'as notification types are enabled in later phases.',
-                style: TextStyle(color: Colors.white60),
+                context.l10n.pushCategoriesFuture,
+                style: const TextStyle(color: Colors.white60),
               ),
             ),
           ],
@@ -607,18 +586,18 @@ class AccountSettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Account')),
+    appBar: AppBar(title: Text(context.l10n.account)),
     body: ListView(
       children: [
-        const _SettingsHeader('Account management'),
+        _SettingsHeader(context.l10n.accountManagement),
         ListTile(
           key: const Key('account-delete-account'),
           leading: Icon(
             Icons.person_remove_outlined,
             color: Theme.of(context).colorScheme.error,
           ),
-          title: const Text('Delete Account'),
-          subtitle: const Text('Permanently delete your PadelX account'),
+          title: Text(context.l10n.deleteAccount),
+          subtitle: Text(context.l10n.permanentlyDelete),
           trailing: const Icon(Icons.chevron_right),
           onTap: onDeleteAccount,
         ),

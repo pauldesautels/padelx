@@ -1,5 +1,7 @@
 import 'package:url_launcher/url_launcher.dart';
 
+import 'l10n/app_localizations.dart';
+
 typedef SupportUriLauncher = Future<bool> Function(Uri uri);
 
 Future<bool> launchSupportUri(Uri uri) => launchUrl(uri);
@@ -79,6 +81,56 @@ const communityGuidelineSections = <CommunityGuidelineSection>[
   ]),
   CommunityGuidelineSection('Enforcement', [
     'PadelX may review reported conduct and restrict access when appropriate.',
+  ]),
+];
+
+List<CommunityGuidelineSection> localizedCommunityGuidelineSections(
+  AppLocalizations strings,
+) => [
+  CommunityGuidelineSection(strings.guidelineAdultsTitle, [
+    strings.guidelineAdultsBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineRespectTitle, [
+    strings.guidelineRespectBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineHateTitle, [
+    strings.guidelineHateBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineSexualTitle, [
+    strings.guidelineSexualBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineThreatsTitle, [
+    strings.guidelineThreatsBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineSpamTitle, [
+    strings.guidelineSpamBody,
+  ]),
+  CommunityGuidelineSection(strings.impersonation, [
+    strings.guidelineImpersonationBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelinePrivacyTitle, [
+    strings.guidelinePrivacyBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineProfilesTitle, [
+    strings.guidelineProfilesBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineMessagingTitle, [
+    strings.guidelineMessagingBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineMatchesTitle, [
+    strings.guidelineMatchesBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineBlockingTitle, [
+    strings.guidelineBlockingBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineRealWorldTitle, [
+    strings.guidelineRealWorldBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineReliabilityTitle, [
+    strings.guidelineReliabilityBody,
+  ]),
+  CommunityGuidelineSection(strings.guidelineEnforcementTitle, [
+    strings.guidelineEnforcementBody,
   ]),
 ];
 

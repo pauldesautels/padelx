@@ -1,3 +1,6 @@
+import 'package:flutter/widgets.dart';
+import 'package:intl/intl.dart';
+
 class ConversationSummary {
   final String id;
   final String type;
@@ -78,16 +81,29 @@ DateTime? _messageDate(Object? value) {
   }
 }
 
-String messagingTime(DateTime? value) {
+String _localeName(Locale? locale) => locale == null
+    ? 'en_US'
+    : '${locale.languageCode}_${locale.countryCode ?? (locale.languageCode == 'es' ? 'MX' : 'US')}';
+
+bool _isSpanish(Locale? locale) => locale?.languageCode == 'es';
+
+String _englishClock(DateTime value) {
+  final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+  return '$hour:${value.minute.toString().padLeft(2, '0')} ${value.hour < 12 ? 'AM' : 'PM'}';
+}
+
+String messagingTime(DateTime? value, {Locale? locale}) {
   if (value == null) return '';
   final local = value.toLocal();
   final now = DateTime.now();
   if (local.year == now.year &&
       local.month == now.month &&
       local.day == now.day) {
-    return _clockTime(local);
+    return _isSpanish(locale)
+        ? DateFormat.jm(_localeName(locale)).format(local)
+        : _englishClock(local);
   }
-  return '${local.month}/${local.day}/${local.year}';
+  return DateFormat.yMd(_localeName(locale)).format(local);
 }
 
 bool messagingSameLocalDay(DateTime? left, DateTime? right) {
@@ -102,63 +118,53 @@ DateTime _localDate(DateTime value) {
   return DateTime(local.year, local.month, local.day);
 }
 
-String messagingDateSeparator(DateTime? value, {DateTime? now}) {
+String messagingDateSeparator(
+  DateTime? value, {
+  DateTime? now,
+  Locale? locale,
+  String todayLabel = 'Today',
+  String yesterdayLabel = 'Yesterday',
+}) {
   if (value == null) return '';
   final local = value.toLocal();
   final today = _localDate(now ?? DateTime.now());
   final day = DateTime(local.year, local.month, local.day);
   final difference = today.difference(day).inDays;
-  if (difference == 0) return 'Today';
-  if (difference == 1) return 'Yesterday';
-  return '${_monthNames[local.month - 1]} ${local.day}'
-      '${local.year == today.year ? '' : ', ${local.year}'}';
+  if (difference == 0) return todayLabel;
+  if (difference == 1) return yesterdayLabel;
+  return local.year == today.year
+      ? DateFormat(
+          _isSpanish(locale) ? 'd MMMM' : 'MMMM d',
+          _localeName(locale),
+        ).format(local)
+      : DateFormat(
+          _isSpanish(locale) ? 'd MMM y' : 'MMMM d, y',
+          _localeName(locale),
+        ).format(local);
 }
 
-String messagingInboxTime(DateTime? value, {DateTime? now}) {
+String messagingInboxTime(
+  DateTime? value, {
+  DateTime? now,
+  Locale? locale,
+  String yesterdayLabel = 'Yesterday',
+}) {
   if (value == null) return '';
   final local = value.toLocal();
   final current = (now ?? DateTime.now()).toLocal();
   final today = DateTime(current.year, current.month, current.day);
   final day = DateTime(local.year, local.month, local.day);
   final difference = today.difference(day).inDays;
-  if (difference == 0) return _clockTime(local);
-  if (difference == 1) return 'Yesterday';
-  if (difference > 1 && difference < 7) return _weekdayNames[local.weekday - 1];
-  final date = '${_shortMonthNames[local.month - 1]} ${local.day}';
-  return local.year == current.year ? date : '$date, ${local.year}';
+  if (difference == 0) {
+    return _isSpanish(locale)
+        ? DateFormat.jm(_localeName(locale)).format(local)
+        : _englishClock(local);
+  }
+  if (difference == 1) return yesterdayLabel;
+  if (difference > 1 && difference < 7) {
+    return DateFormat.E(_localeName(locale)).format(local);
+  }
+  return local.year == current.year
+      ? DateFormat.MMMd(_localeName(locale)).format(local)
+      : DateFormat.yMMMd(_localeName(locale)).format(local);
 }
-
-String _clockTime(DateTime local) {
-  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
-  return '$hour:${local.minute.toString().padLeft(2, '0')} ${local.hour < 12 ? 'AM' : 'PM'}';
-}
-
-const _monthNames = <String>[
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-];
-const _shortMonthNames = <String>[
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
-const _weekdayNames = <String>['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];

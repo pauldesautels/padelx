@@ -1,31 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'played_with.dart';
 import 'profile_avatar.dart';
 import 'played_with_repository.dart';
 import 'social_profile.dart';
 import 'play_again.dart';
+import 'l10n/l10n.dart';
 
 typedef PlayedWithProfileTap =
     void Function(BuildContext context, PlayedWithPlayer player);
 
-String playedWithShortDate(DateTime? date) {
-  if (date == null) return 'Date unavailable';
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  return '${months[date.month - 1]} ${date.day}';
+String playedWithShortDate(
+  DateTime? date, {
+  Locale locale = const Locale('en'),
+  String unavailableLabel = 'Date unavailable',
+}) {
+  if (date == null) return unavailableLabel;
+  final localeName = locale.languageCode == 'es' ? 'es_MX' : 'en_US';
+  return DateFormat.MMMd(localeName).format(date.toLocal());
 }
 
 class PlayedWithScreen extends StatefulWidget {
@@ -88,20 +81,17 @@ class _PlayedWithScreenState extends State<PlayedWithScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text("People you've played with")),
+    appBar: AppBar(title: Text(context.l10n.playedWith)),
     body: _players.isEmpty && _loading
         ? const Center(child: CircularProgressIndicator())
         : _players.isEmpty && _error != null
         ? _PlayedWithMessage(
-            title: 'Could not load players.',
-            actionLabel: 'Try Again',
+            title: context.l10n.couldNotLoadPlayers,
+            actionLabel: context.l10n.tryAgain,
             onAction: _loadMore,
           )
         : _players.isEmpty
-        ? const _PlayedWithMessage(
-            title:
-                'People you play with will appear here after completed matches.',
-          )
+        ? _PlayedWithMessage(title: context.l10n.playedWithEmpty)
         : ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             itemCount: _players.length + (_hasMore || _error != null ? 1 : 0),
@@ -125,7 +115,7 @@ class _PlayedWithScreenState extends State<PlayedWithScreen> {
               if (_error != null) {
                 return TextButton(
                   onPressed: _loadMore,
-                  child: const Text('Try loading more again'),
+                  child: Text(context.l10n.loadMoreRetry),
                 );
               }
               return Padding(
@@ -136,7 +126,7 @@ class _PlayedWithScreenState extends State<PlayedWithScreen> {
                       : OutlinedButton(
                           key: const Key('played-with-load-more'),
                           onPressed: _loadMore,
-                          child: const Text('Load more'),
+                          child: Text(context.l10n.loadMore),
                         ),
                 ),
               );
@@ -162,7 +152,7 @@ class PlayedWithTile extends StatelessWidget {
     final profile = player.profile;
     final relationship = player.relationship;
     final rating = profile.ratingCount == 0
-        ? 'Not rated'
+        ? context.l10n.notRated
         : '${profile.ratingAverage.toStringAsFixed(1)} ★ (${profile.ratingCount})';
     final matches = relationship.completedMatchCount;
     return Card(
@@ -180,14 +170,20 @@ class PlayedWithTile extends StatelessWidget {
           [
             [
               profile.level.isEmpty
-                  ? 'Level not set'
-                  : 'Level ${profile.level}',
+                  ? context.l10n.levelNotSet
+                  : context.l10n.levelValue(profile.level),
               '${profile.socialProfile.preferredSide.label} side',
               rating,
             ].join(' · '),
             [
-              'Last played ${playedWithShortDate(relationship.lastPlayedAt)}',
-              '$matches ${matches == 1 ? 'match' : 'matches'} together',
+              context.l10n.lastPlayed(
+                playedWithShortDate(
+                  relationship.lastPlayedAt,
+                  locale: Localizations.localeOf(context),
+                  unavailableLabel: context.l10n.dateUnavailable,
+                ),
+              ),
+              context.l10n.matchesTogether(matches),
               if (profile.locationLabel.isNotEmpty) profile.locationLabel,
             ].join(' · '),
           ].join('\n'),
@@ -196,7 +192,7 @@ class PlayedWithTile extends StatelessWidget {
             ? const Icon(Icons.chevron_right)
             : IconButton(
                 key: Key('play-again-${profile.uid}'),
-                tooltip: 'Play Again',
+                tooltip: context.l10n.playAgain,
                 onPressed: onPlayAgain,
                 icon: const Icon(Icons.replay),
               ),
@@ -262,16 +258,19 @@ class _PlayedWithPreviewState extends State<PlayedWithPreview> {
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
-                  "People you've played with",
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                  context.l10n.playedWith,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               TextButton(
                 key: const Key('played-with-view-all'),
                 onPressed: widget.onViewAll,
-                child: const Text('View All'),
+                child: Text(context.l10n.viewAll),
               ),
             ],
           ),

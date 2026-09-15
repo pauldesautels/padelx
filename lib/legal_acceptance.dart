@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'account_access.dart';
 import 'branding.dart';
 import 'legal.dart';
+import 'l10n/l10n.dart';
 
 String newLegalRequestId() {
   final random = Random.secure();
@@ -151,7 +152,7 @@ class _LegalAcceptanceScreenState extends State<LegalAcceptanceScreen> {
       if (mounted) {
         setState(() {
           busy = false;
-          error = 'Could not record your acknowledgement. Try again.';
+          error = context.l10n.legalRecordFailed;
         });
       }
       return;
@@ -162,8 +163,7 @@ class _LegalAcceptanceScreenState extends State<LegalAcceptanceScreen> {
       if (mounted) {
         setState(() {
           busy = false;
-          error =
-              'Your acknowledgement was recorded, but its status could not be refreshed. Try again.';
+          error = context.l10n.legalRefreshFailed;
         });
       }
     }
@@ -172,12 +172,12 @@ class _LegalAcceptanceScreenState extends State<LegalAcceptanceScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: padelXBackground,
-    appBar: AppBar(title: const Text('Legal acknowledgement')),
+    appBar: AppBar(title: Text(context.l10n.legalAcknowledgement)),
     body: ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        const Text(
-          'Before continuing',
+        Text(
+          context.l10n.beforeContinuing,
           style: TextStyle(
             color: Colors.white,
             fontSize: 26,
@@ -185,17 +185,17 @@ class _LegalAcceptanceScreenState extends State<LegalAcceptanceScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        const Text(
-          'Review the Terms of Use and Privacy Policy for the PadelX closed beta.',
+        Text(
+          context.l10n.legalReviewIntro,
           style: TextStyle(color: Colors.white70),
         ),
         TextButton(
           onPressed: () => openLegalLink(context, '/terms'),
-          child: const Text('Terms of Use'),
+          child: Text(context.l10n.termsOfUse),
         ),
         TextButton(
           onPressed: () => openLegalLink(context, '/privacy'),
-          child: const Text('Privacy Policy'),
+          child: Text(context.l10n.privacyPolicy),
         ),
         CheckboxListTile(
           key: const Key('legal-acceptance-checkbox'),
@@ -203,13 +203,11 @@ class _LegalAcceptanceScreenState extends State<LegalAcceptanceScreen> {
           onChanged: busy
               ? null
               : (value) => setState(() => agreed = value == true),
-          title: const Text(
-            'I agree to the Terms of Use and acknowledge the Privacy Policy.',
-          ),
+          title: Text(context.l10n.legalAgreement),
         ),
         if (widget.loadFailed)
-          const Text(
-            'Acceptance status could not be loaded.',
+          Text(
+            context.l10n.legalLoadFailed,
             style: TextStyle(color: Colors.orangeAccent),
           ),
         if (error != null)
@@ -217,12 +215,14 @@ class _LegalAcceptanceScreenState extends State<LegalAcceptanceScreen> {
         FilledButton(
           key: const Key('legal-acceptance-continue'),
           onPressed: agreed && !busy ? submit : null,
-          child: Text(busy ? 'Saving...' : 'Continue'),
+          child: Text(
+            busy ? context.l10n.savingEllipsis : context.l10n.continueLabel,
+          ),
         ),
         if (widget.onSignOut != null)
           TextButton(
             onPressed: busy ? null : widget.onSignOut,
-            child: const Text('Sign Out'),
+            child: Text(context.l10n.signOut),
           ),
       ],
     ),

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import 'branding.dart';
 import 'safety_policy.dart';
+import 'l10n/l10n.dart';
 
 final _accountAccessRefreshController = StreamController<void>.broadcast();
 
@@ -197,23 +198,23 @@ class _AccountAccessGateState extends State<AccountAccessGate>
                 children: [
                   const Icon(Icons.shield_outlined, size: 48),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Could not verify account access.',
+                  Text(
+                    context.l10n.accessCheckFailed,
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    'Check your connection and try again.',
+                  Text(
+                    context.l10n.connectionRetry,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 20),
                   FilledButton(
                     onPressed: _loading ? null : _refresh,
-                    child: const Text('Try Again'),
+                    child: Text(context.l10n.tryAgain),
                   ),
                   TextButton(
                     onPressed: _loading ? null : widget.onSignOut,
-                    child: const Text('Sign Out'),
+                    child: Text(context.l10n.signOut),
                   ),
                 ],
               ),
@@ -250,30 +251,26 @@ class RestrictedAccountScreen extends StatelessWidget {
     this.supportLauncher = launchSupportUri,
   });
 
-  String get _reason => switch (state.reasonCategory) {
-    'harassment_abuse' => 'Harassment or abusive conduct',
-    'hate_discrimination' => 'Hate or discriminatory conduct',
-    'sexual_misconduct' => 'Sexual or inappropriate conduct',
-    'threats_unsafe_behavior' => 'Threats or unsafe behavior',
-    'spam_scam' => 'Spam or scams',
-    'impersonation' => 'Impersonation',
-    'privacy_violation' => 'Privacy violation',
-    'fraud_deception' => 'Fraud or deception',
-    'malicious_reporting' => 'Misuse of reporting',
-    _ => 'Community Guidelines',
+  String _reason(BuildContext context) => switch (state.reasonCategory) {
+    'harassment_abuse' => context.l10n.reasonHarassmentAbuse,
+    'hate_discrimination' => context.l10n.reasonHateDiscrimination,
+    'sexual_misconduct' => context.l10n.reasonSexualMisconduct,
+    'threats_unsafe_behavior' => context.l10n.reasonThreatsUnsafe,
+    'spam_scam' => context.l10n.reasonSpamScams,
+    'impersonation' => context.l10n.impersonation,
+    'privacy_violation' => context.l10n.reasonPrivacyViolation,
+    'fraud_deception' => context.l10n.reasonFraudDeception,
+    'malicious_reporting' => context.l10n.reasonMaliciousReporting,
+    _ => context.l10n.communityGuidelines,
   };
 
   Future<void> _contact(BuildContext context) async {
     final uri = PadelXSupportConfiguration.beta.mailtoUri;
     final opened = uri != null && await supportLauncher(uri);
     if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Could not open email. Contact support.padelx@gmail.com.',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.couldNotOpenEmail)));
     }
   }
 
@@ -295,8 +292,8 @@ class RestrictedAccountScreen extends StatelessWidget {
           child: Semantics(
             container: true,
             label: suspended
-                ? 'Account temporarily suspended'
-                : 'Account restricted',
+                ? context.l10n.accountTemporarilySuspended
+                : context.l10n.accountRestricted,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -309,8 +306,8 @@ class RestrictedAccountScreen extends StatelessWidget {
                 const SizedBox(height: 24),
                 Text(
                   suspended
-                      ? 'Account temporarily suspended'
-                      : 'Account restricted',
+                      ? context.l10n.accountTemporarilySuspended
+                      : context.l10n.accountRestricted,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
@@ -319,8 +316,8 @@ class RestrictedAccountScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(
                   suspended
-                      ? 'Your access to PadelX has been temporarily restricted.'
-                      : 'Your access to PadelX has been restricted.',
+                      ? context.l10n.accessTemporarilyRestricted
+                      : context.l10n.accessRestricted,
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
@@ -330,16 +327,16 @@ class RestrictedAccountScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Policy category',
+                        Text(
+                          context.l10n.policyCategory,
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
-                        Text(_reason),
+                        Text(_reason(context)),
                         if (suspended && expiryText != null) ...[
                           const SizedBox(height: 16),
-                          const Text(
-                            'Restriction ends',
+                          Text(
+                            context.l10n.restrictionEnds,
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 4),
@@ -353,16 +350,19 @@ class RestrictedAccountScreen extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: () => _contact(context),
                   icon: const Icon(Icons.email_outlined),
-                  label: const Text('Contact PadelX Support'),
+                  label: Text(context.l10n.contactSupport),
                 ),
                 OutlinedButton(
                   onPressed: onDeleteAccount,
-                  child: const Text('Delete Account'),
+                  child: Text(context.l10n.deleteAccount),
                 ),
-                TextButton(onPressed: onSignOut, child: const Text('Sign Out')),
+                TextButton(
+                  onPressed: onSignOut,
+                  child: Text(context.l10n.signOut),
+                ),
                 TextButton(
                   onPressed: onRetry,
-                  child: const Text('Check access again'),
+                  child: Text(context.l10n.checkAccessAgain),
                 ),
               ],
             ),

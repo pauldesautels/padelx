@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'l10n/l10n.dart';
 
 const List<String> padelLevelValues = [
   '1',
@@ -100,7 +101,7 @@ class PadelLevelSelector extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                      tooltip: 'Close level selector',
+                      tooltip: context.l10n.closeLevelSelector,
                       onPressed: () => Navigator.pop(sheetContext),
                       icon: const Icon(Icons.close),
                     ),
@@ -115,7 +116,7 @@ class PadelLevelSelector extends StatelessWidget {
                       .map(
                         (level) => ListTile(
                           key: ValueKey('padel-level-option-$level'),
-                          title: Text('Level $level'),
+                          title: Text(context.l10n.levelValue(level)),
                           selected: level == value,
                           trailing: level == value
                               ? const Icon(Icons.check)
@@ -141,8 +142,8 @@ class PadelLevelSelector extends StatelessWidget {
     return Semantics(
       label: labelText,
       value: value == null
-          ? (legacy.isEmpty ? 'Not selected' : legacy)
-          : 'Level $value',
+          ? (legacy.isEmpty ? context.l10n.notSelected : legacy)
+          : context.l10n.levelValue(value!),
       button: true,
       enabled: enabled,
       onTap: enabled ? () => _openSelector(context) : null,
@@ -159,14 +160,18 @@ class PadelLevelSelector extends StatelessWidget {
             labelText: labelText,
             helperText: legacy.isEmpty
                 ? null
-                : 'Current value "$legacy" is legacy. Choose a numeric level.',
+                : context.l10n.legacyLevelHelp(legacy),
             error: errorText == null ? null : Text(errorText!, key: errorKey),
             prefixIcon: Icon(icon),
             suffixIcon: const Icon(Icons.arrow_drop_down),
             enabled: enabled,
             border: const OutlineInputBorder(),
           ),
-          child: Text(value == null ? 'Choose a level' : 'Level $value'),
+          child: Text(
+            value == null
+                ? context.l10n.chooseLevel
+                : context.l10n.levelValue(value!),
+          ),
         ),
       ),
     );

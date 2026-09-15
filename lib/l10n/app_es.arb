@@ -21,13 +21,828 @@
   "welcomePlayer": "Te damos la bienvenida, {name}",
   "@welcomePlayer": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "matchCount": "{count, plural, =0{No hay partidos} =1{1 partido} other{{count} partidos}}",
   "@matchCount": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
-  }
+  },
+  "tryAgain": "Volver a intentar",
+  "tryAgainLower": "Volver a intentar",
+  "signOut": "Cerrar sesión",
+  "logOut": "Cerrar sesión",
+  "continueLabel": "Continuar",
+  "back": "Atrás",
+  "close": "Cerrar",
+  "remove": "Eliminar",
+  "saveProfile": "Guardar perfil",
+  "email": "Correo electrónico",
+  "password": "Contraseña",
+  "enterEmail": "Ingresa tu correo electrónico",
+  "forgotPassword": "¿Olvidaste tu contraseña?",
+  "resetPassword": "Restablecer contraseña",
+  "sendResetEmail": "Enviar correo de restablecimiento",
+  "signInOrCreate": "Inicia sesión o crea tu cuenta.",
+  "verifyEmail": "Verifica tu correo electrónico",
+  "openVerificationLink": "Abre el enlace de ese mensaje y luego regresa aquí para continuar.",
+  "beforeContinuing": "Antes de continuar",
+  "ageConfirmation": "Confirmo que tengo 18 años o más.",
+  "ageRequired": "Para continuar, confirma que tienes al menos 18 años.",
+  "ageEligibility": "Elegibilidad para mayores de 18",
+  "ageCheckFailed": "No se pudo verificar la elegibilidad de edad.",
+  "adultOnly": "PadelX es para personas mayores de 18 años.",
+  "legalAcknowledgement": "Aceptación legal",
+  "legalReviewIntro": "Revisa los Términos de uso y el Aviso de privacidad de la beta cerrada de PadelX.",
+  "legalLoadFailed": "No se pudo consultar el estado de aceptación.",
+  "matches": "Partidos",
+  "discover": "Descubrir",
+  "myMatches": "Mis partidos",
+  "upcoming": "Próximos",
+  "past": "Anteriores",
+  "create": "Crear",
+  "createMatch": "Crear partido",
+  "createAMatch": "Crear un partido",
+  "editMatch": "Editar partido",
+  "matchDetails": "Detalles del partido",
+  "findMatch": "Buscar un partido",
+  "findPlayers": "Buscar jugadores",
+  "players": "Jugadores",
+  "messages": "Mensajes",
+  "notifications": "Notificaciones",
+  "profile": "Perfil",
+  "editProfile": "Editar perfil",
+  "playerProfile": "Perfil del jugador",
+  "friends": "Amigos",
+  "friend": "Amigo",
+  "addFriend": "Agregar amigo",
+  "requested": "Solicitud enviada",
+  "accept": "Aceptar",
+  "decline": "Rechazar",
+  "unfriend": "Eliminar amistad",
+  "block": "Bloquear",
+  "unblock": "Desbloquear",
+  "reportPlayer": "Reportar jugador",
+  "reportMessage": "Reportar mensaje",
+  "reportMatch": "Reportar partido",
+  "reportSubmitted": "Reporte enviado",
+  "matchChat": "Chat del partido",
+  "message": "Mensaje",
+  "sendMessage": "Enviar mensaje",
+  "refreshMessages": "Actualizar mensajes",
+  "noMessages": "¡Aún no hay mensajes! Di hola.",
+  "noConversations": "Aún no hay conversaciones.",
+  "messagesUnavailable": "Los mensajes no están disponibles por el momento.",
+  "couldNotSendMessage": "No se pudo enviar este mensaje.",
+  "loadOlder": "Cargar anteriores",
+  "loadingEllipsis": "Cargando…",
+  "markRead": "Marcar como leída",
+  "markAsRead": "Marcar como leída",
+  "markAllRead": "Marcar todas como leídas",
+  "noNotifications": "Aún no hay notificaciones",
+  "viewMatch": "Ver partido",
+  "dismiss": "Descartar",
+  "level": "Nivel",
+  "playerLevel": "Nivel de jugador",
+  "chooseLevel": "Elige un nivel",
+  "preferredSide": "Lado preferido",
+  "areaOptional": "Zona / Colonia (opcional)",
+  "anyArea": "Cualquier zona",
+  "searchAreas": "Buscar zonas",
+  "city": "Ciudad",
+  "country": "País",
+  "countryCode": "Código de país",
+  "changeCity": "Cambiar ciudad",
+  "searchCitiesOnly": "Buscar solo ciudades",
+  "displayName": "Nombre visible",
+  "shortBio": "Descripción breve (opcional)",
+  "discoverability": "Permitir que otros jugadores me encuentren",
+  "preferredLocation": "Ubicación preferida para aparecer en búsquedas",
+  "profileUpdated": "Perfil actualizado.",
+  "helpSafety": "Ayuda y seguridad",
+  "supportSafety": "Soporte y seguridad",
+  "communityGuidelines": "Normas de la comunidad",
+  "blockedPlayers": "Jugadores bloqueados",
+  "contactSupport": "Contactar al soporte de PadelX",
+  "deleteAccount": "Eliminar cuenta",
+  "deleteAccountLower": "Eliminar cuenta",
+  "account": "Cuenta",
+  "safety": "Seguridad",
+  "reportingBlockingAge": "Reportes, bloqueos y elegibilidad de edad",
+  "emergency": "Emergencia",
+  "ratingSubmitted": "Calificación enviada.",
+  "ratePlayer": "Calificar jugador",
+  "ratePlayers": "Calificar jugadores",
+  "submitRating": "Enviar calificación",
+  "playAgain": "Jugar de nuevo",
+  "cancelMatch": "Cancelar partido",
+  "leaveMatch": "Salir del partido",
+  "matchUnavailable": "Partido no disponible",
+  "noMatchesNearby": "Aún no hay partidos cercanos.",
+  "matchesUnavailable": "Los partidos no están disponibles por el momento.",
+  "findingMatches": "Buscando partidos cercanos…",
+  "clearFilters": "Borrar filtros",
+  "filterMatches": "Filtrar partidos",
+  "club": "Club",
+  "dateTime": "Fecha y hora",
+  "chooseDateTime": "Elegir fecha y hora",
+  "totalPlayers": "Total de jugadores",
+  "spots": "Lugares",
+  "submit": "Enviar",
+  "whyReporting": "¿Por qué quieres reportarlo?",
+  "additionalDetails": "Detalles adicionales (opcional)",
+  "couldNotOpenPage": "No se pudo abrir esta página. Escribe a {email}.",
+  "@couldNotOpenPage": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "today": "Hoy",
+  "yesterday": "Ayer",
+  "player": "Jugador",
+  "noMessagesYet": "Aún no hay mensajes",
+  "unreadMessages": "{count, plural, =1{1 mensaje sin leer} other{{count} mensajes sin leer}}",
+  "@unreadMessages": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "unread": "Sin leer",
+  "read": "Leída",
+  "unreadNotification": "Notificación sin leer",
+  "timeUnavailable": "Hora no disponible",
+  "newJoinRequest": "Nueva solicitud para unirse",
+  "joinRequestBody": "{name} solicitó unirse a tu partido en {club}.",
+  "@joinRequestBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "club": {
+        "type": "String"
+      }
+    }
+  },
+  "requestApproved": "Solicitud aprobada",
+  "requestDeclined": "Solicitud rechazada",
+  "requestApprovedBody": "Tu solicitud para unirte al partido en {club} fue aprobada.",
+  "requestDeclinedBody": "Tu solicitud para unirte al partido en {club} fue rechazada.",
+  "@requestApprovedBody": {
+    "placeholders": {
+      "club": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestDeclinedBody": {
+    "placeholders": {
+      "club": {
+        "type": "String"
+      }
+    }
+  },
+  "newDirectMessage": "Nuevo mensaje",
+  "newDirectMessageBody": "Tienes un mensaje directo sin leer.",
+  "newMatchMessage": "Nuevo mensaje del partido",
+  "newMatchMessageBody": "Tienes un mensaje sin leer en el chat del partido.",
+  "newFriendRequest": "Nueva solicitud de amistad",
+  "friendRequestBody": "{name} te envió una solicitud de amistad.",
+  "@friendRequestBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "friendRequestAccepted": "Solicitud de amistad aceptada",
+  "friendAcceptedBody": "{name} aceptó tu solicitud de amistad.",
+  "@friendAcceptedBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "playAgainInvite": "Jugar de nuevo",
+  "playAgainBody": "{name} te invitó a jugar de nuevo.",
+  "@playAgainBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "harassmentBullying": "Acoso o intimidación",
+  "hateAbuse": "Odio o contenido abusivo",
+  "sexualInappropriate": "Contenido sexual o inapropiado",
+  "threatsUnsafe": "Amenazas o conducta insegura",
+  "spamScam": "Spam o estafa",
+  "impersonation": "Suplantación de identidad",
+  "other": "Otro motivo",
+  "reportSubject": "Reportar {subject}",
+  "reportAlreadySubmitted": "Ya reportaste esto.",
+  "reportRateLimited": "Enviaste varios reportes recientemente. Inténtalo de nuevo más tarde.",
+  "reportFailed": "No se pudo enviar el reporte. Inténtalo de nuevo.",
+  "thanksForSafety": "Gracias por ayudar a mantener PadelX seguro.",
+  "blockPlayer": "Bloquear jugador",
+  "blockThisPlayer": "¿Bloquear a este jugador?",
+  "playerBlocked": "Jugador bloqueado.",
+  "playerBlockFailed": "No se pudo bloquear al jugador.",
+  "sharedMatchBlockExplanation": "El bloqueo impide la búsqueda social y el contacto normales. El acceso a partidos compartidos sigue dependiendo de la participación.",
+  "friendBlockExplanation": "Se eliminará su amistad y se impedirán la búsqueda social y el contacto normales. El acceso a partidos compartidos sigue dependiendo de la participación.",
+  "nonFriendBlockExplanation": "Se impedirán la búsqueda social y el contacto normales con este jugador. El acceso a partidos compartidos sigue dependiendo de la participación.",
+  "@reportSubject": {
+    "placeholders": {
+      "subject": {
+        "type": "String"
+      }
+    }
+  },
+  "approve": "Aprobar",
+  "allPlayersRated": "Todos los jugadores están calificados.",
+  "areaSuggestionsUnavailable": "Las sugerencias de zona no están disponibles. Puedes elegir Cualquier zona.",
+  "beFirstMatch": "Sé la primera persona en organizar un partido.",
+  "cancelMatchQuestion": "¿Cancelar el partido?",
+  "checkAccessAgain": "Volver a verificar el acceso",
+  "connectionRetry": "Revisa tu conexión e inténtalo de nuevo.",
+  "chooseClubTimePlayers": "Elige un club, horario y para quién es el partido.",
+  "cityOrArea": "Ciudad o zona",
+  "citySuggestionsUnavailable": "Las sugerencias de ciudad no están disponibles. Ingresa los datos de tu ciudad; la zona puede quedar vacía.",
+  "clearLocation": "Borrar ubicación",
+  "closeAreaSelector": "Cerrar selector de zona",
+  "closeLevelSelector": "Cerrar selector de nivel",
+  "clubName": "Nombre del club",
+  "clubNameAddress": "Nombre o dirección del club",
+  "completed": "Completados",
+  "confirmPassword": "Confirma tu contraseña",
+  "preservePlayersRequests": "Se conservarán los jugadores confirmados y las solicitudes para unirse.",
+  "createMatchFailed": "No se pudo crear el partido.",
+  "dismissInviteFailed": "No se pudo descartar esta invitación.",
+  "loadLocationFailed": "No se pudo cargar esa ubicación.",
+  "loadProfileFailed": "No se pudo cargar tu perfil.",
+  "markReadFailed": "No se pudo marcar la notificación como leída.",
+  "markAllReadFailed": "No se pudieron marcar las notificaciones como leídas.",
+  "ratingSubmitFailed": "No se pudo enviar la calificación.",
+  "accessCheckFailed": "No se pudo verificar el acceso a la cuenta.",
+  "editProfileLocation": "Editar ubicación del perfil",
+  "enablePushQuestion": "¿Activar notificaciones push?",
+  "endFriendship": "Terminar esta amistad y conexión social directa",
+  "expand100": "Ampliar a 100 km",
+  "findMatchesNear": "Buscar partidos cerca de",
+  "findPadelMatches": "Encuentra partidos de pádel cerca de ti.",
+  "findPadelPlayers": "Encuentra jugadores de pádel con quienes quieras jugar.",
+  "playFrequency": "¿Con qué frecuencia juegas?",
+  "howReportMatch": "Cómo reportar un partido",
+  "howReportMessage": "Cómo reportar un mensaje",
+  "howReportPlayer": "Cómo reportar a un jugador",
+  "isoCountryCode": "Código de país ISO",
+  "immediateDanger": "Peligro inmediato",
+  "joinRequests": "Solicitudes para unirse",
+  "joinGames": "Únete a partidos que necesitan jugadores.",
+  "keepMatch": "Conservar partido",
+  "loadingPadelX": "CARGANDO PADELX",
+  "leaveMatchQuestion": "¿Salir del partido?",
+  "loadMore": "Cargar más",
+  "loadMoreNearby": "Cargar más partidos cercanos",
+  "loadOlderMatches": "Cargar partidos anteriores",
+  "loadOlderNotifications": "Cargar notificaciones anteriores",
+  "loadingJoinRequests": "Cargando solicitudes para unirse...",
+  "matchCancelled": "Partido cancelado.",
+  "matchDiscovery": "Búsqueda de partidos",
+  "matchUpdated": "Partido actualizado correctamente.",
+  "notificationEmptyBody": "Aquí aparecerán actualizaciones de partidos, mensajes y actividad social.",
+  "organizedJoinedMatches": "Partidos que organizas o a los que te uniste.",
+  "acceptedFriendsMessaging": "Los mensajes están disponibles entre amigos aceptados.",
+  "moreActions": "Más acciones",
+  "moreSafetyActions": "Más acciones de seguridad",
+  "needHelp": "¿Necesitas ayuda o quieres reportar un asunto de seguridad?",
+  "neighborhoodArea": "Colonia o zona",
+  "noOtherPlayersRate": "No hay otros jugadores de este partido por calificar.",
+  "noPendingRequests": "No hay solicitudes pendientes",
+  "noRatings": "Aún no hay calificaciones",
+  "notNow": "Ahora no",
+  "notificationPreferencesFailed": "No se pudieron guardar las preferencias de notificaciones.",
+  "notificationsUnavailable": "Las notificaciones no están disponibles por el momento.",
+  "openReportMatchHelp": "Abre Detalles del partido y elige Reportar partido en las acciones de seguridad.",
+  "openMatches": "Partidos abiertos",
+  "openReportPlayerHelp": "Abre el perfil del jugador, toca Más acciones y luego Reportar jugador.",
+  "pendingRequests": "Solicitudes pendientes",
+  "playedWith": "Personas con quienes jugaste",
+  "permanentlyDelete": "Eliminar permanentemente tu cuenta de PadelX",
+  "photoCropHelp": "Las fotos se recortan al centro y se guardan como JPEG de 512×512.",
+  "unblockedNotice": "Jugador desbloqueado. La amistad no se restaura automáticamente.",
+  "chooseFutureDate": "Elige una fecha y hora futuras.",
+  "policyCategory": "Categoría de la política",
+  "pressHoldReport": "Mantén presionado un mensaje de otro jugador y elige Reportar mensaje.",
+  "preventSocialContact": "Impedir la búsqueda social y el contacto normales",
+  "pushUpdateFailed": "No se pudo actualizar la configuración de notificaciones push.",
+  "pushNotifications": "Notificaciones push",
+  "pushPermissionCategories": "Permiso push y categorías de notificaciones",
+  "questionsSafety": "Preguntas o asuntos de seguridad",
+  "rateInDetails": "Calificar en los detalles del partido",
+  "refreshMatches": "Actualizar partidos",
+  "regionOptional": "Región / Estado / Provincia (opcional)",
+  "relationshipActions": "Acciones de relación",
+  "restrictionEnds": "La restricción termina",
+  "reviewUnblock": "Revisar y desbloquear jugadores",
+  "safetyExpectations": "Expectativas de seguridad para la beta de PadelX",
+  "searchClubLocation": "Buscar club o ubicación",
+  "searchCityArea": "Buscar una ciudad o zona",
+  "searchPadelClub": "Buscar un club de pádel",
+  "seeAll": "Ver todo",
+  "sendPrivateReport": "Enviar un reporte de seguridad privado",
+  "setUpGame": "Configura tu partido",
+  "sharedMatchRatings": "Calificaciones del partido compartido",
+  "stay": "Quedarme",
+  "tellPlayersGame": "Cuéntales a los jugadores un poco sobre tu juego",
+  "thisMatchUnavailable": "Este partido ya no está disponible.",
+  "matchMayRemoved": "Este partido pudo cancelarse o eliminarse.",
+  "notificationUnavailable": "Esta notificación no está disponible.",
+  "socialUnavailable": "Esta acción social no está disponible.",
+  "cancelMatchWarning": "Esto eliminará el partido para todos y no se puede deshacer.",
+  "totalCapacity": "Capacidad total de jugadores",
+  "widerRadius": "Prueba un radio mayor o cambia la ubicación.",
+  "loadMoreRetry": "Intenta cargar más de nuevo",
+  "upcomingMatches": "Próximos partidos",
+  "updateMatchDetails": "Actualizar detalles del partido",
+  "matchUpdates": "Actualizaciones de tus partidos y solicitudes.",
+  "usePhoto": "Usar foto",
+  "viewAll": "Ver todo",
+  "profileVisibilityHelp": "Al desactivarlo, tu perfil no aparecerá en Buscar jugadores. Aún podrán verlo mediante partidos, amistades, mensajes, invitaciones o historial compartido.",
+  "capacityHelp": "Tú cuentas como un jugador · máximo 4",
+  "noBlockedPlayers": "No has bloqueado a ningún jugador.",
+  "spotAvailable": "Tu lugar confirmado quedará disponible.",
+  "padelProfile": "Tu perfil de pádel",
+  "couldNotOpenEmail": "No se pudo abrir el correo. Escribe a support.padelx@gmail.com.",
+  "blockedPlayersUnavailable": "Los jugadores bloqueados no están disponibles por el momento.",
+  "startupFailed": "No se pudo iniciar PadelX.",
+  "verificationSent": "Enviamos un enlace de verificación a",
+  "legalAgreement": "Acepto los Términos de uso y reconozco el Aviso de privacidad.",
+  "resetEmailHelp": "Ingresa tu correo y te enviaremos un enlace para restablecer tu contraseña.",
+  "signInDiscoverPlayers": "Inicia sesión para buscar jugadores.",
+  "locationNoCoordinates": "Esa ubicación no tiene coordenadas.",
+  "levelValue": "Nivel {level}",
+  "radiusKm": "{distance} km",
+  "playerCountChoice": "{count, plural, =1{1 jugador} other{{count} jugadores}}",
+  "playersIn": "Jugadores en\n{city}",
+  "chooseAreaIn": "Elige una zona en {city}",
+  "chooseAreaInCountry": "Elige una zona en {city}, {countryCode}.",
+  "currentArea": "Zona actual: {area}",
+  "preferredSideDisplay": "Lado: {side}",
+  "leftSide": "Izquierda",
+  "rightSide": "Derecha",
+  "eitherSide": "Cualquiera",
+  "playedTogetherCount": "Jugaron juntos {count, plural, =1{1 vez} other{{count} veces}}",
+  "lastPlayed": "Último partido: {date}",
+  "ratingAverage": "{average} estrellas",
+  "rateNamedPlayer": "Calificar a {name}",
+  "howWasPlaying": "¿Cómo fue jugar con {name}?",
+  "@levelValue": {
+    "placeholders": {
+      "level": {
+        "type": "String"
+      }
+    }
+  },
+  "@radiusKm": {
+    "placeholders": {
+      "distance": {
+        "type": "String"
+      }
+    }
+  },
+  "@playerCountChoice": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@playersIn": {
+    "placeholders": {
+      "city": {
+        "type": "String"
+      }
+    }
+  },
+  "@chooseAreaIn": {
+    "placeholders": {
+      "city": {
+        "type": "String"
+      }
+    }
+  },
+  "@chooseAreaInCountry": {
+    "placeholders": {
+      "city": {
+        "type": "String"
+      },
+      "countryCode": {
+        "type": "String"
+      }
+    }
+  },
+  "@currentArea": {
+    "placeholders": {
+      "area": {
+        "type": "String"
+      }
+    }
+  },
+  "@preferredSideDisplay": {
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "@playedTogetherCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@lastPlayed": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "@ratingAverage": {
+    "placeholders": {
+      "average": {
+        "type": "String"
+      }
+    }
+  },
+  "@rateNamedPlayer": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@howWasPlaying": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "everyone": "Todos",
+  "playedWithFilter": "Jugaste con",
+  "noAreasFound": "No se encontraron zonas.",
+  "playerLevelSide": "Nivel {level} · lado {side}",
+  "playerNoRatingsMatches": "Aún no hay calificaciones · {matches, plural, =1{1 partido completado} other{{matches} partidos completados}}",
+  "playerRatingMatches": "{rating} estrellas ({ratings}) · {matches, plural, =1{1 partido completado} other{{matches} partidos completados}}",
+  "@playerLevelSide": {
+    "placeholders": {
+      "level": {
+        "type": "String"
+      },
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "@playerNoRatingsMatches": {
+    "placeholders": {
+      "matches": {
+        "type": "int"
+      }
+    }
+  },
+  "@playerRatingMatches": {
+    "placeholders": {
+      "rating": {
+        "type": "String"
+      },
+      "ratings": {
+        "type": "int"
+      },
+      "matches": {
+        "type": "int"
+      }
+    }
+  },
+  "emailAppFailed": "No se pudo abrir tu app de correo. Puedes escribirnos a {email}.",
+  "pushPermissionExplanation": "PadelX solicitará permiso en iOS y registrará este dispositivo. Puedes cambiar cada categoría cuando quieras.",
+  "pushBlockedHelp": "Las notificaciones están bloqueadas en la configuración del dispositivo. Actívalas ahí para recibir notificaciones push de PadelX.",
+  "pushBuildUnavailable": "Las notificaciones push no están configuradas para esta versión. Puedes preparar las categorías abajo.",
+  "pushSettingsHelp": "Abre Configuración en tu dispositivo, selecciona PadelX y activa Notificaciones antes de volver a intentarlo.",
+  "pushCategoriesFuture": "Estas categorías se guardan ahora y controlarán la entrega push cuando se habiliten los tipos de notificación en fases posteriores.",
+  "inviteAfterCreate": "Invitar a {name} después de crear el partido",
+  "ratingSummary": "{average} estrellas ({count, plural, =1{1 calificación} other{{count} calificaciones}})",
+  "@emailAppFailed": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "@inviteAfterCreate": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@ratingSummary": {
+    "placeholders": {
+      "average": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "home": "Inicio",
+  "browseMatches": "Ver partidos",
+  "loadingNotifications": "Cargando notificaciones",
+  "loadingYourMatches": "Cargando tus partidos…",
+  "yourMatchesUnavailable": "Tus partidos no están disponibles por el momento.",
+  "noUpcomingMatches": "No hay próximos partidos.",
+  "findOpenOrOrganize": "Busca un partido abierto u organiza tu próximo partido.",
+  "noPastMatches": "Aún no hay partidos anteriores.",
+  "completedAppearHere": "Los partidos completados aparecerán aquí.",
+  "profileNeedsInfo": "Tu perfil necesita un poco más de información",
+  "addNameLevel": "Agrega tu nombre visible y nivel para terminar la configuración.",
+  "profileStatsFailed": "No se pudieron cargar las estadísticas de tu perfil",
+  "rating": "Calificación",
+  "ratings": "Calificaciones",
+  "completedMatches": "Partidos completados",
+  "repeatPlayers": "Jugadores recurrentes",
+  "sharedMatches": "Partidos compartidos",
+  "playerProfileFailed": "No se pudo cargar el perfil de este jugador",
+  "loadingSubmittedRatings": "Cargando calificaciones enviadas",
+  "submittedRatingsFailed": "No se pudieron cargar las calificaciones enviadas.",
+  "playerUnavailable": "Jugador no disponible",
+  "dateUnavailable": "Fecha no disponible",
+  "occasional": "Ocasionalmente",
+  "weekly": "Semanalmente",
+  "severalPerWeek": "Varias veces por semana",
+  "legalAgreePrefix": "Acepto los ",
+  "legalAgreeMiddle": " y reconozco el ",
+  "period": ".",
+  "matchesTogether": "{count, plural, =1{1 partido juntos} other{{count} partidos juntos}}",
+  "@matchesTogether": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "completeProfile": "Completar perfil",
+  "requestPending": "Solicitud pendiente",
+  "organizing": "Organizando",
+  "joined": "Te uniste",
+  "ratingNotEligible": "Esta calificación ya se envió o no es elegible.",
+  "match": "Partido",
+  "findingOpenMatches": "Buscando partidos abiertos…",
+  "deletedPlayer": "Jugador eliminado",
+  "signOutLower": "Cerrar sesión",
+  "createMatchGetStarted": "Crea un partido y empieza a jugar.",
+  "creatingMatch": "Creando...",
+  "emailAddressFallback": "tu dirección de correo",
+  "checkingEllipsis": "Comprobando...",
+  "verifiedMyEmail": "Ya verifiqué mi correo",
+  "sendingEllipsis": "Enviando...",
+  "resendAvailableIn": "Podrás reenviar en {seconds} s",
+  "resendVerificationEmail": "Reenviar correo de verificación",
+  "signingOutEllipsis": "Cerrando sesión...",
+  "emailNotVerified": "Tu correo aún no está verificado. Abre el enlace del correo y vuelve a intentarlo.",
+  "emailCheckFailed": "No pudimos comprobar tu correo. Inténtalo de nuevo.",
+  "verificationEmailSent": "Se envió un nuevo correo de verificación.",
+  "verificationResendFailed": "No pudimos reenviar el correo. Inténtalo de nuevo.",
+  "signOutFailed": "No pudimos cerrar la sesión. Inténtalo de nuevo.",
+  "tooManyAttemptsWait": "Demasiados intentos. Espera un momento y vuelve a intentarlo.",
+  "networkRetry": "Revisa tu conexión a internet y vuelve a intentarlo.",
+  "accountUnavailableSupport": "Esta cuenta no está disponible. Contacta al soporte de PadelX.",
+  "recentLoginRequired": "Cierra sesión, vuelve a iniciarla e inténtalo de nuevo.",
+  "requestFailedGeneric": "No pudimos completar la solicitud. Inténtalo de nuevo.",
+  "ageConfirmContinue": "Confirma que tienes 18 años o más para continuar.",
+  "legalAgreeContinue": "Acepta los Términos de uso y reconoce el Aviso de privacidad para continuar.",
+  "enterEmailPeriod": "Ingresa tu correo.",
+  "validEmailRequired": "Ingresa una dirección de correo válida.",
+  "enterPasswordPeriod": "Ingresa tu contraseña.",
+  "ageRecordAfterCreateFailed": "Tu cuenta se creó, pero no pudimos confirmar la elegibilidad de edad. Inténtalo de nuevo para continuar.",
+  "legalRecordAfterCreateFailed": "Tu cuenta se creó, pero no pudimos registrar el reconocimiento legal. Inténtalo de nuevo para continuar.",
+  "accountNotFound": "No encontramos una cuenta con ese correo.",
+  "incorrectCredentials": "Correo o contraseña incorrectos.",
+  "createAccountFailed": "No pudimos crear tu cuenta. Inténtalo de nuevo.",
+  "emailAlreadyUsed": "Ya existe una cuenta con ese correo. Intenta iniciar sesión.",
+  "weakPassword": "Tu contraseña debe tener al menos 6 caracteres.",
+  "tooManyAttemptsLater": "Demasiados intentos. Inténtalo de nuevo más tarde.",
+  "loginFailed": "No pudimos iniciar sesión. Inténtalo de nuevo.",
+  "genericCreateAccountFailed": "No pudimos crear tu cuenta. Inténtalo de nuevo.",
+  "somethingWrongRetry": "Algo salió mal. Inténtalo de nuevo.",
+  "passwordResetSent": "Se envió el correo para restablecer tu contraseña. Revisa tu bandeja de entrada.",
+  "logIn": "Iniciar sesión",
+  "signUp": "Registrarse",
+  "welcomeBackAuth": "Qué gusto verte. Tu próximo partido te espera.",
+  "createVerifyAuth": "Crea tu cuenta y verifica tu correo para comenzar.",
+  "createPassword": "Crea una contraseña",
+  "showPassword": "Mostrar contraseña",
+  "hidePassword": "Ocultar contraseña",
+  "loggingIn": "Iniciando sesión...",
+  "creatingAccount": "Creando cuenta...",
+  "retryAgeConfirmation": "Reintentar confirmación de edad",
+  "createAccount": "Crear cuenta",
+  "switchToSignUp": "¿No tienes cuenta? Regístrate",
+  "switchToLogin": "¿Ya tienes cuenta? Inicia sesión",
+  "resetEmailFailed": "No pudimos enviar el correo de restablecimiento. Inténtalo de nuevo.",
+  "tooManyRequestsLater": "Demasiadas solicitudes. Inténtalo de nuevo más tarde.",
+  "notSelected": "Sin seleccionar",
+  "legacyLevelHelp": "El valor actual \"{value}\" es heredado. Elige un nivel numérico.",
+  "choosePhoto": "Elegir foto",
+  "chooseAnotherPhoto": "Elegir otra",
+  "unblockingEllipsis": "Desbloqueando…",
+  "profileUnavailable": "Perfil no disponible",
+  "levelNotSet": "Nivel sin definir",
+  "couldNotLoadPlayers": "No pudimos cargar a los jugadores.",
+  "playedWithEmpty": "Las personas con las que juegues aparecerán aquí después de partidos completados.",
+  "notRated": "Sin calificar",
+  "locationSuggestionsUnavailable": "Las sugerencias de ubicación no están disponibles temporalmente.",
+  "conversationUnavailable": "Conversación no disponible",
+  "conversationReadOnly": "Esta conversación es de solo lectura.",
+  "loadOlderMessages": "Cargar mensajes anteriores",
+  "messageFrom": "Mensaje de {name}",
+  "you": "Tú",
+  "enterPasswordHint": "Ingresa tu contraseña",
+  "reasonHarassmentAbuse": "Acoso o conducta abusiva",
+  "reasonHateDiscrimination": "Odio o conducta discriminatoria",
+  "reasonSexualMisconduct": "Conducta sexual o inapropiada",
+  "reasonThreatsUnsafe": "Amenazas o conducta insegura",
+  "reasonSpamScams": "Spam o estafas",
+  "reasonPrivacyViolation": "Violación de privacidad",
+  "reasonFraudDeception": "Fraude o engaño",
+  "reasonMaliciousReporting": "Uso indebido de reportes",
+  "accountTemporarilySuspended": "Cuenta suspendida temporalmente",
+  "accountRestricted": "Cuenta restringida",
+  "accessTemporarilyRestricted": "Tu acceso a PadelX se restringió temporalmente.",
+  "accessRestricted": "Tu acceso a PadelX está restringido.",
+  "currentLocation": "Ubicación actual",
+  "findingYourLocation": "Buscando tu ubicación…",
+  "useCurrentLocation": "Usar mi ubicación actual",
+  "currentLocationRadius": "Ubicación actual · radio de {distance} km",
+  "searchRadius": "Radio de búsqueda: {distance} km",
+  "all": "Todos",
+  "tomorrow": "Mañana",
+  "thisWeek": "Esta semana",
+  "noOpenMatches": "Aún no hay partidos abiertos",
+  "noMatchesFilters": "Ningún partido coincide con tus filtros",
+  "noMatchesRadius": "No hay partidos en un radio de {distance} km",
+  "organizer": "Organizador",
+  "pending": "Pendiente",
+  "full": "Lleno",
+  "open": "Abierto",
+  "profileDetailsSafe": "Los datos de tu perfil están seguros. Revisa tu conexión e inténtalo de nuevo.",
+  "visibleDiscovery": "Visible en Buscar jugadores",
+  "hiddenDiscovery": "Oculto en Buscar jugadores",
+  "setCityPlayers": "Define tu ciudad para buscar jugadores",
+  "addCoarseCity": "Agrega una ciudad general a tu perfil. Tu ubicación precisa nunca se comparte.",
+  "playersUnavailable": "Los jugadores no están disponibles en este momento",
+  "morePlayersMayMatch": "Podría haber más jugadores compatibles",
+  "noPlayersFilters": "Ningún jugador coincide con estos filtros",
+  "continueSearchingPlayers": "Continúa buscando entre los jugadores restantes.",
+  "broadenPlayerFilters": "Prueba una zona, nivel, lado o relación más amplia.",
+  "anyLevel": "Cualquier nivel",
+  "anySide": "Cualquier lado",
+  "eitherOnly": "Solo cualquiera",
+  "unfriendQuestion": "¿Eliminar amistad con este jugador?",
+  "unfriendExplanation": "La amistad y la conexión social directa terminarán.",
+  "incomingRequests": "Solicitudes recibidas",
+  "outgoingRequests": "Solicitudes enviadas",
+  "acceptedFriends": "Amistades aceptadas",
+  "noFriendsYet": "Aún no tienes amistades.",
+  "noRequests": "No hay solicitudes.",
+  "privacy": "Privacidad",
+  "legal": "Legal",
+  "accountDeletionInfo": "Eliminación de cuenta",
+  "categories": "Categorías",
+  "matchMessages": "Mensajes de partidos",
+  "joinRequestsCategory": "Solicitudes para unirse",
+  "friendRequestsCategory": "Solicitudes de amistad",
+  "friendAcceptedCategory": "Amistad aceptada",
+  "matchUpdatesCategory": "Actualizaciones de partidos",
+  "accountManagement": "Administración de cuenta",
+  "pushOn": "Notificaciones push activadas",
+  "pushOff": "Notificaciones push desactivadas",
+  "notificationsBlockedSettings": "Notificaciones bloqueadas en la configuración del dispositivo",
+  "pushUnavailableBuild": "No disponible en esta versión",
+  "checkingDevicePermission": "Comprobando permiso del dispositivo…",
+  "deletionExplanation": "La eliminación es permanente. Los partidos futuros que organices se cancelarán y saldrás de los partidos futuros a los que te hayas unido. La participación histórica se anonimizará. Se eliminarán las calificaciones relacionadas con tu cuenta.",
+  "deletionPasswordRequired": "Ingresa tu contraseña para este intento de eliminación.",
+  "deletionRequested": "Se solicitó la eliminación de la cuenta. Cerraste sesión y la limpieza continúa de forma segura en segundo plano.",
+  "signedOutNotice": "Cerraste sesión.",
+  "requestingDeletion": "Solicitando eliminación…",
+  "permanentlyDeleteAccount": "Eliminar mi cuenta permanentemente",
+  "eligibilityConfirmFailed": "No pudimos confirmar la elegibilidad. Revisa tu conexión e inténtalo de nuevo.",
+  "confirmingEllipsis": "Confirmando...",
+  "legalRecordFailed": "No pudimos registrar tu reconocimiento. Inténtalo de nuevo.",
+  "legalRefreshFailed": "Se registró tu reconocimiento, pero no pudimos actualizar su estado. Inténtalo de nuevo.",
+  "savingEllipsis": "Guardando...",
+  "guidelineAdultsTitle": "Solo personas adultas",
+  "guidelineAdultsBody": "PadelX es para personas mayores de 18 años.",
+  "guidelineRespectTitle": "Respeta a otros jugadores",
+  "guidelineRespectBody": "Trata a los jugadores con respeto. No se permite el acoso, la intimidación ni el abuso dirigido.",
+  "guidelineHateTitle": "Odio y discriminación",
+  "guidelineHateBody": "No se permite contenido ni conducta de odio o discriminación.",
+  "guidelineSexualTitle": "Conducta sexual o inapropiada",
+  "guidelineSexualBody": "No envíes contenido sexual no solicitado ni incurras en acoso sexual u otra conducta inapropiada.",
+  "guidelineThreatsTitle": "Amenazas y conducta insegura",
+  "guidelineThreatsBody": "No se permiten amenazas, violencia, intimidación ni conductas deliberadamente inseguras.",
+  "guidelineSpamTitle": "Spam, estafas y engaño",
+  "guidelineSpamBody": "No publiques estafas, spam, anuncios engañosos, solicitudes de pago fraudulentas ni información de partidos intencionalmente falsa.",
+  "guidelineImpersonationBody": "No suplantes a otro jugador, sede, organización o persona.",
+  "guidelinePrivacyTitle": "Privacidad",
+  "guidelinePrivacyBody": "No compartas información privada de otra persona sin permiso ni expongas indebidamente ubicaciones privadas o residenciales.",
+  "guidelineProfilesTitle": "Perfiles y contenido",
+  "guidelineProfilesBody": "Los nombres, avatares, biografías, datos de partidos y mensajes deben cumplir estas normas.",
+  "guidelineMessagingTitle": "Mensajería",
+  "guidelineMessagingBody": "No uses mensajes directos ni el chat del partido para acosar, amenazar, estafar, enviar spam o compartir contenido inapropiado no solicitado.",
+  "guidelineMatchesTitle": "Partidos",
+  "guidelineMatchesBody": "Crea anuncios honestos. No tergiverses intencionalmente la ubicación, hora, costo, nivel, disponibilidad ni al organizador.",
+  "guidelineBlockingTitle": "Bloqueos y reportes",
+  "guidelineBlockingBody": "Respeta la decisión de otra persona de bloquear o dejar de comunicarse. No tomes represalias ni envíes reportes maliciosos o inventados.",
+  "guidelineRealWorldTitle": "Seguridad presencial",
+  "guidelineRealWorldBody": "Usa un criterio razonable al conocer personas en la vida real. Trata con cuidado las ubicaciones privadas y residenciales.",
+  "guidelineReliabilityTitle": "Confiabilidad futura",
+  "guidelineReliabilityBody": "PadelX podría usar más adelante conductas objetivas de participación, como cancelaciones y ausencias, para mejorar el emparejamiento.",
+  "guidelineEnforcementTitle": "Medidas",
+  "guidelineEnforcementBody": "PadelX puede revisar conductas reportadas y restringir el acceso cuando corresponda.",
+  "immediateDangerBody": "Si tú u otra persona están en peligro inmediato, contacta a los servicios de emergencia locales.",
+  "notEmergencyService": "Los reportes y el soporte de PadelX no son servicios de emergencia.",
+  "emergencySafetyGuidanceLabel": "Orientación de seguridad para emergencias",
+  "where": "Dónde",
+  "when": "Cuándo",
+  "hideLocationDetails": "Ocultar detalles de ubicación",
+  "editLocationDetails": "Editar detalles de ubicación",
+  "matchDetailsSection": "Detalles del partido",
+  "saveChanges": "Guardar cambios",
+  "completeYourProfile": "Completa tu perfil",
+  "profileRequiredIntro": "Cuéntales a otros jugadores con quién compartirán la cancha.",
+  "profileEditIntro": "Mantén tus datos actualizados para encontrar partidos más compatibles.",
+  "chooseCity": "Elegir ciudad",
+  "optionalNeighborhoodCity": "Colonia o zona opcional dentro de tu ciudad",
+  "legacyAreaHelp": "Zona actual; elimínala o reemplázala con un resultado de búsqueda",
+  "displayNameTooShort": "Ingresa un nombre de al menos 2 caracteres.",
+  "displayNameTooLong": "El nombre debe tener 40 caracteres o menos.",
+  "chooseLevelRange": "Elige un nivel del 1 al 7.",
+  "bioTooLong": "La biografía debe tener 160 caracteres o menos.",
+  "discoveryLocationRequired": "Ingresa país, código de país de 2 letras y ciudad para aparecer en búsquedas.",
+  "profileSaveFailed": "No pudimos guardar tu perfil. Inténtalo de nuevo.",
+  "selectPadelClub": "Selecciona un club de pádel.",
+  "chooseDateTimePeriod": "Elige una fecha y hora.",
+  "choosePlayerLevel": "Elige un nivel de jugador.",
+  "matchCreatedInvited": "Partido creado e invitación enviada.",
+  "matchCreatedInviteFailed": "El partido se creó, pero no pudimos enviar la invitación.",
+  "matchCreated": "Partido creado correctamente.",
+  "legacyLocationHelp": "Ubicación heredada: busca arriba para elegir una ubicación estructurada.",
+  "saveMatchFailed": "No pudimos guardar los cambios del partido. Inténtalo de nuevo.",
+  "confirmedPlayersCapacity": "{count, plural, =1{1 jugador confirmado actualmente · máximo 4} other{{count} jugadores confirmados actualmente · máximo 4}}",
+  "matchChatUnavailable": "El chat del partido no está disponible.",
+  "completedMatchNoChanges": "Este partido ya terminó.",
+  "loginJoinMatch": "Inicia sesión para solicitar unirte a un partido.",
+  "joinRequestSent": "Solicitud enviada.",
+  "joinRequestFailed": "No pudimos enviar tu solicitud. Inténtalo de nuevo.",
+  "completedMatchesNoChanges": "Los partidos terminados no se pueden modificar.",
+  "joinRequestApproved": "Solicitud aprobada.",
+  "joinRequestDeclined": "Solicitud rechazada.",
+  "approveRequestFailed": "No pudimos aprobar la solicitud. Inténtalo de nuevo.",
+  "declineRequestFailed": "No pudimos rechazar la solicitud. Inténtalo de nuevo.",
+  "loginLeaveMatch": "Inicia sesión para salir de un partido.",
+  "leftMatch": "Saliste del partido.",
+  "leaveMatchFailed": "No pudimos sacarte del partido. Inténtalo de nuevo.",
+  "loginCancelMatch": "Inicia sesión para cancelar un partido.",
+  "cancelMatchFailed": "No pudimos cancelar el partido. Inténtalo de nuevo.",
+  "playersFromMatch": "Jugadores de este partido",
+  "confirmedRole": "Confirmado",
+  "cancellingEllipsis": "Cancelando...",
+  "leavingEllipsis": "Saliendo...",
+  "requestStatusFailed": "No pudimos cargar el estado de la solicitud",
+  "loadingRequestStatus": "Cargando estado de la solicitud…",
+  "matchFull": "Partido lleno",
+  "requestingEllipsis": "Solicitando...",
+  "loadingRequest": "Cargando solicitud...",
+  "loadRequestFailed": "No pudimos cargar la solicitud",
+  "dateTimeUnavailable": "Fecha y hora no disponibles",
+  "ratingSelected": "{count} de 5",
+  "selectRating": "Selecciona una calificación",
+  "ratingSubmittedStars": "Calificación enviada · {count, plural, =1{1 estrella} other{{count} estrellas}}",
+  "submittedStars": "Enviada · {count, plural, =1{1 estrella} other{{count} estrellas}}",
+  "startupLoadingSemantics": "PadelX cargando"
 }

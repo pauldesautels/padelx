@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'l10n/l10n.dart';
+
 typedef LegalUriLauncher = Future<bool> Function(Uri uri);
 
 class PadelXLegalConfiguration {
@@ -50,7 +52,11 @@ Future<void> openLegalLink(
   PadelXLegalConfiguration configuration = PadelXLegalConfiguration.beta,
   LegalUriLauncher launcher = launchLegalUri,
 }) async {
-  final uri = configuration.uri(path);
+  final languageCode = Localizations.localeOf(context).languageCode;
+  final localizedPath = languageCode == 'es'
+      ? '/es-MX/${path.replaceAll(RegExp(r'^/+|/+$'), '')}'
+      : path;
+  final uri = configuration.uri(localizedPath);
   var opened = false;
   try {
     if (uri != null) opened = await launcher(uri);
@@ -61,7 +67,7 @@ Future<void> openLegalLink(
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Could not open this page. Contact ${configuration.contactEmail}.',
+          context.l10n.couldNotOpenPage(configuration.contactEmail),
         ),
       ),
     );

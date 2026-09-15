@@ -3,6 +3,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'l10n/l10n.dart';
 
 const _deletionDiagnosticsEnabled =
     bool.fromEnvironment('PADELX_DELETION_DIAGNOSTICS') &&
@@ -189,9 +190,10 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   }
 
   Future<void> _delete() async {
+    final strings = context.l10n;
     if (_busy || !_freshPasswordEntered || _password.text.isEmpty) {
       setState(() {
-        _error = 'Enter your password for this deletion attempt.';
+        _error = strings.deletionPasswordRequired;
       });
       return;
     }
@@ -207,9 +209,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     });
     try {
       await (widget.submitDeletion ?? _submitDeletion)(password);
-      await widget.onFinished(
-        'Account deletion requested. You are signed out. Cleanup continues securely in the background.',
-      );
+      await widget.onFinished(strings.deletionRequested);
     } on AccountDeletionFailure catch (error) {
       if (mounted) setState(() => _error = error.userMessage);
     } catch (_) {
@@ -286,8 +286,9 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
 
   Future<void> _signOut() async {
     if (_busy) return;
+    final strings = context.l10n;
     await widget.onSignOutAttempt?.call();
-    await widget.onFinished('You are signed out.');
+    await widget.onFinished(strings.signedOutNotice);
   }
 
   @override
@@ -295,13 +296,13 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     canPop: !_busy,
     child: Scaffold(
       appBar: AppBar(
-        title: const Text('Delete Account'),
+        title: Text(context.l10n.deleteAccount),
         automaticallyImplyLeading: false,
         leading: widget.onCancel == null
             ? null
             : IconButton(
                 key: const Key('cancel-account-deletion'),
-                tooltip: 'Back',
+                tooltip: context.l10n.back,
                 onPressed: _busy ? null : _cancel,
                 icon: const Icon(Icons.arrow_back),
               ),
@@ -315,7 +316,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(deletionExplanation),
+                Text(context.l10n.deletionExplanation),
                 const SizedBox(height: 24),
                 TextField(
                   controller: _password,
@@ -330,8 +331,8 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                       if (value.isNotEmpty) _error = null;
                     });
                   },
-                  decoration: const InputDecoration(
-                    labelText: 'Confirm your password',
+                  decoration: InputDecoration(
+                    labelText: context.l10n.confirmPassword,
                   ),
                 ),
                 if (_error != null)
@@ -344,13 +345,13 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                   onPressed: _busy || !_freshPasswordEntered ? null : _delete,
                   child: Text(
                     _busy
-                        ? 'Requesting deletion…'
-                        : 'Permanently delete my account',
+                        ? context.l10n.requestingDeletion
+                        : context.l10n.permanentlyDeleteAccount,
                   ),
                 ),
                 TextButton(
                   onPressed: _busy ? null : _signOut,
-                  child: const Text('Sign out'),
+                  child: Text(context.l10n.signOutLower),
                 ),
               ],
             ),

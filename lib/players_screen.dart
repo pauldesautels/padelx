@@ -10,6 +10,7 @@ import 'friends_repository.dart';
 import 'friends_screen.dart';
 import 'player_discovery.dart';
 import 'player_discovery_repository.dart';
+import 'l10n/l10n.dart';
 
 typedef PlayerTap =
     void Function(BuildContext context, DiscoveredPlayer player);
@@ -59,7 +60,12 @@ class _PlayersScreenState extends State<PlayersScreen> {
   @override
   void didUpdateWidget(covariant PlayersScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_sameDiscoveryScope(oldWidget.discoveryLocation, widget.discoveryLocation)) return;
+    if (_sameDiscoveryScope(
+      oldWidget.discoveryLocation,
+      widget.discoveryLocation,
+    )) {
+      return;
+    }
     filters = PlayerDiscoveryFilters(
       level: filters.level,
       preferredSide: filters.preferredSide,
@@ -71,7 +77,10 @@ class _PlayersScreenState extends State<PlayersScreen> {
   }
 
   bool _sameDiscoveryScope(DiscoveryLocation left, DiscoveryLocation right) {
-    if (left.countryCode.trim().toUpperCase() != right.countryCode.trim().toUpperCase()) return false;
+    if (left.countryCode.trim().toUpperCase() !=
+        right.countryCode.trim().toUpperCase()) {
+      return false;
+    }
     final leftId = left.cityId.trim();
     final rightId = right.cityId.trim();
     if (leftId.isNotEmpty || rightId.isNotEmpty) return leftId == rightId;
@@ -168,95 +177,96 @@ class _PlayersScreenState extends State<PlayersScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 104),
       children: [
-      const Text(
-        'Players',
-        style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
-      ),
-      const SizedBox(height: 6),
-      const Text(
-        'Find padel players you may want to play with.',
-        style: TextStyle(color: Colors.white70),
-      ),
-      const SizedBox(height: 16),
-      if (widget.discoveryLocation.isConfigured) ...[
-        Semantics(
-          header: true,
-          child: Text(
-            'Players in\n${widget.discoveryLocation.city}',
-            key: const Key('players-active-city'),
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
+        Text(
+          context.l10n.players,
+          style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
         ),
-        if (widget.onEditProfileLocation != null)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              key: const Key('players-edit-location'),
-              onPressed: widget.onEditProfileLocation,
-              child: const Text('Edit profile location'),
+        const SizedBox(height: 6),
+        Text(
+          context.l10n.findPadelPlayers,
+          style: TextStyle(color: Colors.white70),
+        ),
+        const SizedBox(height: 16),
+        if (widget.discoveryLocation.isConfigured) ...[
+          Semantics(
+            header: true,
+            child: Text(
+              context.l10n.playersIn(widget.discoveryLocation.city),
+              key: const Key('players-active-city'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
           ),
-        const SizedBox(height: 8),
-      ],
-      _Filters(
-        filters: filters,
-        location: widget.discoveryLocation,
-        placesClient: widget.placesClient,
-        onChanged: _setFilters,
-      ),
-      const SizedBox(height: 12),
-      if (noLocation)
-        const _State(
-          key: Key('players-no-location'),
-          icon: Icons.location_off_outlined,
-          title: 'Set your city to find players',
-          message:
-              'Add a coarse city in your profile. Your precise location is never shared.',
-        )
-      else if (players.isEmpty && loading)
-        const Center(
-          child: Padding(
-            padding: EdgeInsets.all(32),
-            child: CircularProgressIndicator(),
-          ),
-        )
-      else if (players.isEmpty && error != null)
-        _State(
-          key: const Key('players-error'),
-          icon: Icons.cloud_off_outlined,
-          title: 'Players are unavailable right now',
-          action: () => _load(reset: true),
-        )
-      else if (players.isEmpty)
-        _State(
-          key: Key(hasMore ? 'players-more-available' : 'players-empty'),
-          icon: Icons.group_outlined,
-          title: hasMore
-              ? 'More players may match'
-              : 'No players match these filters',
-          message: hasMore
-              ? 'Continue searching the remaining players.'
-              : 'Try a broader area, level, side, or relationship filter.',
-          action: hasMore ? _load : null,
-          actionLabel: 'Load more',
-        )
-      else
-        ...players.map(
-          (player) => PlayerDiscoveryCard(
-            player: player,
-            friendsRepository: widget.friendsRepository,
-            onTap: () => widget.onProfileTap(context, player),
-            onPlayAgain: player.canPlayAgain && widget.onPlayAgain != null
-                ? () => widget.onPlayAgain!(player)
-                : null,
-            onChanged: () => _load(reset: true),
-          ),
+          if (widget.onEditProfileLocation != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                key: const Key('players-edit-location'),
+                onPressed: widget.onEditProfileLocation,
+                child: Text(context.l10n.editProfileLocation),
+              ),
+            ),
+          const SizedBox(height: 8),
+        ],
+        _Filters(
+          filters: filters,
+          location: widget.discoveryLocation,
+          placesClient: widget.placesClient,
+          onChanged: _setFilters,
         ),
-      if (hasMore && players.isNotEmpty)
-        TextButton(
-          onPressed: loading ? null : _load,
-          child: Text(loading ? 'Loading…' : 'Load more'),
-        ),
+        const SizedBox(height: 12),
+        if (noLocation)
+          _State(
+            key: const Key('players-no-location'),
+            icon: Icons.location_off_outlined,
+            title: context.l10n.setCityPlayers,
+            message: context.l10n.addCoarseCity,
+          )
+        else if (players.isEmpty && loading)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (players.isEmpty && error != null)
+          _State(
+            key: const Key('players-error'),
+            icon: Icons.cloud_off_outlined,
+            title: context.l10n.playersUnavailable,
+            action: () => _load(reset: true),
+          )
+        else if (players.isEmpty)
+          _State(
+            key: Key(hasMore ? 'players-more-available' : 'players-empty'),
+            icon: Icons.group_outlined,
+            title: hasMore
+                ? context.l10n.morePlayersMayMatch
+                : context.l10n.noPlayersFilters,
+            message: hasMore
+                ? context.l10n.continueSearchingPlayers
+                : context.l10n.broadenPlayerFilters,
+            action: hasMore ? _load : null,
+            actionLabel: context.l10n.loadMore,
+          )
+        else
+          ...players.map(
+            (player) => PlayerDiscoveryCard(
+              player: player,
+              friendsRepository: widget.friendsRepository,
+              onTap: () => widget.onProfileTap(context, player),
+              onPlayAgain: player.canPlayAgain && widget.onPlayAgain != null
+                  ? () => widget.onPlayAgain!(player)
+                  : null,
+              onChanged: () => _load(reset: true),
+            ),
+          ),
+        if (hasMore && players.isNotEmpty)
+          TextButton(
+            onPressed: loading ? null : _load,
+            child: Text(
+              loading ? context.l10n.loadingEllipsis : context.l10n.loadMore,
+            ),
+          ),
       ],
     ),
   );
@@ -306,8 +316,10 @@ class _Filters extends StatelessWidget {
                     value: v,
                     child: Text(
                       v == 'any'
-                          ? 'Any level'
-                          : (RegExp(r'^[0-9]').hasMatch(v) ? 'Level $v' : v),
+                          ? context.l10n.anyLevel
+                          : (RegExp(r'^[0-9]').hasMatch(v)
+                                ? context.l10n.levelValue(v)
+                                : v),
                     ),
                   ),
                 )
@@ -326,11 +338,11 @@ class _Filters extends StatelessWidget {
             key: const Key('players-side-filter'),
             value: filters.preferredSide,
             items:
-                const {
-                      'any': 'Any side',
-                      'left': 'Left',
-                      'right': 'Right',
-                      'either': 'Either only',
+                {
+                      'any': context.l10n.anySide,
+                      'left': context.l10n.leftSide,
+                      'right': context.l10n.rightSide,
+                      'either': context.l10n.eitherOnly,
                     }.entries
                     .map(
                       (e) =>
@@ -351,10 +363,11 @@ class _Filters extends StatelessWidget {
             key: const Key('players-relationship-filter'),
             value: filters.relationship,
             items:
-                const {
-                      PlayerRelationshipFilter.all: 'Everyone',
-                      PlayerRelationshipFilter.friends: 'Friends',
-                      PlayerRelationshipFilter.playedWith: 'Played With',
+                {
+                      PlayerRelationshipFilter.all: context.l10n.everyone,
+                      PlayerRelationshipFilter.friends: context.l10n.friends,
+                      PlayerRelationshipFilter.playedWith:
+                          context.l10n.playedWithFilter,
                     }.entries
                     .map(
                       (e) =>
@@ -417,11 +430,18 @@ class PlayerDiscoveryCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (player.isFriend) const Chip(label: Text('Friend')),
+                if (player.isFriend) Chip(label: Text(context.l10n.friend)),
               ],
             ),
             Text(
-              'Level ${player.level} · ${player.preferredSide[0].toUpperCase()}${player.preferredSide.substring(1)} side',
+              context.l10n.playerLevelSide(
+                player.level,
+                switch (player.preferredSide) {
+                  'left' => context.l10n.leftSide,
+                  'right' => context.l10n.rightSide,
+                  _ => context.l10n.eitherSide,
+                },
+              ),
             ),
             if (player.locationLabel.isNotEmpty)
               Text(
@@ -431,14 +451,20 @@ class PlayerDiscoveryCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               player.ratingCount == 0
-                  ? 'No ratings yet · ${player.completedMatchCount} completed matches'
-                  : '${player.ratingAverage.toStringAsFixed(1)} ★ (${player.ratingCount}) · ${player.completedMatchCount} completed matches',
+                  ? context.l10n.playerNoRatingsMatches(
+                      player.completedMatchCount,
+                    )
+                  : context.l10n.playerRatingMatches(
+                      player.ratingAverage.toStringAsFixed(1),
+                      player.ratingCount,
+                      player.completedMatchCount,
+                    ),
             ),
             if (player.playedTogetherCount > 0)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
-                  'Played together ${player.playedTogetherCount} ${player.playedTogetherCount == 1 ? 'time' : 'times'}',
+                  context.l10n.playedTogetherCount(player.playedTogetherCount),
                 ),
               ),
             const SizedBox(height: 10),
@@ -455,7 +481,7 @@ class PlayerDiscoveryCard extends StatelessWidget {
                   OutlinedButton.icon(
                     onPressed: onPlayAgain,
                     icon: const Icon(Icons.replay),
-                    label: const Text('Play Again'),
+                    label: Text(context.l10n.playAgain),
                   ),
               ],
             ),

@@ -12,6 +12,7 @@ import 'friends_repository.dart';
 import 'report_flow.dart';
 import 'report_repository.dart';
 import 'reporting.dart';
+import 'l10n/l10n.dart';
 
 typedef ConversationNotificationStream =
     Stream<Map<String, dynamic>?> Function(
@@ -292,7 +293,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not send this message.')),
+          SnackBar(content: Text(context.l10n.couldNotSendMessage)),
         );
       }
     } finally {
@@ -334,7 +335,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       subjectType: ReportSubjectType.message,
       subjectId: message.id,
       conversationId: widget.conversationId,
-      subjectLabel: 'Message from ${identity.displayName}',
+      subjectLabel: context.l10n.messageFrom(identity.displayName),
       onBlockPlayer: () => friends.block(message.senderUid),
       sharedMatchBlockCopy: _isMatch,
       friendshipWillBeRemoved: acceptedFriend,
@@ -381,8 +382,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const Text(
-                        'Match Chat',
+                      Text(
+                        context.l10n.matchChat,
                         style: TextStyle(fontSize: 12, color: Colors.white60),
                       ),
                     ],
@@ -398,7 +399,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       actions: [
         IconButton(
           key: const Key('refresh-conversation'),
-          tooltip: 'Refresh messages',
+          tooltip: context.l10n.refreshMessages,
           onPressed: () => _load(source: 'manual'),
           icon: const Icon(Icons.refresh),
         ),
@@ -417,23 +418,23 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     children: [
                       Text(
                         _conversationUnavailable
-                            ? 'Conversation unavailable'
-                            : 'Messages are unavailable right now.',
+                            ? context.l10n.conversationUnavailable
+                            : context.l10n.messagesUnavailable,
                       ),
                       if (!_conversationUnavailable) ...[
                         const SizedBox(height: 12),
                         FilledButton(
                           onPressed: _retry,
-                          child: const Text('Try Again'),
+                          child: Text(context.l10n.tryAgain),
                         ),
                       ],
                     ],
                   ),
                 )
               : _messages.isEmpty
-              ? const Center(
-                  key: Key('messages-empty-state'),
-                  child: Text('No messages yet. Say hello!'),
+              ? Center(
+                  key: const Key('messages-empty-state'),
+                  child: Text(context.l10n.noMessages),
                 )
               : ListView.builder(
                   controller: _scrollController,
@@ -446,7 +447,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         key: const Key('load-older-messages'),
                         onPressed: _older,
                         child: Text(
-                          _loadingOlder ? 'Loading…' : 'Load older messages',
+                          _loadingOlder
+                              ? context.l10n.loadingEllipsis
+                              : context.l10n.loadOlderMessages,
                         ),
                       );
                     }
@@ -480,13 +483,18 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         _identities[message.senderUid] ??
                         MessagingIdentity(
                           uid: message.senderUid,
-                          displayName: 'Player',
+                          displayName: context.l10n.player,
                         );
                     return Column(
                       children: [
                         if (startsDay && message.createdAt != null)
                           _MessageDateSeparator(
-                            label: messagingDateSeparator(message.createdAt),
+                            label: messagingDateSeparator(
+                              message.createdAt,
+                              locale: Localizations.localeOf(context),
+                              todayLabel: context.l10n.today,
+                              yesterdayLabel: context.l10n.yesterday,
+                            ),
                           ),
                         MessageBubble(
                           key: Key('message-${message.id}'),
@@ -511,7 +519,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             key: const Key('message-composer-disabled'),
             padding: const EdgeInsets.all(12),
             child: Text(
-              _disabledReason ?? 'This conversation is read-only.',
+              _disabledReason ?? context.l10n.conversationReadOnly,
               style: const TextStyle(color: Colors.white60),
             ),
           ),
@@ -537,11 +545,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         maxLines: 4,
                         minLines: 1,
                         textCapitalization: TextCapitalization.sentences,
-                        decoration: const InputDecoration(
-                          hintText: 'Message',
+                        decoration: InputDecoration(
+                          hintText: context.l10n.message,
                           border: InputBorder.none,
                           counterText: '',
-                          contentPadding: EdgeInsets.symmetric(
+                          contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 12,
                           ),
@@ -552,7 +560,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   const SizedBox(width: 6),
                   IconButton(
                     key: const Key('send-message'),
-                    tooltip: 'Send message',
+                    tooltip: context.l10n.sendMessage,
                     onPressed: _canSubmit ? _send : null,
                     icon: const Icon(Icons.send),
                   ),
@@ -611,9 +619,14 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final time = messagingTime(message.createdAt);
-    final sender = mine ? 'You' : identity.displayName;
-    final reportAction = CustomSemanticsAction(label: 'Report message');
+    final time = messagingTime(
+      message.createdAt,
+      locale: Localizations.localeOf(context),
+    );
+    final sender = mine ? context.l10n.you : identity.displayName;
+    final reportAction = CustomSemanticsAction(
+      label: context.l10n.reportMessage,
+    );
     return Semantics(
       label: [sender, message.text, if (time.isNotEmpty) time].join(', '),
       container: true,
@@ -634,7 +647,7 @@ class MessageBubble extends StatelessWidget {
                       key: const Key('report-message-action'),
                       minVerticalPadding: 16,
                       leading: const Icon(Icons.flag_outlined),
-                      title: const Text('Report message'),
+                      title: Text(context.l10n.reportMessage),
                       onTap: () => Navigator.pop(sheetContext, true),
                     ),
                   ),

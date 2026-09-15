@@ -20,3 +20,12 @@ callable names, request IDs, report reason codes, statuses, side values, numeric
 levels, schema versions, `cityId`, or `areaId`. Legal acceptance always uses the
 same `terms-beta-v1`, `privacy-beta-v1`, and `community-beta-v1` identities in
 every language.
+
+Firebase Authentication verification and password-reset templates must be
+reviewed and configured for English and Spanish in Firebase Console before the
+beta. The client already sets the Auth language code; this repository task does
+not change provider templates or Console configuration.
+
+Localized legal routes are `/es-MX/privacy`, `/es-MX/terms`,
+`/es-MX/community-guidelines`, and `/es-MX/account-deletion`. Their Spanish
+copy remains subject to the legal review checklist.
