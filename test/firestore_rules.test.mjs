@@ -953,7 +953,7 @@ describe('messaging access boundary', () => {
   });
 });
 
-test('full-capacity approval, notification and subsequent leave retain access', async () => {
+test('full-capacity approval remains allowed but participant leave is server-only', async () => {
   const players = ['first', 'second'].map((uid) => ({ uid, displayName: `Player ${uid}`, level: 'Level 3' }));
   await seed('matches/capacity', matchData('organizer', {
     players, participantUids: ['organizer', 'first', 'second'], spotsLeft: 1,
@@ -982,7 +982,7 @@ test('full-capacity approval, notification and subsequent leave retain access', 
     players, participantUids: ['organizer', 'first', 'second'], spotsLeft: 1,
   });
   leave.update(doc(leaveDb, 'matches/capacity/joinRequests/requester'), { status: 'declined' });
-  await assertSucceeds(leave.commit());
+  await assertFails(leave.commit());
 });
 
 
@@ -1028,5 +1028,129 @@ describe('notification preferences and push devices', () => {
       await assertFails(setDoc(doc(db, 'pushDevices/new'), { uid: 'alice', token: 'value' }));
       await assertFails(deleteDoc(doc(db, 'pushDevices/hash')));
     }
+  });
+});
+
+describe('matchmaking privacy boundary', () => {
+  test('canonical requests, proposals, owner locks, and reliability are server-only', async () => {
+    await seed('matchmakingRequests/request-one', { ownerUid: 'alice', memberUids: ['alice'] });
+    await seed('matchmakingActiveOwners/alice', { ownerUid: 'alice', activeRequestId: 'request-one' });
+    await seed('matchProposals/proposal-one', { memberUids: ['alice', 'bob'] });
+    await seed('reliabilityEvents/event-one', { uid: 'alice', type: 'proposal_accepted' });
+    for (const db of [auth('alice'), auth('bob'), environment.unauthenticatedContext().firestore()]) {
+      for (const path of ['matchmakingRequests/request-one', 'matchmakingActiveOwners/alice',
+        'matchProposals/proposal-one', 'reliabilityEvents/event-one']) {
+        await assertFails(getDoc(doc(db, path)));
+        await assertFails(setDoc(doc(db, path), { unsafe: true }));
+      }
+    }
+  });
+
+  test('Reliability exposes only the bounded projection to verified users', async () => {
+    await seed('reliabilityProfiles/alice', {
+      uid: 'alice', status: 'established', percent: 95, sampleSize: 8,
+      policyVersion: 'objective-reliability-v1', schemaVersion: 1,
+    });
+    await assertSucceeds(getDoc(doc(auth('alice'), 'reliabilityProfiles/alice')));
+    await assertSucceeds(getDoc(doc(auth('bob'), 'reliabilityProfiles/alice')));
+    await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(),
+      'reliabilityProfiles/alice')));
+    await assertFails(getDocs(collection(auth('alice'), 'reliabilityProfiles')));
+    await assertFails(setDoc(doc(auth('alice'), 'reliabilityProfiles/alice'), { percent: 100 }));
+    await assertFails(getDoc(doc(auth('alice'), 'reliabilityEvents/event-one')));
+    await assertFails(getDoc(doc(auth('alice'), 'attendanceEvidence/evidence-one')));
+    await assertFails(setDoc(doc(auth('alice'), 'attendanceEvidence/evidence-one'),
+      { attended: false }));
+  });
+
+  test('verified users can read only their own server-authored projections', async () => {
+    await seed('users/alice/matchmakingRequestViews/request-one', { status: 'active' });
+    await seed('users/alice/matchProposalViews/proposal-one', { status: 'confirming' });
+    const alice = auth('alice');
+    await assertSucceeds(getDoc(doc(alice, 'users/alice/matchmakingRequestViews/request-one')));
+    await assertSucceeds(getDoc(doc(alice, 'users/alice/matchProposalViews/proposal-one')));
+    await assertFails(getDoc(doc(auth('bob'), 'users/alice/matchmakingRequestViews/request-one')));
+    await assertFails(setDoc(doc(alice, 'users/alice/matchmakingRequestViews/new'), { status: 'active' }));
+    await assertFails(deleteDoc(doc(alice, 'users/alice/matchProposalViews/proposal-one')));
+  });
+
+  test('protected private venue follows current canonical match membership', async () => {
+    await seed('matches/private-match', matchData('coordinator', {
+      source: 'matchmaking', venueType: 'private_free',
+      participantUids: ['coordinator', 'confirmed'], spotsLeft: 0,
+    }));
+    await seed('matchPrivateVenues/private-match', { schemaVersion: 1, matchId: 'private-match',
+      address: 'Synthetic private address', latitude: 19.42, longitude: -99.16 });
+    await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(),
+      'matchPrivateVenues/private-match')));
+    await assertSucceeds(getDoc(doc(auth('coordinator'), 'matchPrivateVenues/private-match')));
+    await assertSucceeds(getDoc(doc(auth('confirmed'), 'matchPrivateVenues/private-match')));
+    await seed('accountEnforcement/confirmed', { schemaVersion: 1, uid: 'confirmed', status: 'banned' });
+    await assertFails(getDoc(doc(auth('confirmed'), 'matchPrivateVenues/private-match')));
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await deleteDoc(doc(context.firestore(), 'accountEnforcement/confirmed'));
+    });
+    for (const uid of ['candidate', 'declined', 'expired', 'unrelated']) {
+      await assertFails(getDoc(doc(auth(uid), 'matchPrivateVenues/private-match')));
+    }
+    await seed('matches/private-match', matchData('coordinator', {
+      source: 'matchmaking', venueType: 'private_free', participantUids: ['coordinator'], spotsLeft: 1,
+    }));
+    await assertFails(getDoc(doc(auth('confirmed'), 'matchPrivateVenues/private-match')));
+    await assertFails(setDoc(doc(auth('coordinator'), 'matchPrivateVenues/forged'), {
+      address: 'forged', latitude: 0, longitude: 0,
+    }));
+  });
+
+  test('matchmaking commitment terms are immutable while manual edits remain compatible', async () => {
+    await seed('matches/locked', matchData('organizer', { source: 'matchmaking', spotsLeft: 2 }));
+    const locked = doc(auth('organizer'), 'matches/locked');
+    await assertFails(updateDoc(locked, { scheduledAt: Timestamp.fromMillis(now + 172_800_000) }));
+    await assertFails(updateDoc(locked, { club: 'Other', clubName: 'Other',
+      location: location({ clubName: 'Other', placeId: 'other' }) }));
+    await assertFails(updateDoc(locked, { spotsLeft: 1 }));
+    await assertFails(updateDoc(locked, { players: [{ uid: 'other', displayName: 'Other', level: 'Level 3' }] }));
+    await assertSucceeds(updateDoc(locked, { title: 'Coordinator note' }));
+
+    await seed('matches/manual', matchData('organizer'));
+    await assertSucceeds(updateDoc(doc(auth('organizer'), 'matches/manual'), {
+      title: 'Updated manual match', dateTime: 'Later',
+      scheduledAt: Timestamp.fromMillis(now + 172_800_000),
+    }));
+  });
+
+  test('matchmaking matches cannot be joined or expanded through legacy client paths', async () => {
+    await seed('matches/locked-join', matchData('organizer', {
+      source: 'matchmaking', participantUids: ['organizer'], spotsLeft: 3,
+    }));
+    const requester = auth('requester');
+    await assertFails(setDoc(doc(requester, 'matches/locked-join/joinRequests/requester'), {
+      userId: 'requester', displayName: 'Requester', level: 'Level 3',
+      email: 'requester@example.com', status: 'pending', requestedAt: serverTimestamp(),
+      eventId: 'locked-join-event',
+    }));
+
+    // Even a legacy server-authored pending request cannot be approved through
+    // the ordinary organizer batch after a match is marked as matchmaking.
+    await seed('matches/locked-join/joinRequests/requester', {
+      userId: 'requester', displayName: 'Requester', level: 'Level 3',
+      email: 'requester@example.com', status: 'pending', requestedAt: past(),
+      eventId: 'locked-join-event',
+    });
+    const organizer = auth('organizer');
+    const batch = writeBatch(organizer);
+    batch.update(doc(organizer, 'matches/locked-join'), {
+      participantUids: ['organizer', 'requester'],
+      players: [{ uid: 'requester', displayName: 'Requester', level: 'Level 3' }],
+      spotsLeft: 2,
+    });
+    batch.update(doc(organizer, 'matches/locked-join/joinRequests/requester'), { status: 'approved' });
+    batch.set(doc(organizer, 'notifications/join_approved_locked-join_locked-join-event'), {
+      type: 'join_approved', recipientUid: 'requester', actorUid: 'organizer',
+      actorDisplayName: 'Organizer', matchId: 'locked-join', matchClubName: 'Roma Padel',
+      title: 'Request approved', message: 'Approved.', isRead: false,
+      createdAt: serverTimestamp(), eventId: 'locked-join-event',
+    });
+    await assertFails(batch.commit());
   });
 });

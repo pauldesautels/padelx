@@ -337,6 +337,9 @@ export async function runMatchesDeletionPhase(db, uid, lease, { pageSize = 100 }
       requireOwner(job, lease, new Date());
       for (const effect of effects) {
         tx.set(effect.doc.ref, effect.data);
+        if (effect.organized) {
+          tx.delete(db.doc(`matchPrivateVenues/${effect.doc.id}`));
+        }
         // Bounded durable manifest, not an ever-growing array on the job.
         tx.set(ref.collection('matchCleanup').doc(effect.doc.id), {
           matchId: effect.doc.id, organized: effect.organized, future: effect.future,
@@ -516,6 +519,11 @@ export async function runSocialDeletionPhase(db, uid, lease, { pageSize = 50 } =
     ['inviterInvites', () => db.collectionGroup('invites').where('inviterUid', '==', uid)],
     ['inviteeInvites', () => db.collectionGroup('invites').where('inviteeUid', '==', uid)],
     ['pushDevices', () => db.collection('pushDevices').where('uid', '==', uid)],
+    ['matchmakingOwned', () => db.collection('matchmakingRequests').where('ownerUid', '==', uid)],
+    ['matchmakingMember', () => db.collection('matchmakingRequests').where('memberUids', 'array-contains', uid)],
+    ['matchProposals', () => db.collection('matchProposals').where('memberUids', 'array-contains', uid)],
+    ['reliabilityEvents', () => db.collection('reliabilityEvents').where('uid', '==', uid)],
+    ['reliabilityProfile', () => db.collection('reliabilityProfiles').where('uid', '==', uid)],
   ];
   const state = job.socialCheckpoint ?? Object.fromEntries(streams.map(([name]) => [name, false]));
   const current = streams.find(([name]) => state[name] !== true);
@@ -527,12 +535,59 @@ export async function runSocialDeletionPhase(db, uid, lease, { pageSize = 50 } =
     } else {
       await db.runTransaction(async (tx) => {
         const owned = (await tx.get(ref)).data(); requireOwner(owned, lease, new Date());
+        const lockRefs = ['matchmakingOwned', 'matchmakingMember'].includes(name)
+          ? [...new Set(page.docs.flatMap((doc) => doc.data().memberUids ?? []))]
+            .map((member) => db.doc(`matchmakingActiveOwners/${member}`)) : [];
+        const matchmakingLocks = lockRefs.length ? await tx.getAll(...lockRefs) : [];
+        const proposalSourceRefs = name === 'matchProposals'
+          ? [...new Set(page.docs.flatMap((doc) => doc.data().sourceRequestIds ?? []))]
+            .map((requestId) => db.doc(`matchmakingRequests/${requestId}`)) : [];
+        const proposalSources = proposalSourceRefs.length
+          ? await tx.getAll(...proposalSourceRefs) : [];
         for (const doc of page.docs) {
           if (name === 'friendships') {
             const members = doc.data().memberUids;
             if (!Array.isArray(members) || !members.includes(uid)) throw new Error('Invalid friendship cleanup state.');
             for (const member of members) for (const other of members) if (member !== other) {
               tx.delete(db.doc(`users/${member}/friendViews/${other}`));
+            }
+          }
+          if (['matchmakingOwned', 'matchmakingMember'].includes(name)) {
+            const members = doc.data().memberUids;
+            if (!Array.isArray(members) || !members.includes(uid)) {
+              throw new Error('Invalid matchmaking request cleanup state.');
+            }
+            for (const member of members) {
+              tx.delete(db.doc(`users/${member}/matchmakingRequestViews/${doc.id}`));
+              const lock = matchmakingLocks.find((snapshot) => snapshot.id === member);
+              if (lock?.data()?.activeRequestId === doc.id) tx.delete(lock.ref);
+            }
+          }
+          if (name === 'matchProposals') {
+            const members = doc.data().memberUids;
+            if (!Array.isArray(members) || !members.includes(uid)) {
+              throw new Error('Invalid matchmaking proposal cleanup state.');
+            }
+            for (const member of members) {
+              tx.delete(db.doc(`users/${member}/matchProposalViews/${doc.id}`));
+            }
+            for (const sourceId of doc.data().sourceRequestIds ?? []) {
+              const source = proposalSources.find((snapshot) => snapshot.id === sourceId);
+              const sourceData = source?.data();
+              if (!source?.exists || sourceData.memberUids?.includes(uid)
+                  || sourceData.proposalId !== doc.id || sourceData.status !== 'matched') continue;
+              const updatedAt = new Date();
+              tx.update(source.ref, { status: 'active', proposalId: null, updatedAt });
+              tx.set(db.doc(`matchmakingActiveOwners/${sourceData.ownerUid}`), {
+                ownerUid: sourceData.ownerUid, activeRequestId: source.id,
+                status: 'active', updatedAt,
+              });
+              for (const member of sourceData.memberUids) {
+                tx.set(db.doc(`users/${member}/matchmakingRequestViews/${source.id}`), {
+                  status: 'active', proposalId: null,
+                  updatedAt,
+                }, { merge: true });
+              }
             }
           }
           tx.delete(doc.ref);
@@ -549,7 +604,16 @@ export async function runSocialDeletionPhase(db, uid, lease, { pageSize = 50 } =
     return { processed: page.size, stream: name };
   }
   await db.collection('playAgainRateLimits').doc(uid).delete();
+  await db.collection('matchmakingActiveOwners').doc(uid).delete();
   await db.doc(`users/${uid}/settings/notifications`).delete();
+  for (const path of [`users/${uid}/matchmakingRequestViews`, `users/${uid}/matchProposalViews`]) {
+    const views = await db.collection(path).limit(pageSize).get();
+    if (!views.empty) {
+      const batch = db.batch(); views.docs.forEach((document) => batch.delete(document.ref));
+      await batch.commit();
+      return { processed: views.size, stream: path };
+    }
+  }
   await checkpointDeletion(db, uid, lease, { phase: 'social', expectedCheckpoint: job.checkpoint,
     checkpoint: DELETION_PHASE_COMPLETE_CHECKPOINT });
   await transitionDeletionPhase(db, uid, lease, { expectedPhase: 'social', nextPhase: 'messaging' });
@@ -963,9 +1027,15 @@ export async function runVerifyDeletionPhase(db, uid, lease) {
         db.collectionGroup('invites').where('inviterUid', '==', uid),
         db.collectionGroup('invites').where('inviteeUid', '==', uid),
         db.collection('pushDevices').where('uid', '==', uid),
+        db.collection('matchmakingRequests').where('ownerUid', '==', uid),
+        db.collection('matchmakingRequests').where('memberUids', 'array-contains', uid),
+        db.collection('matchProposals').where('memberUids', 'array-contains', uid),
+        db.collection('reliabilityEvents').where('uid', '==', uid),
+        db.collection('reliabilityProfiles').where('uid', '==', uid),
       ];
       for (const query of probes) await absent(tx, query, 'verify-social-reference-remains');
-      for (const path of [`users/${uid}/conversationViews`, `users/${uid}/friendViews`, `users/${uid}/playedWith`]) {
+      for (const path of [`users/${uid}/conversationViews`, `users/${uid}/friendViews`, `users/${uid}/playedWith`,
+        `users/${uid}/matchmakingRequestViews`, `users/${uid}/matchProposalViews`]) {
         await absent(tx, db.collection(path), 'verify-user-social-projection-remains');
       }
       for (const path of [`messagingRateLimits/${uid}`, `playAgainRateLimits/${uid}`]) {
@@ -973,6 +1043,9 @@ export async function runVerifyDeletionPhase(db, uid, lease) {
       }
       if ((await tx.get(db.doc(`users/${uid}/settings/notifications`))).exists) {
         failVerification('verify-notification-settings-remain');
+      }
+      if ((await tx.get(db.doc(`matchmakingActiveOwners/${uid}`))).exists) {
+        failVerification('verify-matchmaking-owner-remains');
       }
     }
   };
@@ -1007,6 +1080,11 @@ export async function runVerifyDeletionPhase(db, uid, lease) {
           // beneath every manifest match, including missing parent documents.
           const requests = db.collection(`matches/${entry.id}/joinRequests`);
           if ((await tx.get(requests.doc(uid))).exists) failVerification('verify-join-request-remains');
+          if (data.organized) {
+            if ((await tx.get(db.doc(`matchPrivateVenues/${entry.id}`))).exists) {
+              failVerification('verify-private-venue-remains');
+            }
+          }
           if (data.organized && data.future) {
             await absent(tx, requests, 'verify-cancelled-match-request');
             await absent(tx, db.collection('notifications').where('matchId', '==', entry.id), 'verify-cancelled-match-notification');

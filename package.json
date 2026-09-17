@@ -22,6 +22,7 @@
     "prepare:hosting": "node tool/prepare_hosting.mjs",
     "test:hosting": "node --test test/legal_hosting.test.mjs",
     "test:hosting:emulator": "firebase emulators:exec --project demo-padelx-hosting --only hosting \"node --test test/legal_hosting_emulator.test.mjs\"",
+    "test:matchmaking": "firebase emulators:exec --project demo-padelx-matchmaking --only auth,firestore \"node --test --test-concurrency=1 test/matchmaking_policy.test.mjs test/matchmaking.test.mjs\"",
     "prepare:deletion": "node tool/prepare_account_deletion.mjs"
   },
   "devDependencies": {

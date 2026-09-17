@@ -25,6 +25,13 @@ const areaPlaceTypes = <String>[
   'sublocality_level_3',
 ];
 
+const padelVenuePlaceTypes = <String>{
+  'sports_club',
+  'sports_complex',
+  'athletic_field',
+  'gym',
+};
+
 class GooglePlacesClient {
   static const _baseUrl = 'https://places.googleapis.com/v1';
   final String apiKey;
@@ -96,6 +103,127 @@ class GooglePlacesClient {
         .toList();
   }
 
+  Future<List<PlacePrediction>> searchPadelVenues(
+    String query, {
+    required double centerLatitude,
+    required double centerLongitude,
+    required double radiusKm,
+  }) async {
+    if (!isConfigured || query.trim().length < 2) return const [];
+    if (!hasUsableCoordinates(centerLatitude, centerLongitude) ||
+        !radiusKm.isFinite ||
+        radiusKm <= 0 ||
+        radiusKm > 50) {
+      throw const PlacesException(
+        'Location suggestions are temporarily unavailable.',
+      );
+    }
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/places:searchText'),
+      headers: _requestHeaders(
+        contentType: 'application/json',
+        fieldMask:
+            'places.id,places.displayName,places.formattedAddress,'
+            'places.primaryType,places.types,places.location',
+      ),
+      body: jsonEncode({
+        'textQuery': 'padel court ${query.trim()}',
+        // Text Search (New) accepts a circle for locationBias, while its
+        // locationRestriction shape is rectangle-only. Results are still
+        // strictly constrained below using their returned coordinates.
+        'locationBias': {
+          'circle': {
+            'center': {
+              'latitude': centerLatitude,
+              'longitude': centerLongitude,
+            },
+            'radius': radiusKm * 1000,
+          },
+        },
+        'maxResultCount': 20,
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _logHttpFailure('padelVenueSearch', response);
+      throw const PlacesException(
+        'Location suggestions are temporarily unavailable.',
+      );
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return (data['places'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .where(_isPlausiblePadelVenue)
+        .where(
+          (place) => _isWithinRadius(
+            place,
+            centerLatitude: centerLatitude,
+            centerLongitude: centerLongitude,
+            radiusKm: radiusKm,
+          ),
+        )
+        .map((place) {
+          final name =
+              (place['displayName'] as Map?)?['text']?.toString().trim() ?? '';
+          final address = place['formattedAddress']?.toString().trim() ?? '';
+          return PlacePrediction(
+            placeId: place['id']?.toString() ?? '',
+            label: [
+              name,
+              address,
+            ].where((value) => value.isNotEmpty).join(' · '),
+          );
+        })
+        .where(
+          (prediction) =>
+              prediction.placeId.isNotEmpty && prediction.label.isNotEmpty,
+        )
+        .toList(growable: false);
+  }
+
+  bool _isWithinRadius(
+    Map<String, dynamic> place, {
+    required double centerLatitude,
+    required double centerLongitude,
+    required double radiusKm,
+  }) {
+    final location = place['location'];
+    if (location is! Map) return false;
+    final distance = distanceBetweenKm(
+      fromLatitude: centerLatitude,
+      fromLongitude: centerLongitude,
+      toLatitude: (location['latitude'] as num?)?.toDouble(),
+      toLongitude: (location['longitude'] as num?)?.toDouble(),
+    );
+    return distance != null && distance <= radiusKm;
+  }
+
+  bool _isPlausiblePadelVenue(Map<String, dynamic> place) {
+    final types = <String>{
+      if (place['primaryType'] != null) place['primaryType'].toString(),
+      ...(place['types'] as List<dynamic>? ?? const []).map(
+        (item) => item.toString(),
+      ),
+    };
+    final name =
+        (place['displayName'] as Map?)?['text']?.toString().toLowerCase() ?? '';
+    final venueTyped = types.any(padelVenuePlaceTypes.contains);
+    final padelNamed = name.contains('padel') || name.contains('pádel');
+    const nonPlayableSignals = <String>[
+      'construction',
+      'constructor',
+      'constructora',
+      'construcción',
+      'contractor',
+      'manufacturer',
+      'fabricante',
+      'supplier',
+      'proveedor',
+      'equipment',
+      'equipamiento',
+    ];
+    return venueTyped || (padelNamed && !nonPlayableSignals.any(name.contains));
+  }
+
   Future<MatchLocation> placeDetails(
     String placeId, {
     required String sessionToken,
@@ -103,7 +231,8 @@ class GooglePlacesClient {
     final response = await _client.get(
       Uri.parse('$_baseUrl/places/$placeId?sessionToken=$sessionToken'),
       headers: _requestHeaders(
-        fieldMask: 'displayName,addressComponents,location,primaryType',
+        fieldMask:
+            'displayName,formattedAddress,addressComponents,location,primaryType',
       ),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -260,6 +389,7 @@ MatchLocation matchLocationFromPlaceDetails(
     city: city,
     area: area,
     placeId: placeId,
+    formattedAddress: data['formattedAddress']?.toString().trim() ?? '',
     latitude: (coordinates?['latitude'] as num?)?.toDouble(),
     longitude: (coordinates?['longitude'] as num?)?.toDouble(),
   );

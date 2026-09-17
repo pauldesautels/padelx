@@ -343,6 +343,45 @@ void main() {
     expect(formatPadelXDecimal(1234.5, const Locale('es', 'MX')), isNotEmpty);
   });
 
+  testWidgets('canonical match time renders in es-MX without leaking ISO', (
+    tester,
+  ) async {
+    final controller = PadelXLocaleController(
+      store: _MemoryLocaleStore(),
+      systemLocales: const [Locale('es', 'MX')],
+    );
+    const match = app.Match(
+      id: 'localized-time',
+      title: '2030-09-12T18:30:00.000Z',
+      club: 'Padel Club',
+      level: 'Level 3',
+      spotsLeft: 0,
+      creatorUid: 'creator',
+      creatorEmail: '',
+      players: [],
+      scheduledAt: null,
+    );
+    final dated = app.Match(
+      id: match.id,
+      title: match.title,
+      club: match.club,
+      level: match.level,
+      spotsLeft: match.spotsLeft,
+      creatorUid: match.creatorUid,
+      creatorEmail: match.creatorEmail,
+      players: match.players,
+      scheduledAt: DateTime(2030, 9, 12, 18, 30),
+    );
+    await tester.pumpWidget(
+      _localizedApp(
+        controller,
+        app.MatchDetailsSummary(match: dated, completed: false),
+      ),
+    );
+    expect(find.textContaining('sep'), findsOneWidget);
+    expect(find.textContaining('2030-09-12T'), findsNothing);
+  });
+
   test('locale switching does not alter canonical backend values', () {
     expect(ReportReason.harassmentBullying.value, 'harassment_bullying');
     expect(PreferredSide.left.value, 'left');
@@ -352,7 +391,34 @@ void main() {
     expect(PadelXLegalConfiguration.beta.communityVersion, 'community-beta-v1');
     expect(firebaseAuthLanguageCode(const Locale('es', 'MX')), 'es');
     expect(firebaseAuthLanguageCode(const Locale('en')), 'en');
+    expect(
+      app.AppNotificationType.matchmakingMatchFound.storageValue,
+      'matchmaking_match_found',
+    );
   });
+
+  test(
+    'matchmaking notifications localize without storing translated state',
+    () async {
+      final es = await AppLocalizations.delegate.load(const Locale('es', 'MX'));
+      final item = app.AppNotification(
+        id: 'safe-notification',
+        type: app.AppNotificationType.matchmakingMatchFound,
+        recipientUid: 'recipient',
+        matchId: '',
+        title: 'Match found',
+        message: 'A matchmaking offer is ready for your confirmation.',
+        read: false,
+        createdAt: DateTime.utc(2030),
+        eventId: 'proposal',
+      );
+      expect(app.localizedNotificationTitle(item, es), 'Partido encontrado');
+      expect(
+        app.localizedNotificationMessage(item, es),
+        'Hay una propuesta de partido lista para que la confirmes.',
+      );
+    },
+  );
 
   test(
     'known notifications localize while unknown notifications keep fallback',

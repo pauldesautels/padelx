@@ -2,6 +2,7 @@ import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
 import { onCall } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
 import { admitAccountDeletion, lockDeletionAuth } from './account_deletion.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
@@ -25,6 +26,15 @@ import { getLegalAcceptanceOperation, recordLegalAcceptanceOperation } from './l
 import { getOwnRatingReceiptsOperation } from './rating_receipts.js';
 import { submitReportOperation } from './reports.js';
 import { getAccountAccessStateOperation } from './account_enforcement.js';
+import { cancelMatchmakingRequestOperation, createMatchmakingRequestOperation,
+  getMatchmakingStateOperation, respondMatchProposalOperation,
+  respondPartnerInvitationOperation, handleMatchCommitmentWritten,
+  recoverExpiredMatchmaking, leaveMatchOperation } from './matchmaking.js';
+import { resolveMatchmakingVenueOperation } from './matchmaking.js';
+import { handleReliabilityEventWritten } from './reliability.js';
+import { resolveTrustedPlace } from './places_verification.js';
+
+const googlePlacesServerApiKey = defineSecret('GOOGLE_PLACES_SERVER_API_KEY');
 
 function backendFirestore() {
   const environment = backendEnvironment();
@@ -125,6 +135,42 @@ export const recordLegalAcceptance = accountCallable(recordLegalAcceptanceOperat
 export const getOwnRatingReceipts = accountCallable(getOwnRatingReceiptsOperation);
 export const submitReport = accountCallable(submitReportOperation);
 export const getAccountAccessState = accountCallable(getAccountAccessStateOperation);
+export const createMatchmakingRequest = socialCallable(createMatchmakingRequestOperation);
+export const respondPartnerInvitation = socialCallable(respondPartnerInvitationOperation);
+export const cancelMatchmakingRequest = socialCallable(cancelMatchmakingRequestOperation);
+export const respondMatchProposal = socialCallable(respondMatchProposalOperation);
+export const getMatchmakingState = socialCallable(getMatchmakingStateOperation);
+export const resolveMatchmakingVenue = onCall({
+  enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== 'true',
+  secrets: [googlePlacesServerApiKey],
+}, async (request) => {
+  const { firestore } = backendFirestore();
+  assertPhase9Enabled(backendEnvironment());
+  return resolveMatchmakingVenueOperation(firestore, request,
+    (placeId) => resolveTrustedPlace(placeId, googlePlacesServerApiKey.value()));
+});
+export const leaveMatch = socialCallable(leaveMatchOperation);
+
+export const recordMatchCommitmentEvents = onDocumentWritten({
+  document: 'matches/{matchId}', retry: true, maxInstances: 4,
+}, async (event) => {
+  const { firestore } = backendFirestore();
+  await handleMatchCommitmentWritten(firestore, event);
+});
+
+export const projectPlayerReliability = onDocumentWritten({
+  document: 'reliabilityEvents/{eventId}', retry: true, maxInstances: 4,
+}, async (event) => {
+  const { firestore } = backendFirestore();
+  await handleReliabilityEventWritten(firestore, event);
+});
+
+export const recoverMatchmaking = onSchedule({
+  schedule: 'every 5 minutes', timeoutSeconds: 120, maxInstances: 1,
+}, async () => {
+  const { firestore } = backendFirestore();
+  await recoverExpiredMatchmaking(firestore);
+});
 
 export const reconcilePlayAgainInvitations = onDocumentWritten({
   document: 'matches/{matchId}', retry: true, maxInstances: 4,

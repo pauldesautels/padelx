@@ -1,7 +1,14 @@
 import 'dart:math' as math;
 
 class MatchLocation {
-  final String clubName, countryCode, country, region, city, area, placeId;
+  final String clubName,
+      countryCode,
+      country,
+      region,
+      city,
+      area,
+      placeId,
+      formattedAddress;
   final double? latitude, longitude;
 
   const MatchLocation({
@@ -12,6 +19,7 @@ class MatchLocation {
     required this.city,
     this.area = '',
     this.placeId = '',
+    this.formattedAddress = '',
     this.latitude,
     this.longitude,
   });
@@ -39,6 +47,8 @@ class MatchLocation {
     'city': city.trim(),
     'area': area.trim(),
     if (placeId.trim().isNotEmpty) 'placeId': placeId.trim(),
+    if (formattedAddress.trim().isNotEmpty)
+      'formattedAddress': formattedAddress.trim(),
     'latitude': ?latitude,
     'longitude': ?longitude,
   };
@@ -65,6 +75,7 @@ class MatchLocation {
       city: value('city'),
       area: value('area').isNotEmpty ? value('area') : legacyLocation,
       placeId: value('placeId'),
+      formattedAddress: value('formattedAddress'),
       latitude: coordinate('latitude'),
       longitude: coordinate('longitude'),
     );

@@ -4,7 +4,7 @@ import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { deletionStateFor } from '../functions/account_state.js';
 import { acquireDeletionLease, runMessagingDeletionPhase, runSocialDeletionPhase,
-  runNotificationsDeletionPhase, runStorageDeletionPhase,
+  runMatchesDeletionPhase, runNotificationsDeletionPhase, runStorageDeletionPhase,
   runVerifyDeletionPhase } from '../functions/account_deletion_worker.js';
 import { requestFriendOperation } from '../functions/friendship.js';
 import { friendshipId } from '../functions/friendship_policy.js';
@@ -84,6 +84,48 @@ test('schema-v2 social, messaging, storage, and verification remove identity', a
   assert.equal(deleted, true);
   for (let i = 0; i < 5; i++) { const result = await runVerifyDeletionPhase(db, uid, lease); if (result.complete) break; }
   assert.equal((await db.doc(`accountDeletionJobs/${uid}`).get()).data().phase, 'deleteAuth');
+});
+
+test('future organizer deletion removes protected private venue', async () => {
+  const uid = 'private-venue-owner';
+  const owned = await beginDeletion(uid, 'private-venue-token');
+  await db.doc(`accountDeletionJobs/${uid}`).update({ phase: 'matches', checkpoint: null });
+  await db.doc('matches/private-venue-match').set({ creatorUid: uid, creatorDisplayName: 'Owner',
+    creatorLevel: 'Level 3', players: [], participantUids: [uid], spotsLeft: 3,
+    scheduledAt: Timestamp.fromDate(new Date('2026-06-02T00:00:00Z')),
+    source: 'matchmaking', venueType: 'private_free' });
+  await db.doc('matchPrivateVenues/private-venue-match').set({ schemaVersion: 1,
+    matchId: 'private-venue-match', address: 'Synthetic address', latitude: 19.4, longitude: -99.1 });
+  await drain(runMatchesDeletionPhase, uid, owned);
+  assert.equal((await db.doc('matchPrivateVenues/private-venue-match').get()).exists, false);
+  assert.equal((await db.doc('matches/private-venue-match').get()).data().status, 'cancelled');
+});
+
+test('deleting proposal member releases unaffected matchmaking requests', async () => {
+  const uid = 'proposal-deleting';
+  const survivor = 'proposal-survivor';
+  const owned = await beginDeletion(uid, 'proposal-cleanup-token');
+  await db.doc('matchmakingRequests/deleting-request').set({ ownerUid: uid,
+    memberUids: [uid], status: 'matched', proposalId: 'deletion-proposal' });
+  await db.doc('matchmakingRequests/survivor-request').set({ ownerUid: survivor,
+    memberUids: [survivor], status: 'matched', proposalId: 'deletion-proposal' });
+  await db.doc('matchProposals/deletion-proposal').set({ memberUids: [uid, survivor],
+    sourceRequestIds: ['deleting-request', 'survivor-request'], status: 'confirming' });
+  await db.doc(`users/${survivor}/matchmakingRequestViews/survivor-request`).set({
+    status: 'matched', proposalId: 'deletion-proposal',
+  });
+  await db.doc(`users/${survivor}/matchProposalViews/deletion-proposal`).set({ status: 'confirming' });
+  await db.doc(`matchmakingActiveOwners/${survivor}`).set({ ownerUid: survivor,
+    activeRequestId: 'survivor-request', status: 'matched' });
+  await drain(runSocialDeletionPhase, uid, owned);
+  assert.equal((await db.doc('matchProposals/deletion-proposal').get()).exists, false);
+  assert.equal((await db.doc('matchmakingRequests/deleting-request').get()).exists, false);
+  assert.equal((await db.doc('matchmakingRequests/survivor-request').get()).data().status, 'active');
+  assert.equal((await db.doc(`users/${survivor}/matchmakingRequestViews/survivor-request`).get())
+    .data().status, 'active');
+  assert.equal((await db.doc(`users/${survivor}/matchProposalViews/deletion-proposal`).get()).exists,
+    false);
+  assert.equal((await db.doc(`matchmakingActiveOwners/${survivor}`).get()).data().status, 'active');
 });
 
 test('deletion barrier and friend request converge in both commit orders', async () => {

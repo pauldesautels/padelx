@@ -200,6 +200,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('existing-rating-completed')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.byKey(const Key('existing-rating-completed')), findsOneWidget);
     expect(find.byKey(const Key('rate-player-completed')), findsNothing);
   });

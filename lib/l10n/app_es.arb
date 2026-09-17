@@ -68,10 +68,16 @@
   "past": "Anteriores",
   "create": "Crear",
   "createMatch": "Crear partido",
-  "createAMatch": "Crear un partido",
+  "createAMatch": "Crear partido",
   "editMatch": "Editar partido",
   "matchDetails": "Detalles del partido",
-  "findMatch": "Buscar un partido",
+  "findMatch": "Buscar partidos",
+  "findMatchesHomeDescription": "Explora por tu cuenta los partidos disponibles.",
+  "quickMatchHomeDescription": "PadelX encuentra el partido por ti.",
+  "createMatchHomeDescription": "Organiza tu propio partido.",
+  "reliabilityNewPlayer": "Confiabilidad: jugador nuevo",
+  "reliabilityPercent": "Confiabilidad: {percent}%",
+  "@reliabilityPercent": {"placeholders": {"percent": {"type": "int"}}},
   "findPlayers": "Buscar jugadores",
   "players": "Jugadores",
   "messages": "Mensajes",
@@ -844,5 +850,71 @@
   "selectRating": "Selecciona una calificación",
   "ratingSubmittedStars": "Calificación enviada · {count, plural, =1{1 estrella} other{{count} estrellas}}",
   "submittedStars": "Enviada · {count, plural, =1{1 estrella} other{{count} estrellas}}",
-  "startupLoadingSemantics": "PadelX cargando"
+  "startupLoadingSemantics": "PadelX cargando",
+  "privateVenueExactLocation": "Ubicación exacta: {address}",
+  "@privateVenueExactLocation": {"placeholders": {"address": {"type": "String"}}}
+  ,"findMeAMatch": "Quick Match"
+  ,"matchmakingActionFailed": "No se pudo completar esa acción. Intenta de nuevo."
+  ,"completeMatchmakingRequest": "Elige un horario válido y un compañero cuando corresponda."
+  ,"matchmakingIntro": "Dile a PadelX cuándo quieres jugar. Armaremos el partido por ti."
+  ,"solo": "Solo"
+  ,"withPartner": "Con un compañero"
+  ,"choosePartner": "Elegir compañero"
+  ,"availableFrom": "Disponible desde"
+  ,"availableUntil": "Disponible hasta"
+  ,"searchLocationSummary": "{area, select, other{{area}, {city}} empty{{city}}}"
+  ,"@searchLocationSummary": {"placeholders": {"city": {"type": "String"}, "area": {"type": "String"}}}
+  ,"travelRadius": "Radio de traslado"
+  ,"startSearching": "Empezar búsqueda"
+  ,"startQuickMatch": "Iniciar Quick Match"
+  ,"partnerInvitation": "Invitación de compañero"
+  ,"findingYourMatch": "Buscando tu partido…"
+  ,"invitedBy": "Invitación de {name}"
+  ,"@invitedBy": {"placeholders": {"name": {"type": "String"}}}
+  ,"cancelSearch": "Cancelar búsqueda"
+  ,"matchFound": "Partido encontrado"
+  ,"playersReady": "Jugadores listos"
+  ,"confirmMySpot": "Confirmar mi lugar"
+  ,"courtNotSelected": "La cancha aún no está seleccionada"
+  ,"offerExpiresMinutes": "La oferta vence en aproximadamente {minutes} min"
+  ,"@offerExpiresMinutes": {"placeholders": {"minutes": {"type": "String"}}}
+  ,"confirmed": "Confirmado"
+  ,"waiting": "En espera"
+  ,"teamNumber": "Equipo {number}"
+  ,"@teamNumber": {"placeholders": {"number": {"type": "String"}}}
+  ,"matchmakingSpotFound": "Lugar encontrado"
+  ,"matchmakingMatchConfirmed": "Partido confirmado"
+  ,"matchmakingPartnerInviteBody": "Tienes una invitación de compañero para matchmaking."
+  ,"matchmakingMatchFoundBody": "Hay una propuesta de partido lista para que la confirmes."
+  ,"matchmakingSpotFoundBody": "Hay un lugar listo para que lo confirmes."
+  ,"matchmakingMatchConfirmedBody": "Tu partido está confirmado."
+  ,"acceptMatch": "Aceptar partido"
+  ,"chooseVenueToFinish": "Todos aceptaron. Elige una cancha para terminar de crear el partido."
+  ,"waitingForVenue": "Todos aceptaron. Esperando que el coordinador elija la cancha."
+  ,"chooseVenue": "Elegir cancha"
+  ,"openMatchDetails": "Abrir detalles del partido"
+  ,"privateCourt": "Cancha privada"
+  ,"clubPublicCourt": "Cancha de club / pública"
+  ,"privateCourtLocation": "Ubicación de la cancha privada"
+  ,"searchVenue": "Buscar la ubicación de la cancha"
+  ,"courtBookingSeparate": "La reservación de la cancha se gestiona por separado."
+  ,"confirmVenue": "Confirmar cancha"
+  ,"matchmakingUnavailable": "La búsqueda de partido no está disponible por ahora."
+  ,"findAPlayer": "Buscar un jugador"
+  ,"autoFillExplanation": "Deja que PadelX encuentre un jugador compatible para este lugar."
+  ,"stopAutoFill": "Detener AutoFill"
+  ,"findingAnotherPlayer": "Buscando otro jugador…"
+  ,"padelVenueSearchLabel": "Club o cancha de pádel"
+  ,"padelVenueSearchHint": "Buscar canchas de pádel cercanas"
+  ,"padelVenueRadiusExplanation": "Mostrando canchas de pádel dentro del área acordada de {distance} km."
+  ,"@padelVenueRadiusExplanation": {"placeholders": {"distance": {"type": "String"}}}
+  ,"noPadelVenuesInArea": "No se encontraron canchas de pádel dentro de tu área de búsqueda."
+  ,"padelVenueOutsideArea": "Esa cancha está fuera del área de búsqueda acordada."
+  ,"padelVenueSearchUnavailable": "La búsqueda de canchas de pádel no está disponible por ahora."
+  ,"privateCourtAddressHelp": "¿No encuentras tu cancha privada? Busca su dirección."
+  ,"yourSpotConfirmed": "Tu lugar está confirmado"
+  ,"findingRemainingPlayers": "Estamos buscando a los jugadores restantes."
+  ,"playersConfirmedCount": "{confirmed} de 4 confirmados"
+  ,"@playersConfirmedCount": {"placeholders": {"confirmed": {"type": "String"}}}
+  ,"versus": "VS"
 }

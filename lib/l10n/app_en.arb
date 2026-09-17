@@ -68,10 +68,16 @@
   "past": "Past",
   "create": "Create",
   "createMatch": "Create Match",
-  "createAMatch": "Create a Match",
+  "createAMatch": "Create Match",
   "editMatch": "Edit Match",
   "matchDetails": "Match Details",
-  "findMatch": "Find a Match",
+  "findMatch": "Find Matches",
+  "findMatchesHomeDescription": "Browse available matches yourself.",
+  "quickMatchHomeDescription": "PadelX finds the game for you.",
+  "createMatchHomeDescription": "Organize your own game.",
+  "reliabilityNewPlayer": "Reliability: New player",
+  "reliabilityPercent": "Reliability: {percent}%",
+  "@reliabilityPercent": {"placeholders": {"percent": {"type": "int"}}},
   "findPlayers": "Find Players",
   "players": "Players",
   "messages": "Messages",
@@ -844,5 +850,71 @@
   "selectRating": "Select a rating",
   "ratingSubmittedStars": "Rating submitted · {count, plural, =1{1 star} other{{count} stars}}",
   "submittedStars": "Submitted · {count, plural, =1{1 star} other{{count} stars}}",
-  "startupLoadingSemantics": "PadelX loading"
+  "startupLoadingSemantics": "PadelX loading",
+  "privateVenueExactLocation": "Exact location: {address}",
+  "@privateVenueExactLocation": {"placeholders": {"address": {"type": "String"}}}
+  ,"findMeAMatch": "Quick Match"
+  ,"matchmakingActionFailed": "That matchmaking action could not be completed. Try again."
+  ,"completeMatchmakingRequest": "Choose a valid availability window and partner when applicable."
+  ,"matchmakingIntro": "Tell PadelX when you want to play. We’ll assemble the game for you."
+  ,"solo": "Solo"
+  ,"withPartner": "With a Partner"
+  ,"choosePartner": "Choose a partner"
+  ,"availableFrom": "Available from"
+  ,"availableUntil": "Available until"
+  ,"searchLocationSummary": "{area, select, other{{area}, {city}} empty{{city}}}"
+  ,"@searchLocationSummary": {"placeholders": {"city": {"type": "String"}, "area": {"type": "String"}}}
+  ,"travelRadius": "Travel radius"
+  ,"startSearching": "Start Searching"
+  ,"startQuickMatch": "Start Quick Match"
+  ,"partnerInvitation": "Partner invitation"
+  ,"findingYourMatch": "Finding your match…"
+  ,"invitedBy": "Invited by {name}"
+  ,"@invitedBy": {"placeholders": {"name": {"type": "String"}}}
+  ,"cancelSearch": "Cancel Search"
+  ,"matchFound": "Match Found"
+  ,"playersReady": "Players Ready"
+  ,"confirmMySpot": "Confirm my spot"
+  ,"courtNotSelected": "Court not selected yet"
+  ,"offerExpiresMinutes": "Offer expires in about {minutes} min"
+  ,"@offerExpiresMinutes": {"placeholders": {"minutes": {"type": "String"}}}
+  ,"confirmed": "Confirmed"
+  ,"waiting": "Waiting"
+  ,"teamNumber": "Team {number}"
+  ,"@teamNumber": {"placeholders": {"number": {"type": "String"}}}
+  ,"matchmakingSpotFound": "Match spot found"
+  ,"matchmakingMatchConfirmed": "Match confirmed"
+  ,"matchmakingPartnerInviteBody": "You have a matchmaking partner invitation."
+  ,"matchmakingMatchFoundBody": "A matchmaking offer is ready for your confirmation."
+  ,"matchmakingSpotFoundBody": "A spot is ready for your confirmation."
+  ,"matchmakingMatchConfirmedBody": "Your match is confirmed."
+  ,"acceptMatch": "Accept Match"
+  ,"chooseVenueToFinish": "Everyone accepted. Choose a court to finish creating the match."
+  ,"waitingForVenue": "Everyone accepted. Waiting for the coordinator to choose the court."
+  ,"chooseVenue": "Choose Venue"
+  ,"openMatchDetails": "Open Match Details"
+  ,"privateCourt": "Private court"
+  ,"clubPublicCourt": "Club / public court"
+  ,"privateCourtLocation": "Private court location"
+  ,"searchVenue": "Search for the court location"
+  ,"courtBookingSeparate": "Court booking is handled separately."
+  ,"confirmVenue": "Confirm Venue"
+  ,"matchmakingUnavailable": "Matchmaking is unavailable right now."
+  ,"findAPlayer": "Find a Player"
+  ,"autoFillExplanation": "Let PadelX find a compatible player for this spot."
+  ,"stopAutoFill": "Stop AutoFill"
+  ,"findingAnotherPlayer": "Finding another player…"
+  ,"padelVenueSearchLabel": "Padel club or court"
+  ,"padelVenueSearchHint": "Search nearby padel venues"
+  ,"padelVenueRadiusExplanation": "Showing padel venues within the agreed {distance} km search area."
+  ,"@padelVenueRadiusExplanation": {"placeholders": {"distance": {"type": "String"}}}
+  ,"noPadelVenuesInArea": "No padel courts found within your search area."
+  ,"padelVenueOutsideArea": "That venue is outside the agreed search area."
+  ,"padelVenueSearchUnavailable": "Padel venue search is unavailable right now."
+  ,"privateCourtAddressHelp": "Can’t find your private court? Search for its street address."
+  ,"yourSpotConfirmed": "Your spot is confirmed"
+  ,"findingRemainingPlayers": "We’re finding the remaining players."
+  ,"playersConfirmedCount": "{confirmed} of 4 confirmed"
+  ,"@playersConfirmedCount": {"placeholders": {"confirmed": {"type": "String"}}}
+  ,"versus": "VS"
 }

@@ -426,7 +426,7 @@ abstract class AppLocalizations {
   /// No description provided for @createAMatch.
   ///
   /// In en, this message translates to:
-  /// **'Create a Match'**
+  /// **'Create Match'**
   String get createAMatch;
 
   /// No description provided for @editMatch.
@@ -444,8 +444,38 @@ abstract class AppLocalizations {
   /// No description provided for @findMatch.
   ///
   /// In en, this message translates to:
-  /// **'Find a Match'**
+  /// **'Find Matches'**
   String get findMatch;
+
+  /// No description provided for @findMatchesHomeDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse available matches yourself.'**
+  String get findMatchesHomeDescription;
+
+  /// No description provided for @quickMatchHomeDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'PadelX finds the game for you.'**
+  String get quickMatchHomeDescription;
+
+  /// No description provided for @createMatchHomeDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Organize your own game.'**
+  String get createMatchHomeDescription;
+
+  /// No description provided for @reliabilityNewPlayer.
+  ///
+  /// In en, this message translates to:
+  /// **'Reliability: New player'**
+  String get reliabilityNewPlayer;
+
+  /// No description provided for @reliabilityPercent.
+  ///
+  /// In en, this message translates to:
+  /// **'Reliability: {percent}%'**
+  String reliabilityPercent(int percent);
 
   /// No description provided for @findPlayers.
   ///
@@ -3758,6 +3788,360 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'PadelX loading'**
   String get startupLoadingSemantics;
+
+  /// No description provided for @privateVenueExactLocation.
+  ///
+  /// In en, this message translates to:
+  /// **'Exact location: {address}'**
+  String privateVenueExactLocation(String address);
+
+  /// No description provided for @findMeAMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Match'**
+  String get findMeAMatch;
+
+  /// No description provided for @matchmakingActionFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'That matchmaking action could not be completed. Try again.'**
+  String get matchmakingActionFailed;
+
+  /// No description provided for @completeMatchmakingRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a valid availability window and partner when applicable.'**
+  String get completeMatchmakingRequest;
+
+  /// No description provided for @matchmakingIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Tell PadelX when you want to play. We’ll assemble the game for you.'**
+  String get matchmakingIntro;
+
+  /// No description provided for @solo.
+  ///
+  /// In en, this message translates to:
+  /// **'Solo'**
+  String get solo;
+
+  /// No description provided for @withPartner.
+  ///
+  /// In en, this message translates to:
+  /// **'With a Partner'**
+  String get withPartner;
+
+  /// No description provided for @choosePartner.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a partner'**
+  String get choosePartner;
+
+  /// No description provided for @availableFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'Available from'**
+  String get availableFrom;
+
+  /// No description provided for @availableUntil.
+  ///
+  /// In en, this message translates to:
+  /// **'Available until'**
+  String get availableUntil;
+
+  /// No description provided for @searchLocationSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{area, select, other{{area}, {city}} empty{{city}}}'**
+  String searchLocationSummary(String city, String area);
+
+  /// No description provided for @travelRadius.
+  ///
+  /// In en, this message translates to:
+  /// **'Travel radius'**
+  String get travelRadius;
+
+  /// No description provided for @startSearching.
+  ///
+  /// In en, this message translates to:
+  /// **'Start Searching'**
+  String get startSearching;
+
+  /// No description provided for @startQuickMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Start Quick Match'**
+  String get startQuickMatch;
+
+  /// No description provided for @partnerInvitation.
+  ///
+  /// In en, this message translates to:
+  /// **'Partner invitation'**
+  String get partnerInvitation;
+
+  /// No description provided for @findingYourMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding your match…'**
+  String get findingYourMatch;
+
+  /// No description provided for @invitedBy.
+  ///
+  /// In en, this message translates to:
+  /// **'Invited by {name}'**
+  String invitedBy(String name);
+
+  /// No description provided for @cancelSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Search'**
+  String get cancelSearch;
+
+  /// No description provided for @matchFound.
+  ///
+  /// In en, this message translates to:
+  /// **'Match Found'**
+  String get matchFound;
+
+  /// No description provided for @playersReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Players Ready'**
+  String get playersReady;
+
+  /// No description provided for @confirmMySpot.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm my spot'**
+  String get confirmMySpot;
+
+  /// No description provided for @courtNotSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Court not selected yet'**
+  String get courtNotSelected;
+
+  /// No description provided for @offerExpiresMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'Offer expires in about {minutes} min'**
+  String offerExpiresMinutes(String minutes);
+
+  /// No description provided for @confirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed'**
+  String get confirmed;
+
+  /// No description provided for @waiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting'**
+  String get waiting;
+
+  /// No description provided for @teamNumber.
+  ///
+  /// In en, this message translates to:
+  /// **'Team {number}'**
+  String teamNumber(String number);
+
+  /// No description provided for @matchmakingSpotFound.
+  ///
+  /// In en, this message translates to:
+  /// **'Match spot found'**
+  String get matchmakingSpotFound;
+
+  /// No description provided for @matchmakingMatchConfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Match confirmed'**
+  String get matchmakingMatchConfirmed;
+
+  /// No description provided for @matchmakingPartnerInviteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You have a matchmaking partner invitation.'**
+  String get matchmakingPartnerInviteBody;
+
+  /// No description provided for @matchmakingMatchFoundBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A matchmaking offer is ready for your confirmation.'**
+  String get matchmakingMatchFoundBody;
+
+  /// No description provided for @matchmakingSpotFoundBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A spot is ready for your confirmation.'**
+  String get matchmakingSpotFoundBody;
+
+  /// No description provided for @matchmakingMatchConfirmedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your match is confirmed.'**
+  String get matchmakingMatchConfirmedBody;
+
+  /// No description provided for @acceptMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept Match'**
+  String get acceptMatch;
+
+  /// No description provided for @chooseVenueToFinish.
+  ///
+  /// In en, this message translates to:
+  /// **'Everyone accepted. Choose a court to finish creating the match.'**
+  String get chooseVenueToFinish;
+
+  /// No description provided for @waitingForVenue.
+  ///
+  /// In en, this message translates to:
+  /// **'Everyone accepted. Waiting for the coordinator to choose the court.'**
+  String get waitingForVenue;
+
+  /// No description provided for @chooseVenue.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose Venue'**
+  String get chooseVenue;
+
+  /// No description provided for @openMatchDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Match Details'**
+  String get openMatchDetails;
+
+  /// No description provided for @privateCourt.
+  ///
+  /// In en, this message translates to:
+  /// **'Private court'**
+  String get privateCourt;
+
+  /// No description provided for @clubPublicCourt.
+  ///
+  /// In en, this message translates to:
+  /// **'Club / public court'**
+  String get clubPublicCourt;
+
+  /// No description provided for @privateCourtLocation.
+  ///
+  /// In en, this message translates to:
+  /// **'Private court location'**
+  String get privateCourtLocation;
+
+  /// No description provided for @searchVenue.
+  ///
+  /// In en, this message translates to:
+  /// **'Search for the court location'**
+  String get searchVenue;
+
+  /// No description provided for @courtBookingSeparate.
+  ///
+  /// In en, this message translates to:
+  /// **'Court booking is handled separately.'**
+  String get courtBookingSeparate;
+
+  /// No description provided for @confirmVenue.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm Venue'**
+  String get confirmVenue;
+
+  /// No description provided for @matchmakingUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Matchmaking is unavailable right now.'**
+  String get matchmakingUnavailable;
+
+  /// No description provided for @findAPlayer.
+  ///
+  /// In en, this message translates to:
+  /// **'Find a Player'**
+  String get findAPlayer;
+
+  /// No description provided for @autoFillExplanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Let PadelX find a compatible player for this spot.'**
+  String get autoFillExplanation;
+
+  /// No description provided for @stopAutoFill.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop AutoFill'**
+  String get stopAutoFill;
+
+  /// No description provided for @findingAnotherPlayer.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding another player…'**
+  String get findingAnotherPlayer;
+
+  /// No description provided for @padelVenueSearchLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Padel club or court'**
+  String get padelVenueSearchLabel;
+
+  /// No description provided for @padelVenueSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search nearby padel venues'**
+  String get padelVenueSearchHint;
+
+  /// No description provided for @padelVenueRadiusExplanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Showing padel venues within the agreed {distance} km search area.'**
+  String padelVenueRadiusExplanation(String distance);
+
+  /// No description provided for @noPadelVenuesInArea.
+  ///
+  /// In en, this message translates to:
+  /// **'No padel courts found within your search area.'**
+  String get noPadelVenuesInArea;
+
+  /// No description provided for @padelVenueOutsideArea.
+  ///
+  /// In en, this message translates to:
+  /// **'That venue is outside the agreed search area.'**
+  String get padelVenueOutsideArea;
+
+  /// No description provided for @padelVenueSearchUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Padel venue search is unavailable right now.'**
+  String get padelVenueSearchUnavailable;
+
+  /// No description provided for @privateCourtAddressHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Can’t find your private court? Search for its street address.'**
+  String get privateCourtAddressHelp;
+
+  /// No description provided for @yourSpotConfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Your spot is confirmed'**
+  String get yourSpotConfirmed;
+
+  /// No description provided for @findingRemainingPlayers.
+  ///
+  /// In en, this message translates to:
+  /// **'We’re finding the remaining players.'**
+  String get findingRemainingPlayers;
+
+  /// No description provided for @playersConfirmedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{confirmed} of 4 confirmed'**
+  String playersConfirmedCount(String confirmed);
+
+  /// No description provided for @versus.
+  ///
+  /// In en, this message translates to:
+  /// **'VS'**
+  String get versus;
 }
 
 class _AppLocalizationsDelegate

@@ -80,6 +80,11 @@ void main() {
       );
       pending.single.complete([]);
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('home-empty-state')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.byKey(const Key('home-empty-state')), findsOneWidget);
 
       await tester.tap(find.text('Matches').last);
@@ -139,10 +144,14 @@ void main() {
       );
       expect(find.text('Nearby club 1'), findsOneWidget);
 
+      await tester.tap(find.text('Matches').last);
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Refresh matches'));
       await tester.pump();
       expect(pending.length, 3);
       pending.last.complete([nearby('refreshed', 5)]);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Home').last);
       await tester.pumpAndSettle();
       expect(
         tester.widget<HomeTab>(find.byType(HomeTab)).matches.single.id,
@@ -334,6 +343,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(reads, 3);
       expect(loads, 2);
+      await tester.tap(find.text('Matches').last);
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Refresh matches'));
       await tester.pumpAndSettle();
       expect(loads, 3);
@@ -478,6 +489,11 @@ void main() {
     expect(listens, 1);
     stream.add([match('2')]);
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Live Club'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Live Club'), findsOneWidget);
     expect(find.text('Level 2'), findsWidgets);
 
@@ -573,6 +589,11 @@ void main() {
     );
     controller.add([match]);
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Retained Club'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     controller.addError(Exception('listener'));
     await tester.pumpAndSettle();
     expect(find.text('Retained Club'), findsOneWidget);

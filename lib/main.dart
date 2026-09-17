@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/intl.dart';
 import 'current_location.dart';
 import 'location.dart';
 import 'places.dart';
@@ -40,16 +41,20 @@ import 'geohash.dart';
 import 'discovery_refresh.dart';
 import 'level.dart';
 import 'match_date_time_picker.dart';
+import 'match_actions_repository.dart';
 import 'settings_screen.dart';
 import 'push_notifications.dart';
 import 'auth_landing.dart';
 import 'branding.dart';
+import 'design_system.dart';
 import 'startup.dart';
 import 'eligibility.dart';
 import 'report_flow.dart';
 import 'report_repository.dart';
 import 'reporting.dart';
 import 'account_access.dart';
+import 'matchmaking_repository.dart';
+import 'matchmaking_screen.dart';
 import 'auth_language.dart';
 import 'l10n/app_localizations.dart';
 import 'locale_controller.dart';
@@ -180,22 +185,7 @@ class _PadelXAppState extends State<PadelXApp> with WidgetsBindingObserver {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          theme: ThemeData(
-            brightness: Brightness.dark,
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: Colors.greenAccent,
-              brightness: Brightness.dark,
-            ),
-            scaffoldBackgroundColor: const Color(0xFF0F1412),
-            cardTheme: CardThemeData(
-              color: const Color(0xFF18211D),
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-            ),
-          ),
+          theme: buildPadelXTheme(),
           home: StartupCoordinator(
             initialize: initializePadelX,
             destinationBuilder: (_) => const AuthGate(),
@@ -1591,6 +1581,11 @@ class Match {
   final DateTime? scheduledAt;
   final MatchLocation? _location;
   final String status;
+  final String source;
+  final String venueType;
+  final bool autoFillEnabled;
+  final String autoFillRequestId;
+  final Map<int, List<String>> teams;
 
   const Match({
     required this.id,
@@ -1606,6 +1601,11 @@ class Match {
     this.scheduledAt,
     MatchLocation? location,
     this.status = '',
+    this.source = '',
+    this.venueType = '',
+    this.autoFillEnabled = false,
+    this.autoFillRequestId = '',
+    this.teams = const {},
   }) : _location = location;
 
   String get spotsLeftLabel =>
@@ -1656,6 +1656,21 @@ class Match {
             : '',
       ),
       status: data['status']?.toString().toLowerCase() ?? '',
+      source: data['source']?.toString() ?? '',
+      venueType: data['venueType']?.toString() ?? '',
+      autoFillEnabled: data['autoFillEnabled'] == true,
+      autoFillRequestId: data['autoFillRequestId']?.toString() ?? '',
+      teams: {
+        for (final item
+            in (data['teams'] is List ? data['teams'] as List : const []))
+          if (item is Map && item['team'] is num)
+            (item['team'] as num).toInt(): (item['participantUids'] is List
+                ? (item['participantUids'] as List)
+                      .map((uid) => uid.toString())
+                      .where((uid) => uid.isNotEmpty)
+                      .toList()
+                : <String>[]),
+      },
     );
   }
 
@@ -1750,6 +1765,16 @@ String _friendlyDateTime(DateTime value) {
       '${value.day} · $hour:$minute $period';
 }
 
+String _localizedFriendlyDateTime(BuildContext context, DateTime value) {
+  final locale = Localizations.localeOf(context).toString();
+  final local = value.toLocal();
+  return '${DateFormat('EEEE, MMM d', locale).format(local)} · '
+      '${DateFormat.jm(locale).format(local)}';
+}
+
+bool _isRawCanonicalDateTitle(String value) =>
+    RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}').hasMatch(value.trim());
+
 class MatchPlayer {
   final String uid;
   final String email;
@@ -1796,6 +1821,9 @@ class PublicPlayerProfile {
   final String area;
   final SocialProfileData socialProfile;
   final int avatarVersion;
+  final String reliabilityStatus;
+  final int? reliabilityPercent;
+  final int reliabilitySampleSize;
 
   const PublicPlayerProfile({
     required this.uid,
@@ -1813,6 +1841,9 @@ class PublicPlayerProfile {
     this.area = '',
     this.socialProfile = const SocialProfileData(),
     this.avatarVersion = 0,
+    this.reliabilityStatus = 'new_player',
+    this.reliabilityPercent,
+    this.reliabilitySampleSize = 0,
   });
 
   RatingSummary get ratingSummary =>
@@ -1952,9 +1983,13 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
         .orderBy('scheduledAt', descending: true)
         .limit(20)
         .get(),
+    firestore.collection('reliabilityProfiles').doc(uid).get(),
   ]);
   final userDocument = results[0] as DocumentSnapshot<Map<String, dynamic>>;
   final matchSnapshot = results[1] as QuerySnapshot<Map<String, dynamic>>;
+  final reliabilityDocument =
+      results[2] as DocumentSnapshot<Map<String, dynamic>>;
+  final reliability = reliabilityDocument.data() ?? const <String, dynamic>{};
   final profile = userDocument.exists
       ? PublicUserProfile.fromDocument(userDocument)
       : null;
@@ -2000,6 +2035,13 @@ Future<PublicPlayerProfile> loadPublicPlayerProfile(String uid) async {
     area: profile?.area ?? '',
     socialProfile: profile?.socialProfile ?? const SocialProfileData(),
     avatarVersion: profile?.avatarVersion ?? 0,
+    reliabilityStatus: reliability['status']?.toString() ?? 'new_player',
+    reliabilityPercent: reliability['percent'] is int
+        ? reliability['percent'] as int
+        : null,
+    reliabilitySampleSize: reliability['sampleSize'] is int
+        ? reliability['sampleSize'] as int
+        : 0,
   );
 }
 
@@ -2141,6 +2183,10 @@ enum AppNotificationType {
   friendRequest,
   friendAccepted,
   playAgainInvite,
+  matchmakingPartnerInvite,
+  matchmakingMatchFound,
+  matchmakingReplacementFound,
+  matchmakingMatchConfirmed,
 }
 
 extension AppNotificationTypeStorage on AppNotificationType {
@@ -2154,6 +2200,13 @@ extension AppNotificationTypeStorage on AppNotificationType {
     AppNotificationType.friendRequest => 'friend_request',
     AppNotificationType.friendAccepted => 'friend_accepted',
     AppNotificationType.playAgainInvite => 'play_again_invite',
+    AppNotificationType.matchmakingPartnerInvite =>
+      'matchmaking_partner_invite',
+    AppNotificationType.matchmakingMatchFound => 'matchmaking_match_found',
+    AppNotificationType.matchmakingReplacementFound =>
+      'matchmaking_replacement_found',
+    AppNotificationType.matchmakingMatchConfirmed =>
+      'matchmaking_match_confirmed',
   };
 
   static AppNotificationType fromStorage(Object? value) => switch (value
@@ -2167,6 +2220,13 @@ extension AppNotificationTypeStorage on AppNotificationType {
     'play_again_invite' ||
     'playAgainInvite' => AppNotificationType.playAgainInvite,
     'join_request' || 'joinRequest' => AppNotificationType.joinRequest,
+    'matchmaking_partner_invite' =>
+      AppNotificationType.matchmakingPartnerInvite,
+    'matchmaking_match_found' => AppNotificationType.matchmakingMatchFound,
+    'matchmaking_replacement_found' =>
+      AppNotificationType.matchmakingReplacementFound,
+    'matchmaking_match_confirmed' =>
+      AppNotificationType.matchmakingMatchConfirmed,
     _ => AppNotificationType.unknown,
   };
 }
@@ -2246,6 +2306,14 @@ String localizedNotificationTitle(
     AppNotificationType.friendAccepted =>
       notification.title == 'Friend request accepted',
     AppNotificationType.playAgainInvite => notification.title == 'Play again',
+    AppNotificationType.matchmakingPartnerInvite =>
+      notification.title == 'Partner invitation',
+    AppNotificationType.matchmakingMatchFound =>
+      notification.title == 'Match found',
+    AppNotificationType.matchmakingReplacementFound =>
+      notification.title == 'Match spot found',
+    AppNotificationType.matchmakingMatchConfirmed =>
+      notification.title == 'Match confirmed',
     AppNotificationType.unknown => false,
   };
   if (!recognizedStoredTitle) return notification.title;
@@ -2258,6 +2326,12 @@ String localizedNotificationTitle(
     AppNotificationType.friendRequest => strings.newFriendRequest,
     AppNotificationType.friendAccepted => strings.friendRequestAccepted,
     AppNotificationType.playAgainInvite => strings.playAgainInvite,
+    AppNotificationType.matchmakingPartnerInvite => strings.partnerInvitation,
+    AppNotificationType.matchmakingMatchFound => strings.matchFound,
+    AppNotificationType.matchmakingReplacementFound =>
+      strings.matchmakingSpotFound,
+    AppNotificationType.matchmakingMatchConfirmed =>
+      strings.matchmakingMatchConfirmed,
     AppNotificationType.unknown => notification.title,
   };
 }
@@ -2292,6 +2366,14 @@ String localizedNotificationMessage(
     AppNotificationType.playAgainInvite => strings.playAgainBody(
       notification.actorDisplayName,
     ),
+    AppNotificationType.matchmakingPartnerInvite =>
+      strings.matchmakingPartnerInviteBody,
+    AppNotificationType.matchmakingMatchFound =>
+      strings.matchmakingMatchFoundBody,
+    AppNotificationType.matchmakingReplacementFound =>
+      strings.matchmakingSpotFoundBody,
+    AppNotificationType.matchmakingMatchConfirmed =>
+      strings.matchmakingMatchConfirmedBody,
     AppNotificationType.unknown => notification.message,
   };
 }
@@ -2734,11 +2816,21 @@ class NotificationCard extends StatelessWidget {
       AppNotificationType.friendRequest => Icons.person_add_alt_1,
       AppNotificationType.friendAccepted => Icons.people_outline,
       AppNotificationType.playAgainInvite => Icons.replay,
+      AppNotificationType.matchmakingPartnerInvite => Icons.group_add_outlined,
+      AppNotificationType.matchmakingMatchFound => Icons.celebration_outlined,
+      AppNotificationType.matchmakingReplacementFound =>
+        Icons.person_search_outlined,
+      AppNotificationType.matchmakingMatchConfirmed =>
+        Icons.event_available_outlined,
     };
     final category = switch (notification.type) {
       AppNotificationType.joinApproved ||
       AppNotificationType.friendAccepted ||
       AppNotificationType.playAgainInvite => 1,
+      AppNotificationType.matchmakingPartnerInvite ||
+      AppNotificationType.matchmakingMatchFound ||
+      AppNotificationType.matchmakingReplacementFound ||
+      AppNotificationType.matchmakingMatchConfirmed => 1,
       AppNotificationType.joinDeclined => -1,
       _ => 0,
     };
@@ -3209,6 +3301,7 @@ class HomeScreen extends StatefulWidget {
   final PlayedWithRepository? playedWithRepository;
   final FriendsRepository? friendsRepository;
   final VoidCallback? onDeleteAccount;
+  final MatchmakingRepository? matchmakingRepository;
 
   const HomeScreen({
     super.key,
@@ -3222,6 +3315,7 @@ class HomeScreen extends StatefulWidget {
     this.playedWithRepository,
     this.friendsRepository,
     this.onDeleteAccount,
+    this.matchmakingRepository,
   });
 
   @override
@@ -3251,6 +3345,8 @@ class _HomeScreenState extends State<HomeScreen> {
       widget.friendsRepository ?? FirebaseFriendsRepository();
 
   MessagingRepository get _messagingRepository => FirebaseMessagingRepository();
+  MatchmakingRepository get _matchmakingRepository =>
+      widget.matchmakingRepository ?? FirebaseMatchmakingRepository();
 
   @override
   void initState() {
@@ -3282,6 +3378,40 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (_) =>
             MessagesScreen(currentUid: uid, repository: _messagingRepository),
+      ),
+    );
+  }
+
+  void _openMatchmaking() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final profile = widget.profile;
+    if (uid == null || profile == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MatchmakingScreen(
+          currentUid: uid,
+          discoveryLocation: profile.discoveryLocation,
+          level: profile.level,
+          preferredSide: profile.socialProfile.preferredSide.value,
+          repository: _matchmakingRepository,
+          friendsRepository: _friendsRepository,
+          onOpenMatch: (matchId) async {
+            final document = await FirebaseFirestore.instance
+                .collection('matches')
+                .doc(matchId)
+                .get();
+            if (!mounted || !document.exists) return;
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => MatchDetailsScreen(
+                  match: Match.fromDocument(document),
+                  onMatchUpdated: _waitForIndexAndRefresh,
+                  onMatchDeleted: _handleMatchDeleted,
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -3702,10 +3832,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result != null && mounted) await _waitForIndexAndRefresh(result);
   }
 
-  Future<void> _logout() async {
-    await _signOutWithPushCleanup();
-  }
-
   Future<void> _markNotificationRead(AppNotification notification) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || notification.read) return;
@@ -3885,6 +4011,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final screens = [
       HomeTab(
         onFindMatch: () => _onItemTapped(1),
+        onFindMeAMatch: currentUid.isEmpty ? null : _openMatchmaking,
         onFindPlayers: () => _onItemTapped(2),
         onMessages: _openMessages,
         onCreateMatch: _openCreateMatchScreen,
@@ -3994,6 +4121,14 @@ class _HomeScreenState extends State<HomeScreen> {
             _openFriends();
             return;
           }
+          if (notification.type ==
+                  AppNotificationType.matchmakingPartnerInvite ||
+              notification.type == AppNotificationType.matchmakingMatchFound ||
+              notification.type ==
+                  AppNotificationType.matchmakingReplacementFound) {
+            _openMatchmaking();
+            return;
+          }
           if ((notification.type == AppNotificationType.directMessage ||
                   notification.type == AppNotificationType.matchMessage) &&
               notification.conversationId.isNotEmpty) {
@@ -4061,20 +4196,16 @@ class _HomeScreenState extends State<HomeScreen> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
-        backgroundColor: const Color(0xFF0F1412),
+        backgroundColor: PadelXColors.background,
         elevation: 0,
         actions: [
-          if (_selectedIndex <= 1)
+          if (_selectedIndex == 1)
             IconButton(
               tooltip: context.l10n.refreshMatches,
               onPressed: _refreshDiscovery,
-              icon: const Icon(Icons.refresh),
+              color: PadelXColors.textSecondary,
+              icon: const Icon(Icons.refresh, size: 20),
             ),
-          IconButton(
-            tooltip: context.l10n.logOut,
-            onPressed: _logout,
-            icon: const Icon(Icons.logout),
-          ),
         ],
       ),
       body: screens[_selectedIndex],
@@ -4124,7 +4255,7 @@ class PadelXBottomNavigationBar extends StatelessWidget {
     return NavigationBar(
       selectedIndex: selectedIndex,
       onDestinationSelected: onDestinationSelected,
-      backgroundColor: const Color(0xFF121A16),
+      backgroundColor: PadelXColors.surface,
       destinations: [
         destination(
           index: 0,
@@ -4178,9 +4309,7 @@ class _PadelXNavigationDestination extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final foreground = selected
-        ? colors.onSecondaryContainer
-        : colors.onSurfaceVariant;
+    final foreground = selected ? PadelXColors.accent : colors.onSurfaceVariant;
     return Semantics(
       label: label,
       onTap: onTap,
@@ -4197,7 +4326,7 @@ class _PadelXNavigationDestination extends StatelessWidget {
                 width: 64,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: selected ? colors.secondaryContainer : null,
+                  color: selected ? const Color(0xFF204B36) : null,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: IconTheme(
@@ -4243,6 +4372,7 @@ class _PadelXNavigationDestination extends StatelessWidget {
 
 class HomeTab extends StatelessWidget {
   final VoidCallback onFindMatch;
+  final VoidCallback? onFindMeAMatch;
   final VoidCallback? onFindPlayers;
   final VoidCallback? onMessages;
   final VoidCallback onCreateMatch;
@@ -4255,6 +4385,7 @@ class HomeTab extends StatelessWidget {
   const HomeTab({
     super.key,
     required this.onFindMatch,
+    this.onFindMeAMatch,
     this.onFindPlayers,
     this.onMessages,
     required this.onCreateMatch,
@@ -4285,115 +4416,133 @@ class HomeTab extends StatelessWidget {
       children: [
         Container(
           key: const Key('home-hero'),
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+          padding: const EdgeInsets.all(PadelXSpace.lg),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF237A4F), Color(0xFF123D2D)],
+              colors: [Color(0xFF173A2B), Color(0xFF0E231B)],
             ),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0x4053D68A)),
+            borderRadius: BorderRadius.circular(PadelXRadii.feature),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0x2672F58B),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.bolt, color: PadelXColors.accent),
+                  ),
+                  const SizedBox(width: PadelXSpace.md),
+                  Expanded(
+                    child: Text(
+                      context.l10n.findMeAMatch,
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
               Text(
-                context.l10n.findPadelMatches,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  height: 1.05,
+                context.l10n.quickMatchHomeDescription,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: PadelXColors.textSecondary,
                 ),
               ),
               if (_locationLabel.isNotEmpty) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: PadelXSpace.md),
                 Row(
                   children: [
                     const Icon(
                       Icons.location_on_outlined,
                       size: 19,
-                      color: Color(0xFFB7F7CF),
+                      color: PadelXColors.accent,
                     ),
                     const SizedBox(width: 7),
                     Expanded(
                       child: Text(
                         _locationLabel,
-                        style: const TextStyle(color: Colors.white70),
+                        style: const TextStyle(
+                          color: PadelXColors.textSecondary,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ],
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: FilledButton.icon(
-                  key: const Key('home-find-match'),
-                  onPressed: onFindMatch,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFB7F7CF),
-                    foregroundColor: const Color(0xFF10271D),
+              const SizedBox(height: PadelXSpace.md),
+              if (onFindMeAMatch != null) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    key: const Key('home-find-me-a-match'),
+                    onPressed: onFindMeAMatch,
+                    icon: const Icon(Icons.bolt),
+                    label: Text(context.l10n.startQuickMatch),
                   ),
-                  icon: const Icon(Icons.search),
-                  label: Text(context.l10n.findMatch),
                 ),
-              ),
-              SizedBox(
-                width: double.infinity,
-                height: 42,
-                child: TextButton.icon(
-                  key: const Key('home-create-match'),
-                  onPressed: onCreateMatch,
-                  style: TextButton.styleFrom(foregroundColor: Colors.white70),
-                  icon: const Icon(Icons.add, size: 19),
-                  label: Text(context.l10n.createAMatch),
-                ),
-              ),
+              ],
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: PadelXSpace.md),
+        _HomeModeCard(
+          key: const Key('home-find-match'),
+          icon: Icons.search,
+          title: context.l10n.findMatch,
+          description: context.l10n.findMatchesHomeDescription,
+          onTap: onFindMatch,
+        ),
+        const SizedBox(height: PadelXSpace.sm),
+        _HomeModeCard(
+          key: const Key('home-create-match'),
+          icon: Icons.add_circle_outline,
+          title: context.l10n.createAMatch,
+          description: context.l10n.createMatchHomeDescription,
+          onTap: onCreateMatch,
+          quiet: true,
+        ),
+        const SizedBox(height: PadelXSpace.md),
         Row(
           children: [
             Expanded(
-              child: OutlinedButton.icon(
+              child: FilledButton.icon(
                 key: const Key('home-find-players'),
                 onPressed: onFindPlayers,
                 icon: const Icon(Icons.group_outlined),
                 label: Text(context.l10n.findPlayers),
+                style: FilledButton.styleFrom(
+                  backgroundColor: PadelXColors.surfaceRaised,
+                  foregroundColor: PadelXColors.textPrimary,
+                ),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: OutlinedButton.icon(
+              child: FilledButton.icon(
                 key: const Key('home-messages'),
                 onPressed: onMessages,
                 icon: const Icon(Icons.chat_bubble_outline),
                 label: Text(context.l10n.messages),
+                style: FilledButton.styleFrom(
+                  backgroundColor: PadelXColors.surfaceRaised,
+                  foregroundColor: PadelXColors.textPrimary,
+                ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 24),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Text(
-                context.l10n.upcomingMatches,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: onFindMatch,
-              child: Text(context.l10n.seeAll),
-            ),
-          ],
+        const SizedBox(height: PadelXSpace.xl),
+        PadelXSectionHeader(
+          title: context.l10n.upcomingMatches,
+          actionLabel: context.l10n.seeAll,
+          onAction: onFindMatch,
         ),
         const SizedBox(height: 14),
         if (isLoading)
@@ -4503,6 +4652,59 @@ class _HomeStatusCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _HomeModeCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+  final VoidCallback onTap;
+  final bool quiet;
+
+  const _HomeModeCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.onTap,
+    this.quiet = false,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: quiet ? PadelXColors.surface : PadelXColors.surfaceStrong,
+    borderRadius: BorderRadius.circular(PadelXRadii.card),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(PadelXRadii.card),
+      child: Padding(
+        padding: const EdgeInsets.all(PadelXSpace.lg),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: quiet ? PadelXColors.textSecondary : PadelXColors.accent,
+            ),
+            const SizedBox(width: PadelXSpace.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: PadelXSpace.xs),
+                  Text(
+                    description,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: PadelXColors.textSecondary),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 enum MatchDateFilter { all, today, tomorrow, thisWeek }
@@ -5142,13 +5344,15 @@ class MatchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final headline = dateTimeHeadline && match.scheduledAt != null
-        ? _friendlyDateTime(match.scheduledAt!)
+    final headline =
+        (dateTimeHeadline || _isRawCanonicalDateTitle(match.title)) &&
+            match.scheduledAt != null
+        ? _localizedFriendlyDateTime(context, match.scheduledAt!)
         : match.title;
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: PadelXSpace.md),
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(PadelXRadii.card),
         onTap: () {
           final refresh = context
               .findAncestorStateOfType<_HomeScreenState>()
@@ -5168,7 +5372,7 @@ class MatchCard extends StatelessWidget {
           );
         },
         child: Padding(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(PadelXSpace.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -5184,7 +5388,11 @@ class MatchCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const CircleAvatar(child: Icon(Icons.sports_tennis)),
+                  const CircleAvatar(
+                    backgroundColor: PadelXColors.surfaceRaised,
+                    foregroundColor: PadelXColors.accent,
+                    child: Icon(Icons.sports_tennis),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -5192,10 +5400,7 @@ class MatchCard extends StatelessWidget {
                       children: [
                         Text(
                           headline,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                         if (relationshipLabel != null) ...[
                           const SizedBox(height: 6),
@@ -5209,12 +5414,12 @@ class MatchCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 14),
-              Text(match.club, style: const TextStyle(fontSize: 16)),
+              Text(match.club, style: Theme.of(context).textTheme.bodyLarge),
               if (match.locationLabel.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
                   match.locationLabel,
-                  style: const TextStyle(color: Colors.white70),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
               const SizedBox(height: 10),
@@ -5228,7 +5433,10 @@ class MatchCard extends StatelessWidget {
                       !dateTimeHeadline &&
                       match.scheduledAt != null)
                     _InfoChip(
-                      text: _friendlyDateTime(match.scheduledAt!),
+                      text: _localizedFriendlyDateTime(
+                        context,
+                        match.scheduledAt!,
+                      ),
                       icon: Icons.schedule,
                     ),
                   if (!historical)
@@ -5268,18 +5476,19 @@ class _MatchStatusLabel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white24),
+        color: PadelXColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(PadelXRadii.chip),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Colors.white70),
+          Icon(icon, size: 14, color: PadelXColors.textSecondary),
           const SizedBox(width: 4),
           Text(
             label,
-            style: const TextStyle(fontSize: 12, color: Colors.white70),
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: PadelXColors.textSecondary,
+            ),
           ),
         ],
       ),
@@ -5913,6 +6122,17 @@ class _ProfileOverview extends StatelessWidget {
                           context,
                           profile.socialProfile.playFrequency,
                         ),
+                      ),
+                    ),
+                    Chip(
+                      key: const Key('private-profile-reliability'),
+                      label: Text(
+                        stats?.reliabilityStatus == 'established' &&
+                                stats?.reliabilityPercent != null
+                            ? context.l10n.reliabilityPercent(
+                                stats!.reliabilityPercent!,
+                              )
+                            : context.l10n.reliabilityNewPlayer,
                       ),
                     ),
                   ],
@@ -7665,6 +7885,17 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> {
                       ),
                     ),
                   ),
+                  Chip(
+                    key: const Key('public-profile-reliability'),
+                    label: Text(
+                      profile.reliabilityStatus == 'established' &&
+                              profile.reliabilityPercent != null
+                          ? context.l10n.reliabilityPercent(
+                              profile.reliabilityPercent!,
+                            )
+                          : context.l10n.reliabilityNewPlayer,
+                    ),
+                  ),
                 ],
               ),
               if (profile.socialProfile.bio.isNotEmpty) ...[
@@ -8408,6 +8639,9 @@ class MatchDetailsScreen extends StatefulWidget {
   final Future<void> Function(MatchMutationResult)? onMatchUpdated;
   final ValueChanged<String>? onMatchDeleted;
   final ReportRepository? reportRepository;
+  final Future<String?> Function(String matchId)? privateVenueLoader;
+  final MatchmakingRepository? matchmakingRepository;
+  final MatchActionsRepository? matchActionsRepository;
 
   const MatchDetailsScreen({
     super.key,
@@ -8415,17 +8649,115 @@ class MatchDetailsScreen extends StatefulWidget {
     this.onMatchUpdated,
     this.onMatchDeleted,
     this.reportRepository,
+    this.privateVenueLoader,
+    this.matchmakingRepository,
+    this.matchActionsRepository,
   });
 
   @override
   State<MatchDetailsScreen> createState() => _MatchDetailsScreenState();
 }
 
+class MatchAutoFillCard extends StatelessWidget {
+  final bool enabled;
+  final bool busy;
+  final VoidCallback onToggle;
+
+  const MatchAutoFillCard({
+    super.key,
+    required this.enabled,
+    required this.busy,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) => PadelXSurface(
+    strong: enabled,
+    accent: enabled ? PadelXColors.accent : null,
+    padding: const EdgeInsets.all(PadelXSpace.lg),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(
+              enabled ? Icons.radar : Icons.person_add_alt_1,
+              color: PadelXColors.accent,
+            ),
+            const SizedBox(width: PadelXSpace.sm),
+            Expanded(
+              child: Text(
+                context.l10n.findAPlayer,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(context.l10n.autoFillExplanation),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          key: const Key('match-autofill-action'),
+          onPressed: busy ? null : onToggle,
+          icon: busy
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(enabled ? Icons.stop_circle_outlined : Icons.auto_awesome),
+          label: Text(
+            enabled ? context.l10n.stopAutoFill : context.l10n.findAPlayer,
+          ),
+        ),
+        if (enabled)
+          Text(
+            context.l10n.findingAnotherPlayer,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+      ],
+    ),
+  );
+}
+
 class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   bool _isRequesting = false;
   bool _isLeaving = false;
   bool _isCancelling = false;
+  bool _isAutoFillBusy = false;
   final Set<String> _processingRequestIds = {};
+  String? _privateVenueAddress;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrivateVenue();
+  }
+
+  Future<void> _loadPrivateVenue() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (widget.match.venueType != 'private_free' ||
+        uid == null ||
+        (widget.match.creatorUid != uid &&
+            !widget.match.players.any((player) => player.uid == uid))) {
+      return;
+    }
+    try {
+      final address = widget.privateVenueLoader != null
+          ? await widget.privateVenueLoader!(widget.match.id)
+          : (await FirebaseFirestore.instance
+                    .collection('matchPrivateVenues')
+                    .doc(widget.match.id)
+                    .get())
+                .data()?['address']
+                ?.toString();
+      if (mounted && address != null && address.trim().isNotEmpty) {
+        setState(() => _privateVenueAddress = address.trim());
+      }
+    } on FirebaseException {
+      // Approximate canonical venue remains visible if authorization changes.
+    }
+  }
 
   Future<void> _reportMatch(Match match) => showReportFlow(
     context: context,
@@ -8471,6 +8803,46 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
       );
     } catch (_) {
       if (mounted) _showMessage(context.l10n.matchChatUnavailable);
+    }
+  }
+
+  Future<void> _toggleAutoFill(Match match) async {
+    if (_isAutoFillBusy) return;
+    final failureMessage = context.l10n.matchmakingActionFailed;
+    setState(() => _isAutoFillBusy = true);
+    final repository =
+        widget.matchmakingRepository ?? FirebaseMatchmakingRepository();
+    try {
+      if (match.autoFillEnabled && match.autoFillRequestId.isNotEmpty) {
+        await repository.cancel(match.autoFillRequestId);
+      } else {
+        final scheduled = match.scheduledAt;
+        if (scheduled == null) {
+          throw const MatchActionException('Match time unavailable.');
+        }
+        await repository.create(
+          MatchmakingRequestInput(
+            requestId:
+                'autofill_${DateTime.now().microsecondsSinceEpoch}_${match.id.hashCode.abs()}',
+            mode: MatchmakingMode.autofill,
+            sourceMatchId: match.id,
+            autoFillAfterCancellation: true,
+            availability: [
+              MatchmakingAvailability(
+                earliestStart: scheduled,
+                latestStart: scheduled.add(const Duration(hours: 2)),
+              ),
+            ],
+            timezone: 'America/Mexico_City',
+            travelRadiusKm: 25,
+            preferredSide: 'either',
+          ),
+        );
+      }
+    } catch (_) {
+      _showMessage(failureMessage);
+    } finally {
+      if (mounted) setState(() => _isAutoFillBusy = false);
     }
   }
 
@@ -8761,55 +9133,12 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
     setState(() => _isLeaving = true);
 
     try {
-      final matchRef = FirebaseFirestore.instance
-          .collection('matches')
-          .doc(widget.match.id);
-      final requestRef = matchRef.collection('joinRequests').doc(user.uid);
-
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final snapshot = await transaction.get(matchRef);
-        final requestSnapshot = await transaction.get(requestRef);
-        if (!snapshot.exists) {
-          throw const MatchActionException('This match no longer exists.');
-        }
-
-        final data = snapshot.data() ?? <String, dynamic>{};
-        if (isOrganizerIdentity(data, user.uid, user.email ?? '')) {
-          throw const MatchActionException(
-            'The organizer cannot leave their own match.',
-          );
-        }
-
-        final players = List<dynamic>.from(
-          data['players'] as List? ?? const [],
-        );
-        final playerIndex = players.indexWhere(
-          (player) => player is Map && _playerUid(player) == user.uid,
-        );
-
-        if (playerIndex == -1) {
-          throw const MatchActionException('You have not joined this match.');
-        }
-
-        players.removeAt(playerIndex);
-        final spotsLeft = _parseSpotsLeft(data['spotsLeft']);
-        final capacityRemaining = 3 - players.length;
-        final restoredSpots = spotsLeft + 1;
-        transaction.update(matchRef, {
-          'players': players,
-          'participantUids': {
-            matchCreatorUid(data),
-            ...players.whereType<Map>().map(_playerUid),
-          }.where((uid) => uid.isNotEmpty).toList(),
-          'spotsLeft': restoredSpots < capacityRemaining
-              ? restoredSpots
-              : capacityRemaining,
-        });
-        if (requestSnapshot.exists &&
-            requestSnapshot.data()?['status']?.toString() == 'approved') {
-          transaction.update(requestRef, {'status': 'declined'});
-        }
-      });
+      final repository =
+          widget.matchActionsRepository ?? FirebaseMatchActionsRepository();
+      await repository.leaveMatch(
+        widget.match.id,
+        'leave_${DateTime.now().microsecondsSinceEpoch}_${widget.match.id.hashCode.abs()}',
+      );
 
       _showMessage(strings.leftMatch);
     } on MatchActionException catch (error) {
@@ -8993,9 +9322,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
             return Scaffold(
               appBar: AppBar(
                 title: Text(context.l10n.matchDetails),
-                backgroundColor: const Color(0xFF0F1412),
+                backgroundColor: PadelXColors.background,
                 actions: [
-                  if (isOrganizer && !completed)
+                  if (isOrganizer &&
+                      !completed &&
+                      match.source != 'matchmaking')
                     TextButton.icon(
                       key: const Key('edit-match-action'),
                       onPressed: isBusy
@@ -9045,7 +9376,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
               body: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  MatchDetailsSummary(match: match, completed: completed),
+                  MatchDetailsSummary(
+                    match: match,
+                    completed: completed,
+                    privateVenueAddress: _privateVenueAddress,
+                  ),
                   if (isOrganizer || hasJoined) ...[
                     const SizedBox(height: 16),
                     FilledButton.icon(
@@ -9060,13 +9395,17 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                     completed
                         ? context.l10n.playersFromMatch
                         : context.l10n.players,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   const SizedBox(height: 12),
-                  if ((match.creatorUid.isNotEmpty ||
+                  if (match.teams.isNotEmpty)
+                    _MatchTeams(
+                      match: match,
+                      currentUid: currentUid,
+                      completed: completed,
+                      onPlayAgain: (uid, name) => _playAgain(match, uid, name),
+                    )
+                  else if ((match.creatorUid.isNotEmpty ||
                           match.creatorEmail.isNotEmpty ||
                           match.creatorDisplayName == 'Deleted player') &&
                       (!completed || match.creatorUid != currentUid))
@@ -9088,33 +9427,34 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                             )
                           : null,
                     ),
-                  ...match.players.map(
-                    (player) =>
-                        player.uid == match.creatorUid ||
-                            (completed && player.uid == currentUid)
-                        ? const SizedBox.shrink()
-                        : ProfilePlayerTile(
-                            uid: player.uid,
-                            fallbackName: player.displayName.isNotEmpty
-                                ? player.displayName
-                                : context.l10n.player,
-                            fallbackLevel: player.level,
-                            role: context.l10n.confirmedRole,
-                            historical: completed,
-                            onPlayAgain: completed && player.uid.isNotEmpty
-                                ? () => _playAgain(
-                                    match,
-                                    player.uid,
-                                    player.displayName.isEmpty
-                                        ? context.l10n.player
-                                        : player.displayName,
-                                  )
-                                : null,
-                          ),
-                  ),
+                  if (match.teams.isEmpty)
+                    ...match.players.map(
+                      (player) =>
+                          player.uid == match.creatorUid ||
+                              (completed && player.uid == currentUid)
+                          ? const SizedBox.shrink()
+                          : ProfilePlayerTile(
+                              uid: player.uid,
+                              fallbackName: player.displayName.isNotEmpty
+                                  ? player.displayName
+                                  : context.l10n.player,
+                              fallbackLevel: player.level,
+                              role: context.l10n.confirmedRole,
+                              historical: completed,
+                              onPlayAgain: completed && player.uid.isNotEmpty
+                                  ? () => _playAgain(
+                                      match,
+                                      player.uid,
+                                      player.displayName.isEmpty
+                                          ? context.l10n.player
+                                          : player.displayName,
+                                    )
+                                  : null,
+                            ),
+                    ),
                   if (!completed &&
-                      participationState ==
-                          MatchParticipationState.organizer) ...[
+                      participationState == MatchParticipationState.organizer &&
+                      match.source != 'matchmaking') ...[
                     const SizedBox(height: 24),
                     JoinRequestsSection(
                       requests: pendingRequests,
@@ -9127,6 +9467,14 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                       processingUserIds: _processingRequestIds,
                       onApprove: (request) => _reviewRequest(request, true),
                       onDecline: (request) => _reviewRequest(request, false),
+                    ),
+                  ],
+                  if (!completed && isOrganizer && match.spotsLeft > 0) ...[
+                    const SizedBox(height: 24),
+                    MatchAutoFillCard(
+                      enabled: match.autoFillEnabled,
+                      busy: _isAutoFillBusy,
+                      onToggle: () => _toggleAutoFill(match),
                     ),
                   ],
                   if (completed &&
@@ -9264,67 +9612,139 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   }
 }
 
+class _MatchTeams extends StatelessWidget {
+  final Match match;
+  final String? currentUid;
+  final bool completed;
+  final void Function(String uid, String name) onPlayAgain;
+
+  const _MatchTeams({
+    required this.match,
+    required this.currentUid,
+    required this.completed,
+    required this.onPlayAgain,
+  });
+
+  MatchPlayer? _player(String uid) {
+    if (uid == match.creatorUid) {
+      return MatchPlayer(
+        uid: uid,
+        email: match.creatorEmail,
+        displayName: match.creatorDisplayName,
+        level: match.creatorLevel,
+      );
+    }
+    return match.players.where((player) => player.uid == uid).firstOrNull;
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [1, 2].map((team) {
+      final color = team == 1 ? PadelXColors.teamOne : PadelXColors.teamTwo;
+      final members = match.teams[team] ?? const <String>[];
+      return Padding(
+        padding: const EdgeInsets.only(bottom: PadelXSpace.md),
+        child: PadelXSurface(
+          accent: color.withValues(alpha: 0.38),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                context.l10n.teamNumber(team.toString()),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(color: color),
+              ),
+              const SizedBox(height: PadelXSpace.sm),
+              ...members.map((uid) {
+                final player = _player(uid);
+                final name = player?.displayName.isNotEmpty == true
+                    ? player!.displayName
+                    : context.l10n.player;
+                return ProfilePlayerTile(
+                  uid: uid,
+                  fallbackName: name,
+                  fallbackLevel: player?.level ?? '',
+                  role: uid == match.creatorUid
+                      ? context.l10n.organizer
+                      : context.l10n.confirmedRole,
+                  historical: completed,
+                  onPlayAgain: completed && uid.isNotEmpty && uid != currentUid
+                      ? () => onPlayAgain(uid, name)
+                      : null,
+                );
+              }),
+            ],
+          ),
+        ),
+      );
+    }).toList(),
+  );
+}
+
 class MatchDetailsSummary extends StatelessWidget {
   final Match match;
   final bool completed;
+  final String? privateVenueAddress;
 
   const MatchDetailsSummary({
     super.key,
     required this.match,
     required this.completed,
+    this.privateVenueAddress,
   });
 
   @override
   Widget build(BuildContext context) {
     final dateTime = match.scheduledAt == null
         ? context.l10n.dateTimeUnavailable
-        : _friendlyDateTime(match.scheduledAt!);
-    return Card(
+        : _localizedFriendlyDateTime(context, match.scheduledAt!);
+    return PadelXSurface(
       key: const Key('match-details-summary'),
-      color: const Color(0xFF18211D),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      strong: true,
+      accent: PadelXColors.border,
+      padding: const EdgeInsets.all(PadelXSpace.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            dateTime,
+            key: const Key('match-details-date-time'),
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 12),
+          Text(match.club, style: Theme.of(context).textTheme.titleMedium),
+          if (match.locationLabel.isNotEmpty) ...[
+            const SizedBox(height: 4),
             Text(
-              dateTime,
-              key: const Key('match-details-date-time'),
-              style: const TextStyle(
-                fontSize: 27,
-                height: 1.15,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(match.club, style: const TextStyle(fontSize: 18)),
-            if (match.locationLabel.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                match.locationLabel,
-                style: const TextStyle(color: Colors.white70),
-              ),
-            ],
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (explicitLevel(match.level).isNotEmpty)
-                  _InfoChip(
-                    text: explicitLevel(match.level),
-                    icon: Icons.leaderboard,
-                  ),
-                _InfoChip(
-                  text: completed
-                      ? context.l10n.completed
-                      : match.spotsLeftLabel,
-                  icon: completed ? Icons.history : Icons.group,
-                ),
-              ],
+              match.locationLabel,
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
-        ),
+          if (privateVenueAddress != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              context.l10n.privateVenueExactLocation(privateVenueAddress!),
+              key: const Key('private-venue-exact-location'),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (explicitLevel(match.level).isNotEmpty)
+                _InfoChip(
+                  text: explicitLevel(match.level),
+                  icon: Icons.leaderboard,
+                ),
+              _InfoChip(
+                text: completed ? context.l10n.completed : match.spotsLeftLabel,
+                icon: completed ? Icons.history : Icons.group,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -9695,5 +10115,5 @@ class ProfilePlayerTile extends StatelessWidget {
 
 String _playerSubtitle(String role, String level) {
   final displayLevel = explicitLevel(level);
-  return displayLevel.isEmpty ? role : '$role · $displayLevel';
+  return displayLevel.isEmpty ? role : '$displayLevel\n$role';
 }

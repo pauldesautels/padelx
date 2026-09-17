@@ -70,6 +70,106 @@ void main() {
     },
   );
 
+  test(
+    'padel venue search is strictly bounded and filters unrelated places',
+    () async {
+      late http.Request request;
+      final client = _client(
+        platform: TargetPlatform.iOS,
+        handler: (value) async {
+          request = value;
+          return http.Response(
+            jsonEncode({
+              'places': [
+                {
+                  'id': 'padel-club',
+                  'displayName': {'text': 'Central Padel Club'},
+                  'formattedAddress': 'Sports District, Mexico City',
+                  'primaryType': 'sports_club',
+                  'types': ['sports_club', 'establishment'],
+                  'location': {'latitude': 19.44, 'longitude': -99.14},
+                },
+                {
+                  'id': 'restaurant',
+                  'displayName': {'text': 'Unrelated Restaurant'},
+                  'formattedAddress': 'Mexico City',
+                  'primaryType': 'restaurant',
+                  'types': ['restaurant', 'food'],
+                  'location': {'latitude': 19.44, 'longitude': -99.14},
+                },
+                {
+                  'id': 'court-builder',
+                  'displayName': {'text': 'Padel Court Construction MX'},
+                  'formattedAddress': 'Mexico City',
+                  'primaryType': 'general_contractor',
+                  'types': ['general_contractor', 'establishment'],
+                  'location': {'latitude': 19.44, 'longitude': -99.14},
+                },
+                {
+                  'id': 'far-padel-club',
+                  'displayName': {'text': 'Far Padel Club'},
+                  'formattedAddress': 'Outside the agreed area',
+                  'primaryType': 'sports_club',
+                  'types': ['sports_club', 'establishment'],
+                  'location': {'latitude': 20.0, 'longitude': -99.1332},
+                },
+              ],
+            }),
+            200,
+          );
+        },
+      );
+
+      final results = await client.searchPadelVenues(
+        'Central',
+        centerLatitude: 19.4326,
+        centerLongitude: -99.1332,
+        radiusKm: 10,
+      );
+
+      expect(request.url.path, '/v1/places:searchText');
+      expect(jsonDecode(request.body), {
+        'textQuery': 'padel court Central',
+        'locationBias': {
+          'circle': {
+            'center': {'latitude': 19.4326, 'longitude': -99.1332},
+            'radius': 10000.0,
+          },
+        },
+        'maxResultCount': 20,
+      });
+      expect(results, hasLength(1));
+      expect(results.single.placeId, 'padel-club');
+      expect(results.single.label, contains('Central Padel Club'));
+      expect(results.single.label, isNot(contains('Unrelated Restaurant')));
+      expect(results.single.label, isNot(contains('Construction')));
+      expect(results.single.label, isNot(contains('Far Padel Club')));
+      expect(request.headers['x-goog-fieldmask'], contains('places.location'));
+    },
+  );
+
+  test(
+    'padel venue search never falls back when bounded results are empty',
+    () async {
+      var calls = 0;
+      final client = _client(
+        platform: TargetPlatform.iOS,
+        handler: (value) async {
+          calls++;
+          return http.Response('{"places":[]}', 200);
+        },
+      );
+      final results = await client.searchPadelVenues(
+        'No results',
+        centerLatitude: 19.4326,
+        centerLongitude: -99.1332,
+        radiusKm: 10,
+      );
+      expect(results, isEmpty);
+      expect(calls, 1);
+    },
+  );
+
   test('Area validation requires area, country, and city', () {
     const scope = DiscoveryLocation(
       country: 'Mexico',
@@ -165,11 +265,12 @@ void main() {
       expect(request.headers['x-ios-bundle-identifier'], _bundleIdentifier);
       expect(
         request.headers['x-goog-fieldmask'],
-        'displayName,addressComponents,location,primaryType',
+        'displayName,formattedAddress,addressComponents,location,primaryType',
       );
       expect(location.country, 'Mexico');
       expect(location.countryCode, 'MX');
       expect(location.city, 'Mexico City');
+      expect(location.formattedAddress, 'Synthetic exact address, Mexico City');
       expect(location.latitude, 19.4326);
       expect(location.longitude, -99.1332);
       expect(location.placeId, 'mexico-city');
@@ -353,6 +454,7 @@ GooglePlacesClient _client({
 
 const _placeDetailsResponse = {
   'displayName': {'text': 'Mexico City'},
+  'formattedAddress': 'Synthetic exact address, Mexico City',
   'addressComponents': [
     {
       'longText': 'Mexico City',

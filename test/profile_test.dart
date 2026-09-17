@@ -356,6 +356,9 @@ void main() {
             ],
             lifetimeRatingCount: 2,
             lifetimeRatingAverage: 4.5,
+            reliabilityStatus: 'established',
+            reliabilityPercent: 95,
+            reliabilitySampleSize: 8,
           ),
         ),
       ),
@@ -374,6 +377,77 @@ void main() {
     expect(find.text('Weekly'), findsOneWidget);
     expect(find.text('Friendly competitive player.'), findsOneWidget);
     expect(find.text('Visible in Players discovery'), findsOneWidget);
+    expect(find.text('Reliability: 95%'), findsOneWidget);
+  });
+
+  testWidgets(
+    'private profile shows New player without a Reliability projection',
+    (tester) async {
+      await tester.pumpWidget(
+        app(
+          ProfileTab(
+            profile: profile,
+            uid: profile.uid,
+            loader: (_) async => PublicPlayerProfile(
+              uid: profile.uid,
+              displayName: profile.displayName,
+              level: profile.level,
+              matches: const [],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('private-profile-reliability')),
+        findsOneWidget,
+      );
+      expect(find.text('Reliability: New player'), findsOneWidget);
+      expect(find.text('Reliability: 100%'), findsNothing);
+    },
+  );
+
+  testWidgets('public profile shows safe Reliability projection states', (
+    tester,
+  ) async {
+    Future<void> pump(PublicPlayerProfile value) async {
+      await tester.pumpWidget(
+        app(
+          PlayerProfileScreen(
+            key: UniqueKey(),
+            uid: 'player',
+            viewerUid: 'player',
+            loader: (_) async => value,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await pump(
+      const PublicPlayerProfile(
+        uid: 'player',
+        displayName: 'Ana',
+        level: '3.5',
+        matches: [],
+      ),
+    );
+    expect(find.text('Reliability: New player'), findsOneWidget);
+
+    await pump(
+      const PublicPlayerProfile(
+        uid: 'player',
+        displayName: 'Ana',
+        level: '3.5',
+        matches: [],
+        reliabilityStatus: 'established',
+        reliabilityPercent: 95,
+        reliabilitySampleSize: 8,
+      ),
+    );
+    expect(find.text('Reliability: 95%'), findsOneWidget);
+    expect(find.textContaining('cancel'), findsNothing);
   });
 
   testWidgets('profile remains overflow-free at 320px wide', (tester) async {

@@ -301,72 +301,6 @@ service cloud.firestore {
           || matchData.participantUids[3] == playerUid(players[2]));
     }
 
-    function removesOnlyAuthenticatedPlayer() {
-      return request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['players', 'spotsLeft', 'participantUids'])
-        && request.resource.data.players is list
-        && resource.data.players is list
-        && request.resource.data.spotsLeft is int
-        && validParticipantUids(request.resource.data)
-        && existingSpotsLeft() >= 0
-        && (
-          (
-            existingSpotsLeft() + 1
-              <= 3 - request.resource.data.players.size()
-            && request.resource.data.spotsLeft
-              == existingSpotsLeft() + 1
-          )
-          || (
-            existingSpotsLeft() + 1
-              > 3 - request.resource.data.players.size()
-            && request.resource.data.spotsLeft
-              == 3 - request.resource.data.players.size()
-          )
-        )
-        && (
-          (
-            resource.data.players.size() == 1
-            && request.resource.data.players.size() == 0
-            && playerUid(resource.data.players[0]) == request.auth.uid
-          )
-          || (
-            resource.data.players.size() == 2
-            && request.resource.data.players.size() == 1
-            && (
-              (
-                playerUid(resource.data.players[0]) == request.auth.uid
-                && request.resource.data.players[0] == resource.data.players[1]
-              )
-              || (
-                playerUid(resource.data.players[1]) == request.auth.uid
-                && request.resource.data.players[0] == resource.data.players[0]
-              )
-            )
-          )
-          || (
-            resource.data.players.size() == 3
-            && request.resource.data.players.size() == 2
-            && (
-              (
-                playerUid(resource.data.players[0]) == request.auth.uid
-                && request.resource.data.players[0] == resource.data.players[1]
-                && request.resource.data.players[1] == resource.data.players[2]
-              )
-              || (
-                playerUid(resource.data.players[1]) == request.auth.uid
-                && request.resource.data.players[0] == resource.data.players[0]
-                && request.resource.data.players[1] == resource.data.players[2]
-              )
-              || (
-                playerUid(resource.data.players[2]) == request.auth.uid
-                && request.resource.data.players[0] == resource.data.players[0]
-                && request.resource.data.players[1] == resource.data.players[1]
-              )
-            )
-          )
-        );
-    }
-
     function preservesPlayersAndAppendsOne() {
       let before = existingPlayers();
       let after = request.resource.data.players;
@@ -464,7 +398,7 @@ service cloud.firestore {
         ])
         && location.keys().hasOnly([
           'clubName', 'countryCode', 'country', 'region', 'city', 'area',
-          'placeId', 'latitude', 'longitude'
+          'placeId', 'formattedAddress', 'latitude', 'longitude'
         ])
         && location.clubName == club
         && location.clubName is string && location.clubName.size() <= 120
@@ -477,6 +411,11 @@ service cloud.firestore {
         && location.area is string && location.area.size() <= 100
         && (!('placeId' in location) || (
           location.placeId is string && location.placeId.size() <= 256
+        ))
+        && (!('formattedAddress' in location) || (
+          location.formattedAddress is string
+          && location.formattedAddress.size() >= 1
+          && location.formattedAddress.size() <= 300
         ))
         && (!('latitude' in location) || (
           location.latitude is number
@@ -530,6 +469,11 @@ service cloud.firestore {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return isOrganizer(matchId)
         && matchIsStillOpen(request.resource.data)
+        && (
+          !('source' in resource.data)
+          || resource.data.source != 'matchmaking'
+          || changed.hasOnly(['title'])
+        )
         && changed.hasOnly([
           'title', 'dateTime', 'scheduledAt', 'club', 'clubName', 'location',
           'level', 'spotsLeft'
@@ -643,18 +587,6 @@ service cloud.firestore {
         && matchIsCompleted(matchData)
         && userParticipated(matchData, data.raterUid)
         && userParticipated(matchData, data.ratedUid);
-    }
-
-    function leaveUpdatesMatch(matchId, playerUidValue) {
-      let matchBefore = get(
-        /databases/$(database)/documents/matches/$(matchId)
-      ).data;
-      let matchAfter = getAfter(
-        /databases/$(database)/documents/matches/$(matchId)
-      ).data;
-      return matchContainsPlayer(matchBefore, playerUidValue)
-        && !matchContainsPlayer(matchAfter, playerUidValue)
-        && playersIn(matchAfter).size() == playersIn(matchBefore).size() - 1;
     }
 
     function validRequestFields() {
@@ -811,6 +743,18 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Matchmaking canonical state remains server-only. These projections
+      // expose only the signed-in member's own request and offer state.
+      match /matchmakingRequestViews/{requestId} {
+        allow read: if verifiedUser() && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      match /matchProposalViews/{proposalId} {
+        allow read: if verifiedUser() && request.auth.uid == userId;
+        allow write: if false;
+      }
+
       match /settings/{settingId} {
         allow read: if verifiedUser()
           && request.auth.uid == userId
@@ -944,6 +888,30 @@ service cloud.firestore {
     match /playedWithPairs/{pairId} {
       allow read, write: if false;
     }
+    match /matchmakingRequests/{requestId} {
+      allow read, write: if false;
+    }
+    match /matchmakingActiveOwners/{uid} {
+      allow read, write: if false;
+    }
+    match /matchProposals/{proposalId} {
+      allow read, write: if false;
+    }
+    match /reliabilityEvents/{eventId} {
+      allow read, write: if false;
+    }
+    match /reliabilityProfiles/{uid} {
+      allow get: if verifiedUser();
+      allow list, create, update, delete: if false;
+    }
+    match /attendanceEvidence/{evidenceId} {
+      allow read, write: if false;
+    }
+    match /matchPrivateVenues/{matchId} {
+      allow read: if verifiedUser()
+        && request.auth.uid in get(/databases/$(database)/documents/matches/$(matchId)).data.participantUids;
+      allow write: if false;
+    }
     match /friendships/{pairId} {
       allow read, write: if false;
     }
@@ -983,8 +951,9 @@ service cloud.firestore {
         && validNewMatch(matchId);
       allow delete: if isOrganizer(matchId) && matchCanStillChange(matchId);
 
-      // Match updates are limited to organizer detail edits, an atomic
-      // organizer approval, or a player removing their exact own entry.
+      // Match updates are limited to organizer detail edits or atomic
+      // organizer approval. Participant departure is server-authoritative
+      // through leaveMatch and is no longer a direct client mutation.
       // None of these paths can change ownership or join-request state.
       allow update: if verifiedUser()
         && (
@@ -993,8 +962,10 @@ service cloud.firestore {
         )
         && (
           organizerEditsMatchDetails(matchId)
-          || organizerApprovesPendingRequest(matchId)
-          || removesOnlyAuthenticatedPlayer()
+          || (
+            (!('source' in resource.data) || resource.data.source != 'matchmaking')
+            && organizerApprovesPendingRequest(matchId)
+          )
         );
 
       match /joinRequests/{userId} {
@@ -1006,6 +977,10 @@ service cloud.firestore {
         // A non-organizer can create only their own pending request.
         allow create: if verifiedUser()
           && matchCanStillChange(matchId)
+          && (
+            !('source' in get(/databases/$(database)/documents/matches/$(matchId)).data)
+            || get(/databases/$(database)/documents/matches/$(matchId)).data.source != 'matchmaking'
+          )
           && request.auth.uid == userId
           && !isOrganizer(matchId)
           && request.resource.data.userId == request.auth.uid
@@ -1024,14 +999,6 @@ service cloud.firestore {
             && request.resource.data.userId == request.auth.uid
             && request.resource.data.status == 'pending'
             && validRequestFields()
-          )
-          || (
-            request.auth.uid == userId
-            && resource.data.status == 'approved'
-            && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['status'])
-            && request.resource.data.status == 'declined'
-            && leaveUpdatesMatch(matchId, userId)
           )
           || (
             isOrganizer(matchId)

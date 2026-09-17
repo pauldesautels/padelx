@@ -17,6 +17,10 @@ class PlacesAutocompleteField extends StatefulWidget {
   final String countryCode;
   final double? biasLatitude;
   final double? biasLongitude;
+  final bool padelVenuesOnly;
+  final double? restrictionRadiusKm;
+  final bool Function(MatchLocation location)? selectionValidator;
+  final String? invalidSelectionMessage;
   final String? emptyMessage;
   final ValueChanged<MatchLocation> onSelected;
 
@@ -33,6 +37,10 @@ class PlacesAutocompleteField extends StatefulWidget {
     this.countryCode = '',
     this.biasLatitude,
     this.biasLongitude,
+    this.padelVenuesOnly = false,
+    this.restrictionRadiusKm,
+    this.selectionValidator,
+    this.invalidSelectionMessage,
     this.emptyMessage,
   });
 
@@ -48,6 +56,7 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
   List<PlacePrediction> _predictions = const [];
   bool _loading = false;
   String? _error;
+  bool _hasSelection = false;
   int _requestNumber = 0;
   late String _sessionToken;
 
@@ -80,6 +89,7 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
 
   void _onChanged(String value) {
     _debounce?.cancel();
+    _hasSelection = false;
     final request = ++_requestNumber;
     if (value.trim().length < 2) {
       setState(() {
@@ -94,15 +104,22 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
         _error = null;
       });
       try {
-        final results = await _client.autocomplete(
-          value,
-          sessionToken: _sessionToken,
-          citiesOnly: widget.citiesOnly,
-          areasOnly: widget.areasOnly,
-          countryCode: widget.countryCode,
-          biasLatitude: widget.biasLatitude,
-          biasLongitude: widget.biasLongitude,
-        );
+        final results = widget.padelVenuesOnly
+            ? await _client.searchPadelVenues(
+                value,
+                centerLatitude: widget.biasLatitude ?? double.nan,
+                centerLongitude: widget.biasLongitude ?? double.nan,
+                radiusKm: widget.restrictionRadiusKm ?? double.nan,
+              )
+            : await _client.autocomplete(
+                value,
+                sessionToken: _sessionToken,
+                citiesOnly: widget.citiesOnly,
+                areasOnly: widget.areasOnly,
+                countryCode: widget.countryCode,
+                biasLatitude: widget.biasLatitude,
+                biasLongitude: widget.biasLongitude,
+              );
         if (!mounted || request != _requestNumber) return;
         setState(() => _predictions = results);
       } on PlacesException catch (error) {
@@ -110,7 +127,9 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
         debugPrint('Place autocomplete failed: $error');
         setState(() {
           _predictions = const [];
-          _error = error.message;
+          _error = widget.padelVenuesOnly
+              ? context.l10n.padelVenueSearchUnavailable
+              : error.message;
         });
       } catch (error, stackTrace) {
         if (!mounted || request != _requestNumber) return;
@@ -141,6 +160,17 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
         sessionToken: _sessionToken,
       );
       if (!mounted) return;
+      if (widget.selectionValidator?.call(location) == false) {
+        setState(() {
+          _error = widget.invalidSelectionMessage;
+        });
+        return;
+      }
+      _controller.text =
+          widget.padelVenuesOnly && location.clubName.trim().isNotEmpty
+          ? location.clubName.trim()
+          : prediction.label;
+      _hasSelection = true;
       widget.onSelected(location);
       _sessionToken = _newSessionToken();
     } on PlacesException catch (error) {
@@ -212,6 +242,7 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
           ),
         if (!_loading &&
             _error == null &&
+            !_hasSelection &&
             _predictions.isEmpty &&
             _controller.text.trim().length >= 2 &&
             widget.emptyMessage != null)

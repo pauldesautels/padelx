@@ -185,7 +185,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get createMatch => 'Crear partido';
 
   @override
-  String get createAMatch => 'Crear un partido';
+  String get createAMatch => 'Crear partido';
 
   @override
   String get editMatch => 'Editar partido';
@@ -194,7 +194,25 @@ class AppLocalizationsEs extends AppLocalizations {
   String get matchDetails => 'Detalles del partido';
 
   @override
-  String get findMatch => 'Buscar un partido';
+  String get findMatch => 'Buscar partidos';
+
+  @override
+  String get findMatchesHomeDescription =>
+      'Explora por tu cuenta los partidos disponibles.';
+
+  @override
+  String get quickMatchHomeDescription => 'PadelX encuentra el partido por ti.';
+
+  @override
+  String get createMatchHomeDescription => 'Organiza tu propio partido.';
+
+  @override
+  String get reliabilityNewPlayer => 'Confiabilidad: jugador nuevo';
+
+  @override
+  String reliabilityPercent(int percent) {
+    return 'Confiabilidad: $percent%';
+  }
 
   @override
   String get findPlayers => 'Buscar jugadores';
@@ -2118,6 +2136,217 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get startupLoadingSemantics => 'PadelX cargando';
+
+  @override
+  String privateVenueExactLocation(String address) {
+    return 'Ubicación exacta: $address';
+  }
+
+  @override
+  String get findMeAMatch => 'Quick Match';
+
+  @override
+  String get matchmakingActionFailed =>
+      'No se pudo completar esa acción. Intenta de nuevo.';
+
+  @override
+  String get completeMatchmakingRequest =>
+      'Elige un horario válido y un compañero cuando corresponda.';
+
+  @override
+  String get matchmakingIntro =>
+      'Dile a PadelX cuándo quieres jugar. Armaremos el partido por ti.';
+
+  @override
+  String get solo => 'Solo';
+
+  @override
+  String get withPartner => 'Con un compañero';
+
+  @override
+  String get choosePartner => 'Elegir compañero';
+
+  @override
+  String get availableFrom => 'Disponible desde';
+
+  @override
+  String get availableUntil => 'Disponible hasta';
+
+  @override
+  String searchLocationSummary(String city, String area) {
+    String _temp0 = intl.Intl.selectLogic(area, {
+      'other': '$area, $city',
+      'empty': '$city',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String get travelRadius => 'Radio de traslado';
+
+  @override
+  String get startSearching => 'Empezar búsqueda';
+
+  @override
+  String get startQuickMatch => 'Iniciar Quick Match';
+
+  @override
+  String get partnerInvitation => 'Invitación de compañero';
+
+  @override
+  String get findingYourMatch => 'Buscando tu partido…';
+
+  @override
+  String invitedBy(String name) {
+    return 'Invitación de $name';
+  }
+
+  @override
+  String get cancelSearch => 'Cancelar búsqueda';
+
+  @override
+  String get matchFound => 'Partido encontrado';
+
+  @override
+  String get playersReady => 'Jugadores listos';
+
+  @override
+  String get confirmMySpot => 'Confirmar mi lugar';
+
+  @override
+  String get courtNotSelected => 'La cancha aún no está seleccionada';
+
+  @override
+  String offerExpiresMinutes(String minutes) {
+    return 'La oferta vence en aproximadamente $minutes min';
+  }
+
+  @override
+  String get confirmed => 'Confirmado';
+
+  @override
+  String get waiting => 'En espera';
+
+  @override
+  String teamNumber(String number) {
+    return 'Equipo $number';
+  }
+
+  @override
+  String get matchmakingSpotFound => 'Lugar encontrado';
+
+  @override
+  String get matchmakingMatchConfirmed => 'Partido confirmado';
+
+  @override
+  String get matchmakingPartnerInviteBody =>
+      'Tienes una invitación de compañero para matchmaking.';
+
+  @override
+  String get matchmakingMatchFoundBody =>
+      'Hay una propuesta de partido lista para que la confirmes.';
+
+  @override
+  String get matchmakingSpotFoundBody =>
+      'Hay un lugar listo para que lo confirmes.';
+
+  @override
+  String get matchmakingMatchConfirmedBody => 'Tu partido está confirmado.';
+
+  @override
+  String get acceptMatch => 'Aceptar partido';
+
+  @override
+  String get chooseVenueToFinish =>
+      'Todos aceptaron. Elige una cancha para terminar de crear el partido.';
+
+  @override
+  String get waitingForVenue =>
+      'Todos aceptaron. Esperando que el coordinador elija la cancha.';
+
+  @override
+  String get chooseVenue => 'Elegir cancha';
+
+  @override
+  String get openMatchDetails => 'Abrir detalles del partido';
+
+  @override
+  String get privateCourt => 'Cancha privada';
+
+  @override
+  String get clubPublicCourt => 'Cancha de club / pública';
+
+  @override
+  String get privateCourtLocation => 'Ubicación de la cancha privada';
+
+  @override
+  String get searchVenue => 'Buscar la ubicación de la cancha';
+
+  @override
+  String get courtBookingSeparate =>
+      'La reservación de la cancha se gestiona por separado.';
+
+  @override
+  String get confirmVenue => 'Confirmar cancha';
+
+  @override
+  String get matchmakingUnavailable =>
+      'La búsqueda de partido no está disponible por ahora.';
+
+  @override
+  String get findAPlayer => 'Buscar un jugador';
+
+  @override
+  String get autoFillExplanation =>
+      'Deja que PadelX encuentre un jugador compatible para este lugar.';
+
+  @override
+  String get stopAutoFill => 'Detener AutoFill';
+
+  @override
+  String get findingAnotherPlayer => 'Buscando otro jugador…';
+
+  @override
+  String get padelVenueSearchLabel => 'Club o cancha de pádel';
+
+  @override
+  String get padelVenueSearchHint => 'Buscar canchas de pádel cercanas';
+
+  @override
+  String padelVenueRadiusExplanation(String distance) {
+    return 'Mostrando canchas de pádel dentro del área acordada de $distance km.';
+  }
+
+  @override
+  String get noPadelVenuesInArea =>
+      'No se encontraron canchas de pádel dentro de tu área de búsqueda.';
+
+  @override
+  String get padelVenueOutsideArea =>
+      'Esa cancha está fuera del área de búsqueda acordada.';
+
+  @override
+  String get padelVenueSearchUnavailable =>
+      'La búsqueda de canchas de pádel no está disponible por ahora.';
+
+  @override
+  String get privateCourtAddressHelp =>
+      '¿No encuentras tu cancha privada? Busca su dirección.';
+
+  @override
+  String get yourSpotConfirmed => 'Tu lugar está confirmado';
+
+  @override
+  String get findingRemainingPlayers =>
+      'Estamos buscando a los jugadores restantes.';
+
+  @override
+  String playersConfirmedCount(String confirmed) {
+    return '$confirmed de 4 confirmados';
+  }
+
+  @override
+  String get versus => 'VS';
 }
 
 /// The translations for Spanish Castilian, as used in Mexico (`es_MX`).
@@ -2301,7 +2530,7 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
   String get createMatch => 'Crear partido';
 
   @override
-  String get createAMatch => 'Crear un partido';
+  String get createAMatch => 'Crear partido';
 
   @override
   String get editMatch => 'Editar partido';
@@ -2310,7 +2539,25 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
   String get matchDetails => 'Detalles del partido';
 
   @override
-  String get findMatch => 'Buscar un partido';
+  String get findMatch => 'Buscar partidos';
+
+  @override
+  String get findMatchesHomeDescription =>
+      'Explora por tu cuenta los partidos disponibles.';
+
+  @override
+  String get quickMatchHomeDescription => 'PadelX encuentra el partido por ti.';
+
+  @override
+  String get createMatchHomeDescription => 'Organiza tu propio partido.';
+
+  @override
+  String get reliabilityNewPlayer => 'Confiabilidad: jugador nuevo';
+
+  @override
+  String reliabilityPercent(int percent) {
+    return 'Confiabilidad: $percent%';
+  }
 
   @override
   String get findPlayers => 'Buscar jugadores';
@@ -4234,4 +4481,215 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
 
   @override
   String get startupLoadingSemantics => 'PadelX cargando';
+
+  @override
+  String privateVenueExactLocation(String address) {
+    return 'Ubicación exacta: $address';
+  }
+
+  @override
+  String get findMeAMatch => 'Quick Match';
+
+  @override
+  String get matchmakingActionFailed =>
+      'No se pudo completar esa acción. Intenta de nuevo.';
+
+  @override
+  String get completeMatchmakingRequest =>
+      'Elige un horario válido y un compañero cuando corresponda.';
+
+  @override
+  String get matchmakingIntro =>
+      'Dile a PadelX cuándo quieres jugar. Armaremos el partido por ti.';
+
+  @override
+  String get solo => 'Solo';
+
+  @override
+  String get withPartner => 'Con un compañero';
+
+  @override
+  String get choosePartner => 'Elegir compañero';
+
+  @override
+  String get availableFrom => 'Disponible desde';
+
+  @override
+  String get availableUntil => 'Disponible hasta';
+
+  @override
+  String searchLocationSummary(String city, String area) {
+    String _temp0 = intl.Intl.selectLogic(area, {
+      'other': '$area, $city',
+      'empty': '$city',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String get travelRadius => 'Radio de traslado';
+
+  @override
+  String get startSearching => 'Empezar búsqueda';
+
+  @override
+  String get startQuickMatch => 'Iniciar Quick Match';
+
+  @override
+  String get partnerInvitation => 'Invitación de compañero';
+
+  @override
+  String get findingYourMatch => 'Buscando tu partido…';
+
+  @override
+  String invitedBy(String name) {
+    return 'Invitación de $name';
+  }
+
+  @override
+  String get cancelSearch => 'Cancelar búsqueda';
+
+  @override
+  String get matchFound => 'Partido encontrado';
+
+  @override
+  String get playersReady => 'Jugadores listos';
+
+  @override
+  String get confirmMySpot => 'Confirmar mi lugar';
+
+  @override
+  String get courtNotSelected => 'La cancha aún no está seleccionada';
+
+  @override
+  String offerExpiresMinutes(String minutes) {
+    return 'La oferta vence en aproximadamente $minutes min';
+  }
+
+  @override
+  String get confirmed => 'Confirmado';
+
+  @override
+  String get waiting => 'En espera';
+
+  @override
+  String teamNumber(String number) {
+    return 'Equipo $number';
+  }
+
+  @override
+  String get matchmakingSpotFound => 'Lugar encontrado';
+
+  @override
+  String get matchmakingMatchConfirmed => 'Partido confirmado';
+
+  @override
+  String get matchmakingPartnerInviteBody =>
+      'Tienes una invitación de compañero para matchmaking.';
+
+  @override
+  String get matchmakingMatchFoundBody =>
+      'Hay una propuesta de partido lista para que la confirmes.';
+
+  @override
+  String get matchmakingSpotFoundBody =>
+      'Hay un lugar listo para que lo confirmes.';
+
+  @override
+  String get matchmakingMatchConfirmedBody => 'Tu partido está confirmado.';
+
+  @override
+  String get acceptMatch => 'Aceptar partido';
+
+  @override
+  String get chooseVenueToFinish =>
+      'Todos aceptaron. Elige una cancha para terminar de crear el partido.';
+
+  @override
+  String get waitingForVenue =>
+      'Todos aceptaron. Esperando que el coordinador elija la cancha.';
+
+  @override
+  String get chooseVenue => 'Elegir cancha';
+
+  @override
+  String get openMatchDetails => 'Abrir detalles del partido';
+
+  @override
+  String get privateCourt => 'Cancha privada';
+
+  @override
+  String get clubPublicCourt => 'Cancha de club / pública';
+
+  @override
+  String get privateCourtLocation => 'Ubicación de la cancha privada';
+
+  @override
+  String get searchVenue => 'Buscar la ubicación de la cancha';
+
+  @override
+  String get courtBookingSeparate =>
+      'La reservación de la cancha se gestiona por separado.';
+
+  @override
+  String get confirmVenue => 'Confirmar cancha';
+
+  @override
+  String get matchmakingUnavailable =>
+      'La búsqueda de partido no está disponible por ahora.';
+
+  @override
+  String get findAPlayer => 'Buscar un jugador';
+
+  @override
+  String get autoFillExplanation =>
+      'Deja que PadelX encuentre un jugador compatible para este lugar.';
+
+  @override
+  String get stopAutoFill => 'Detener AutoFill';
+
+  @override
+  String get findingAnotherPlayer => 'Buscando otro jugador…';
+
+  @override
+  String get padelVenueSearchLabel => 'Club o cancha de pádel';
+
+  @override
+  String get padelVenueSearchHint => 'Buscar canchas de pádel cercanas';
+
+  @override
+  String padelVenueRadiusExplanation(String distance) {
+    return 'Mostrando canchas de pádel dentro del área acordada de $distance km.';
+  }
+
+  @override
+  String get noPadelVenuesInArea =>
+      'No se encontraron canchas de pádel dentro de tu área de búsqueda.';
+
+  @override
+  String get padelVenueOutsideArea =>
+      'Esa cancha está fuera del área de búsqueda acordada.';
+
+  @override
+  String get padelVenueSearchUnavailable =>
+      'La búsqueda de canchas de pádel no está disponible por ahora.';
+
+  @override
+  String get privateCourtAddressHelp =>
+      '¿No encuentras tu cancha privada? Busca su dirección.';
+
+  @override
+  String get yourSpotConfirmed => 'Tu lugar está confirmado';
+
+  @override
+  String get findingRemainingPlayers =>
+      'Estamos buscando a los jugadores restantes.';
+
+  @override
+  String playersConfirmedCount(String confirmed) {
+    return '$confirmed de 4 confirmados';
+  }
+
+  @override
+  String get versus => 'VS';
 }

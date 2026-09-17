@@ -618,7 +618,7 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: CreateMatchScreen()));
 
     expect(find.text('Set up your game'), findsOneWidget);
-    expect(find.text('Create Match'), findsOneWidget);
+    expect(find.text('Create Match'), findsWidgets);
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('create-match-submit')),
@@ -850,7 +850,8 @@ void main() {
       ),
     );
 
-    expect(find.text('Find padel matches near you.'), findsOneWidget);
+    expect(find.text('Quick Match'), findsOneWidget);
+    expect(find.text('PadelX finds the game for you.'), findsOneWidget);
     expect(find.text('Roma Norte, Mexico City'), findsOneWidget);
   });
 
@@ -861,6 +862,7 @@ void main() {
     await _pumpHome(
       tester,
       onFindMatch: () => destination = 'matches',
+      onFindMeAMatch: () => destination = 'quick',
       onCreateMatch: () => destination = 'create',
     );
 
@@ -868,6 +870,34 @@ void main() {
     expect(destination, 'matches');
     await tester.tap(find.byKey(const Key('home-create-match')));
     expect(destination, 'create');
+    expect(find.text('Find Matches'), findsOneWidget);
+    expect(find.text('Create Match'), findsWidgets);
+    expect(find.text('Browse available matches yourself.'), findsOneWidget);
+    expect(find.text('PadelX finds the game for you.'), findsOneWidget);
+    expect(find.text('Organize your own game.'), findsOneWidget);
+  });
+
+  testWidgets('raw canonical match title is presented as localized time', (
+    WidgetTester tester,
+  ) async {
+    await _pumpHome(
+      tester,
+      matches: [
+        Match(
+          id: 'canonical-date',
+          title: '2030-09-12T18:30:00.000Z',
+          club: 'Padel Club',
+          level: 'Level 3',
+          spotsLeft: 1,
+          creatorUid: 'creator',
+          creatorEmail: '',
+          players: const [],
+          scheduledAt: DateTime(2030, 9, 12, 18, 30),
+        ),
+      ],
+    );
+    expect(find.text('2030-09-12T18:30:00.000Z'), findsNothing);
+    expect(find.textContaining('Sep'), findsOneWidget);
   });
 
   testWidgets('Home populated state shows useful match details', (
@@ -954,6 +984,11 @@ void main() {
       tester,
       matches: [for (var i = 1; i <= 4; i++) _match(id: '$i', club: 'Club $i')],
     );
+    await tester.scrollUntilVisible(
+      find.text('Club 3'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     final cards = tester.widgetList<MatchCard>(find.byType(MatchCard));
     expect(cards.map((card) => card.match.id), ['1', '2', '3']);
   });
@@ -967,16 +1002,17 @@ void main() {
     expect(find.text('Upcoming games to explore'), findsNothing);
     expect(find.text('Upcoming matches'), findsOneWidget);
     expect(find.text('See all'), findsOneWidget);
+    expect(find.byKey(const Key('home-hero')), findsOneWidget);
     expect(
       find.descendant(
         of: find.byKey(const Key('home-hero')),
         matching: find.byKey(const Key('home-create-match')),
       ),
-      findsOneWidget,
+      findsNothing,
     );
   });
 
-  testWidgets('Home empty state offers Create a Match', (
+  testWidgets('Home empty state offers Create Match', (
     WidgetTester tester,
   ) async {
     var created = false;
@@ -987,7 +1023,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byKey(const Key('home-empty-state')),
-        matching: find.text('Create a Match'),
+        matching: find.text('Create Match'),
       ),
     );
     expect(created, isTrue);
@@ -1477,7 +1513,7 @@ void main() {
       tester.getTopLeft(find.text('Sooner Club')).dy,
       lessThan(tester.getTopLeft(find.text('Later Club')).dy),
     );
-    expect(find.text('Saturday, August 29 · 6:00 PM'), findsOneWidget);
+    expect(find.textContaining('Saturday, Aug 29'), findsOneWidget);
     expect(find.text('Level 3'), findsWidgets);
   });
 
@@ -1806,7 +1842,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final scheduledAt = DateTime(2030, 9, 12, 18, 30);
-    const dateLabel = 'Thursday, September 12 · 6:30 PM';
+    const dateLabel = 'Thursday, Sep 12 · 6:30 PM';
     await _pumpMatches(tester, [
       Match(
         id: 'legacy',
@@ -1821,7 +1857,7 @@ void main() {
       ),
     ], currentUid: 'current-user');
 
-    expect(find.text(dateLabel), findsOneWidget);
+    expect(find.textContaining('Thursday, Sep 12'), findsOneWidget);
     expect(find.text('Level 2'), findsOneWidget);
     expect(find.text('1 spot left'), findsOneWidget);
     expect(find.text('Organizer'), findsOneWidget);
@@ -2426,7 +2462,7 @@ void main() {
       );
 
       expect(find.byKey(const Key('match-details-date-time')), findsOneWidget);
-      expect(find.text('Wednesday, September 2 · 6:30 PM'), findsOneWidget);
+      expect(find.textContaining('Wednesday, Sep 2'), findsOneWidget);
       expect(find.text('Level 2'), findsOneWidget);
       expect(find.text('1 spot left'), findsOneWidget);
       expect(find.text('Legacy title'), findsNothing);
@@ -2841,6 +2877,7 @@ Future<void> _pumpHome(
   List<Match> matches = const [],
   DiscoveryLocation? preferredLocation,
   VoidCallback? onFindMatch,
+  VoidCallback? onFindMeAMatch,
   VoidCallback? onCreateMatch,
   bool isLoading = false,
   bool error = false,
@@ -2856,6 +2893,7 @@ Future<void> _pumpHome(
       home: Scaffold(
         body: HomeTab(
           onFindMatch: onFindMatch ?? () {},
+          onFindMeAMatch: onFindMeAMatch,
           onCreateMatch: onCreateMatch ?? () {},
           matches: matches,
           preferredLocation: preferredLocation,

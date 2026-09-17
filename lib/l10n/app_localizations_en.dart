@@ -185,7 +185,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createMatch => 'Create Match';
 
   @override
-  String get createAMatch => 'Create a Match';
+  String get createAMatch => 'Create Match';
 
   @override
   String get editMatch => 'Edit Match';
@@ -194,7 +194,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get matchDetails => 'Match Details';
 
   @override
-  String get findMatch => 'Find a Match';
+  String get findMatch => 'Find Matches';
+
+  @override
+  String get findMatchesHomeDescription => 'Browse available matches yourself.';
+
+  @override
+  String get quickMatchHomeDescription => 'PadelX finds the game for you.';
+
+  @override
+  String get createMatchHomeDescription => 'Organize your own game.';
+
+  @override
+  String get reliabilityNewPlayer => 'Reliability: New player';
+
+  @override
+  String reliabilityPercent(int percent) {
+    return 'Reliability: $percent%';
+  }
 
   @override
   String get findPlayers => 'Find Players';
@@ -2093,4 +2110,212 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get startupLoadingSemantics => 'PadelX loading';
+
+  @override
+  String privateVenueExactLocation(String address) {
+    return 'Exact location: $address';
+  }
+
+  @override
+  String get findMeAMatch => 'Quick Match';
+
+  @override
+  String get matchmakingActionFailed =>
+      'That matchmaking action could not be completed. Try again.';
+
+  @override
+  String get completeMatchmakingRequest =>
+      'Choose a valid availability window and partner when applicable.';
+
+  @override
+  String get matchmakingIntro =>
+      'Tell PadelX when you want to play. We’ll assemble the game for you.';
+
+  @override
+  String get solo => 'Solo';
+
+  @override
+  String get withPartner => 'With a Partner';
+
+  @override
+  String get choosePartner => 'Choose a partner';
+
+  @override
+  String get availableFrom => 'Available from';
+
+  @override
+  String get availableUntil => 'Available until';
+
+  @override
+  String searchLocationSummary(String city, String area) {
+    String _temp0 = intl.Intl.selectLogic(area, {
+      'other': '$area, $city',
+      'empty': '$city',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String get travelRadius => 'Travel radius';
+
+  @override
+  String get startSearching => 'Start Searching';
+
+  @override
+  String get startQuickMatch => 'Start Quick Match';
+
+  @override
+  String get partnerInvitation => 'Partner invitation';
+
+  @override
+  String get findingYourMatch => 'Finding your match…';
+
+  @override
+  String invitedBy(String name) {
+    return 'Invited by $name';
+  }
+
+  @override
+  String get cancelSearch => 'Cancel Search';
+
+  @override
+  String get matchFound => 'Match Found';
+
+  @override
+  String get playersReady => 'Players Ready';
+
+  @override
+  String get confirmMySpot => 'Confirm my spot';
+
+  @override
+  String get courtNotSelected => 'Court not selected yet';
+
+  @override
+  String offerExpiresMinutes(String minutes) {
+    return 'Offer expires in about $minutes min';
+  }
+
+  @override
+  String get confirmed => 'Confirmed';
+
+  @override
+  String get waiting => 'Waiting';
+
+  @override
+  String teamNumber(String number) {
+    return 'Team $number';
+  }
+
+  @override
+  String get matchmakingSpotFound => 'Match spot found';
+
+  @override
+  String get matchmakingMatchConfirmed => 'Match confirmed';
+
+  @override
+  String get matchmakingPartnerInviteBody =>
+      'You have a matchmaking partner invitation.';
+
+  @override
+  String get matchmakingMatchFoundBody =>
+      'A matchmaking offer is ready for your confirmation.';
+
+  @override
+  String get matchmakingSpotFoundBody =>
+      'A spot is ready for your confirmation.';
+
+  @override
+  String get matchmakingMatchConfirmedBody => 'Your match is confirmed.';
+
+  @override
+  String get acceptMatch => 'Accept Match';
+
+  @override
+  String get chooseVenueToFinish =>
+      'Everyone accepted. Choose a court to finish creating the match.';
+
+  @override
+  String get waitingForVenue =>
+      'Everyone accepted. Waiting for the coordinator to choose the court.';
+
+  @override
+  String get chooseVenue => 'Choose Venue';
+
+  @override
+  String get openMatchDetails => 'Open Match Details';
+
+  @override
+  String get privateCourt => 'Private court';
+
+  @override
+  String get clubPublicCourt => 'Club / public court';
+
+  @override
+  String get privateCourtLocation => 'Private court location';
+
+  @override
+  String get searchVenue => 'Search for the court location';
+
+  @override
+  String get courtBookingSeparate => 'Court booking is handled separately.';
+
+  @override
+  String get confirmVenue => 'Confirm Venue';
+
+  @override
+  String get matchmakingUnavailable => 'Matchmaking is unavailable right now.';
+
+  @override
+  String get findAPlayer => 'Find a Player';
+
+  @override
+  String get autoFillExplanation =>
+      'Let PadelX find a compatible player for this spot.';
+
+  @override
+  String get stopAutoFill => 'Stop AutoFill';
+
+  @override
+  String get findingAnotherPlayer => 'Finding another player…';
+
+  @override
+  String get padelVenueSearchLabel => 'Padel club or court';
+
+  @override
+  String get padelVenueSearchHint => 'Search nearby padel venues';
+
+  @override
+  String padelVenueRadiusExplanation(String distance) {
+    return 'Showing padel venues within the agreed $distance km search area.';
+  }
+
+  @override
+  String get noPadelVenuesInArea =>
+      'No padel courts found within your search area.';
+
+  @override
+  String get padelVenueOutsideArea =>
+      'That venue is outside the agreed search area.';
+
+  @override
+  String get padelVenueSearchUnavailable =>
+      'Padel venue search is unavailable right now.';
+
+  @override
+  String get privateCourtAddressHelp =>
+      'Can’t find your private court? Search for its street address.';
+
+  @override
+  String get yourSpotConfirmed => 'Your spot is confirmed';
+
+  @override
+  String get findingRemainingPlayers => 'We’re finding the remaining players.';
+
+  @override
+  String playersConfirmedCount(String confirmed) {
+    return '$confirmed of 4 confirmed';
+  }
+
+  @override
+  String get versus => 'VS';
 }
