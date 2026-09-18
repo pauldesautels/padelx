@@ -74,10 +74,10 @@ const communityGuidelineSections = <CommunityGuidelineSection>[
     'Respect another player’s decision to block or stop communicating. Do not retaliate against someone for blocking or reporting, or knowingly submit malicious or fabricated reports.',
   ]),
   CommunityGuidelineSection('Real-world safety', [
-    'Exercise reasonable judgment when meeting people in person. Treat private and residential locations carefully.',
+    'Exercise reasonable judgment when meeting people in person. Only share a private venue when authorized, and do not misuse or unnecessarily redistribute its exact location.',
   ]),
-  CommunityGuidelineSection('Future reliability', [
-    'PadelX may later use objective participation behavior, such as cancellations and no-shows, to help improve matchmaking.',
+  CommunityGuidelineSection('Reliability and attendance', [
+    'Reliability is separate from skill and subjective ratings. Submit attendance information honestly. Knowingly false or coordinated submissions intended to manipulate another player’s Reliability are prohibited; good-faith disagreement is not automatically misconduct.',
   ]),
   CommunityGuidelineSection('Enforcement', [
     'PadelX may review reported conduct and restrict access when appropriate.',

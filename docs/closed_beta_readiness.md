@@ -39,49 +39,21 @@ again; Android and APNs collapse identifiers further bound duplicate display.
 Receipts persist only delivery status and aggregate counts, never provider
 errors or device tokens.
 
-## Legal product-accuracy review package
+## Product-accurate v2 legal drafts
 
-The accepted legal versions remain `terms-beta-v1`, `privacy-beta-v1`, and
-`community-beta-v1`. Do not change the following text or versions until a human
-legal/product review approves the complete English and es-MX wording.
+English and es-MX Terms, Privacy, Community Guidelines and matching in-app
+Guidelines now describe Quick Match, Reliability, Attendance, protected private
+venues, push delivery, diagnostics and staged deletion. Active draft versions
+are `terms-beta-v2`, `privacy-beta-v2`, and `community-beta-v2`; acceptance
+schema remains 1. Exact matching means a v1 or mixed receipt will not satisfy
+the v2 gate. No receipt is migrated or accepted automatically.
 
-Outdated product descriptions:
-
-1. `web/terms/index.html` says PadelX does not provide automatic matchmaking.
-2. `web/es-MX/terms/index.html` says PadelX does not provide automatic
-   matchmaking.
-3. `web/community-guidelines/index.html` says no Reliability feature exists.
-4. `web/es-MX/community-guidelines/index.html` says no Reliability feature
-   exists.
-5. The in-app Community Guidelines in `lib/safety_policy.dart` and the
-   `guidelineReliabilityTitle`/`guidelineReliabilityBody` ARB strings describe
-   Reliability only as a future possibility.
-
-Proposed factual English language for review, not pre-approved legal copy:
-
-- Terms product list: “PadelX currently supports profiles, player and match
-  discovery, Quick Match matchmaking, matches, requests, social connections,
-  messages, ratings, notifications, Reliability, reports, moderation and
-  deletion. It does not currently provide payments.”
-- Guidelines: “PadelX may use objective participation events, such as confirmed
-  match cancellations, to present a Reliability percentage after sufficient
-  history. Reliability is not a safety score, does not infer no-shows
-  automatically, and does not cause automatic enforcement.”
-
-Proposed factual es-MX language for review, not pre-approved legal copy:
-
-- Terms product list: “PadelX admite perfiles, búsqueda de jugadores y
-  partidos, emparejamiento Quick Match, partidos, solicitudes, conexiones
-  sociales, mensajes, calificaciones, notificaciones, Confiabilidad, reportes,
-  moderación y eliminación. Actualmente no ofrece pagos.”
-- Guidelines: “PadelX puede usar eventos objetivos de participación, como la
-  cancelación de un partido confirmado, para mostrar un porcentaje de
-  Confiabilidad después de contar con historial suficiente. La Confiabilidad no
-  es una calificación de seguridad, no infiere ausencias automáticamente ni
-  genera medidas automáticas.”
-
-Review must decide whether correcting these descriptions is material enough to
-issue new legal versions and require acknowledgement again.
+These are implementation-ready product-accurate drafts, not counsel-approved
+global policies. The remaining launch review is tracked in
+`docs/legal_review_required.md` and includes jurisdiction, governing law,
+operator/controller presentation, retention, provider roles/transfers,
+Attendance/Reliability contest rights, private-location and sports liability,
+material-change/re-acceptance requirements and store disclosures.
 
 ## Small-beta operating procedure
 

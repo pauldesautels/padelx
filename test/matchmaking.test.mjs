@@ -37,8 +37,8 @@ async function seed(uid, { level = '3.5', side = 'either' } = {}) {
     db.doc(`accountEligibility/${uid}`).set({ uid, schemaVersion: 1, age18Confirmed: true,
       ageEligibilityVersion: '18-plus-v1', confirmedAt: Timestamp.fromDate(now) }),
     db.doc(`accountLegalAcceptance/${uid}`).set({ uid, schemaVersion: 1,
-      termsVersion: 'terms-beta-v1', privacyVersion: 'privacy-beta-v1',
-      communityVersion: 'community-beta-v1', acceptedAt: Timestamp.fromDate(now) }),
+      termsVersion: 'terms-beta-v2', privacyVersion: 'privacy-beta-v2',
+      communityVersion: 'community-beta-v2', acceptedAt: Timestamp.fromDate(now) }),
   ]);
 }
 

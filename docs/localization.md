@@ -18,7 +18,7 @@ and Area / Neighborhood → Zona / Colonia.
 Never translate persisted or transmitted identifiers: Firestore fields,
 callable names, request IDs, report reason codes, statuses, side values, numeric
 levels, schema versions, `cityId`, or `areaId`. Legal acceptance always uses the
-same `terms-beta-v1`, `privacy-beta-v1`, and `community-beta-v1` identities in
+same `terms-beta-v2`, `privacy-beta-v2`, and `community-beta-v2` identities in
 every language.
 
 Firebase Authentication verification and password-reset templates must be

@@ -97,6 +97,14 @@ class AuthLandingScreen extends StatelessWidget {
                         onPressed: () => openLegalLink(context, '/privacy'),
                         child: Text(strings?.privacyPolicy ?? 'Privacy Policy'),
                       ),
+                      TextButton(
+                        onPressed: () =>
+                            openLegalLink(context, '/community-guidelines'),
+                        child: Text(
+                          strings?.communityGuidelines ??
+                              'Community Guidelines',
+                        ),
+                      ),
                     ],
                   ),
                 ],

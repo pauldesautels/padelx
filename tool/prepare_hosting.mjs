@@ -3,12 +3,12 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const legalPageRoutes = Object.freeze([
-  Object.freeze({ route: 'privacy', lang: 'en', marker: 'privacy-beta-v1' }),
-  Object.freeze({ route: 'terms', lang: 'en', marker: 'terms-beta-v1' }),
+  Object.freeze({ route: 'privacy', lang: 'en', marker: 'privacy-beta-v2' }),
+  Object.freeze({ route: 'terms', lang: 'en', marker: 'terms-beta-v2' }),
   Object.freeze({
     route: 'community-guidelines',
     lang: 'en',
-    marker: 'community-beta-v1',
+    marker: 'community-beta-v2',
   }),
   Object.freeze({
     route: 'account-deletion',
@@ -18,17 +18,17 @@ export const legalPageRoutes = Object.freeze([
   Object.freeze({
     route: 'es-MX/privacy',
     lang: 'es-MX',
-    marker: 'privacy-beta-v1',
+    marker: 'privacy-beta-v2',
   }),
   Object.freeze({
     route: 'es-MX/terms',
     lang: 'es-MX',
-    marker: 'terms-beta-v1',
+    marker: 'terms-beta-v2',
   }),
   Object.freeze({
     route: 'es-MX/community-guidelines',
     lang: 'es-MX',
-    marker: 'community-beta-v1',
+    marker: 'community-beta-v2',
   }),
   Object.freeze({
     route: 'es-MX/account-deletion',

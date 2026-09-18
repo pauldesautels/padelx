@@ -2,7 +2,7 @@ import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { COMMUNITY_VERSION, PRIVACY_VERSION, TERMS_VERSION,
+import { COMMUNITY_VERSION, LEGAL_SCHEMA_VERSION, PRIVACY_VERSION, TERMS_VERSION,
   getLegalAcceptanceOperation, recordLegalAcceptanceOperation } from '../functions/legal_acceptance.js';
 
 const projectId = 'demo-padelx-legal';
@@ -31,11 +31,42 @@ test('legal acceptance is exact, server-timestamped, and idempotent', async () =
   const stored = (await db.doc('accountLegalAcceptance/alice').get()).data();
   assert.deepEqual({ ...stored, acceptedAt: stored.acceptedAt.toDate() }, {
     uid: 'alice', termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION,
-    communityVersion: COMMUNITY_VERSION, acceptedAt: now, schemaVersion: 1,
+    communityVersion: COMMUNITY_VERSION, acceptedAt: now, schemaVersion: LEGAL_SCHEMA_VERSION,
   });
   await recordLegalAcceptanceOperation(db, request('alice', payload('legal_request_654321')), new Date());
   assert.equal((await db.doc('accountLegalAcceptance/alice').get()).data().acceptedAt.toMillis(), now.getTime());
   assert.equal((await getLegalAcceptanceOperation(db, request('alice'))).accepted, true);
+});
+test('v1 and mixed receipts do not satisfy the exact v2 requirement', async () => {
+  const acceptedAt = new Date('2026-09-14T12:00:00Z');
+  await db.doc('accountLegalAcceptance/legacy').set({
+    uid: 'legacy', schemaVersion: 1, termsVersion: 'terms-beta-v1',
+    privacyVersion: 'privacy-beta-v1', communityVersion: 'community-beta-v1',
+    acceptedAt,
+  });
+  assert.deepEqual(await getLegalAcceptanceOperation(db, request('legacy')), { accepted: false });
+
+  await db.doc('accountLegalAcceptance/mixed').set({
+    uid: 'mixed', schemaVersion: 1, termsVersion: TERMS_VERSION,
+    privacyVersion: 'privacy-beta-v1', communityVersion: COMMUNITY_VERSION,
+    acceptedAt,
+  });
+  assert.deepEqual(await getLegalAcceptanceOperation(db, request('mixed')), { accepted: false });
+});
+
+test('exact v2 receipt satisfies the gate and schema remains one', async () => {
+  assert.equal(LEGAL_SCHEMA_VERSION, 1);
+  const acceptedAt = new Date('2026-09-18T12:00:00Z');
+  await db.doc('accountLegalAcceptance/current').set({
+    uid: 'current', schemaVersion: LEGAL_SCHEMA_VERSION,
+    termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION,
+    communityVersion: COMMUNITY_VERSION, acceptedAt,
+  });
+  const state = await getLegalAcceptanceOperation(db, request('current'));
+  assert.deepEqual(state, {
+    accepted: true, termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION,
+    communityVersion: COMMUNITY_VERSION,
+  });
 });
 test('legal acceptance rejects missing auth, unknown versions, extra fields, and deletion', async () => {
   await assert.rejects(recordLegalAcceptanceOperation(db, { data: payload() }), { code: 'unauthenticated' });

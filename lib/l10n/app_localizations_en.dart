@@ -158,7 +158,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get legalReviewIntro =>
-      'Review the Terms of Use and Privacy Policy for the PadelX closed beta.';
+      'Review the Terms of Use, Privacy Policy, and Community Guidelines for the PadelX closed beta.';
 
   @override
   String get legalLoadFailed => 'Acceptance status could not be loaded.';
@@ -377,6 +377,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get supportSafety => 'Support & Safety';
+
+  @override
+  String get attendanceReliabilityConcerns =>
+      'Attendance or Reliability concern';
+
+  @override
+  String get attendanceReliabilitySupport =>
+      'Contact support about a demonstrable error or established abuse. Review, correction, and response times are not guaranteed.';
 
   @override
   String get communityGuidelines => 'Community Guidelines';
@@ -1013,7 +1021,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get legalAgreement =>
-      'I agree to the Terms of Use and acknowledge the Privacy Policy.';
+      'I agree to the Terms of Use, acknowledge the Privacy Policy, and agree to follow the Community Guidelines.';
 
   @override
   String get resetEmailHelp =>
@@ -1273,6 +1281,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get legalAgreeMiddle => ' and acknowledge the ';
 
   @override
+  String get legalAgreeCommunityMiddle => ', and agree to follow the ';
+
+  @override
   String get period => '.';
 
   @override
@@ -1385,7 +1396,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get legalAgreeContinue =>
-      'Agree to the Terms of Use and acknowledge the Privacy Policy to continue.';
+      'Agree to the Terms of Use, acknowledge the Privacy Policy, and agree to follow the Community Guidelines to continue.';
 
   @override
   String get enterEmailPeriod => 'Enter your email.';
@@ -1867,14 +1878,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get guidelineRealWorldBody =>
-      'Exercise reasonable judgment when meeting people in person. Treat private and residential locations carefully.';
+      'Exercise reasonable judgment when meeting people in person. Only share a private venue when authorized, and do not misuse or unnecessarily redistribute its exact location.';
 
   @override
-  String get guidelineReliabilityTitle => 'Future reliability';
+  String get guidelineReliabilityTitle => 'Reliability and attendance';
 
   @override
   String get guidelineReliabilityBody =>
-      'PadelX may later use objective participation behavior, such as cancellations and no-shows, to help improve matchmaking.';
+      'Reliability is separate from skill and subjective ratings. Submit attendance information honestly. Knowingly false or coordinated submissions intended to manipulate another player’s Reliability are prohibited; good-faith disagreement is not automatically misconduct.';
 
   @override
   String get guidelineEnforcementTitle => 'Enforcement';

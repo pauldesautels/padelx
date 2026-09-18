@@ -145,20 +145,20 @@ class AppLocalizationsEs extends AppLocalizations {
       'Para continuar, confirma que tienes al menos 18 años.';
 
   @override
-  String get ageEligibility => 'Elegibilidad para mayores de 18';
+  String get ageEligibility => 'Elegibilidad para personas de 18 años o más';
 
   @override
   String get ageCheckFailed => 'No se pudo verificar la elegibilidad de edad.';
 
   @override
-  String get adultOnly => 'PadelX es para personas mayores de 18 años.';
+  String get adultOnly => 'PadelX es para personas de 18 años o más.';
 
   @override
   String get legalAcknowledgement => 'Aceptación legal';
 
   @override
   String get legalReviewIntro =>
-      'Revisa los Términos de uso y el Aviso de privacidad de la beta cerrada de PadelX.';
+      'Revisa los Términos de uso, el Aviso de privacidad y las Normas de la comunidad de la beta cerrada de PadelX.';
 
   @override
   String get legalLoadFailed => 'No se pudo consultar el estado de aceptación.';
@@ -380,6 +380,14 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get supportSafety => 'Soporte y seguridad';
+
+  @override
+  String get attendanceReliabilityConcerns =>
+      'Inquietud de Asistencia o Confiabilidad';
+
+  @override
+  String get attendanceReliabilitySupport =>
+      'Contacta a soporte por un error demostrable o abuso establecido. No se garantizan la revisión, la corrección ni los plazos de respuesta.';
 
   @override
   String get communityGuidelines => 'Normas de la comunidad';
@@ -1025,7 +1033,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get legalAgreement =>
-      'Acepto los Términos de uso y reconozco el Aviso de privacidad.';
+      'Acepto los Términos de uso, reconozco el Aviso de privacidad y acepto cumplir las Normas de la comunidad.';
 
   @override
   String get resetEmailHelp =>
@@ -1289,6 +1297,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get legalAgreeMiddle => ' y reconozco el ';
 
   @override
+  String get legalAgreeCommunityMiddle => ', y acepto cumplir las ';
+
+  @override
   String get period => '.';
 
   @override
@@ -1405,7 +1416,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get legalAgreeContinue =>
-      'Acepta los Términos de uso y reconoce el Aviso de privacidad para continuar.';
+      'Acepta los Términos de uso, reconoce el Aviso de privacidad y acepta cumplir las Normas de la comunidad para continuar.';
 
   @override
   String get enterEmailPeriod => 'Ingresa tu correo.';
@@ -1808,8 +1819,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get guidelineAdultsTitle => 'Solo personas adultas';
 
   @override
-  String get guidelineAdultsBody =>
-      'PadelX es para personas mayores de 18 años.';
+  String get guidelineAdultsBody => 'PadelX es para personas de 18 años o más.';
 
   @override
   String get guidelineRespectTitle => 'Respeta a otros jugadores';
@@ -1890,14 +1900,14 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get guidelineRealWorldBody =>
-      'Usa un criterio razonable al conocer personas en la vida real. Trata con cuidado las ubicaciones privadas y residenciales.';
+      'Usa un criterio razonable al conocer personas en la vida real. Comparte una sede privada solo con autorización y no uses indebidamente ni redistribuyas sin necesidad su ubicación exacta.';
 
   @override
-  String get guidelineReliabilityTitle => 'Confiabilidad futura';
+  String get guidelineReliabilityTitle => 'Confiabilidad y asistencia';
 
   @override
   String get guidelineReliabilityBody =>
-      'PadelX podría usar más adelante conductas objetivas de participación, como cancelaciones y ausencias, para mejorar el emparejamiento.';
+      'La Confiabilidad es distinta del nivel y de las calificaciones subjetivas. Envía información de asistencia de forma honesta. Se prohíben las confirmaciones deliberadamente falsas o coordinadas para manipular la Confiabilidad de otra persona; un desacuerdo de buena fe no constituye automáticamente una infracción.';
 
   @override
   String get guidelineEnforcementTitle => 'Medidas';
@@ -2520,20 +2530,20 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
       'Para continuar, confirma que tienes al menos 18 años.';
 
   @override
-  String get ageEligibility => 'Elegibilidad para mayores de 18';
+  String get ageEligibility => 'Elegibilidad para personas de 18 años o más';
 
   @override
   String get ageCheckFailed => 'No se pudo verificar la elegibilidad de edad.';
 
   @override
-  String get adultOnly => 'PadelX es para personas mayores de 18 años.';
+  String get adultOnly => 'PadelX es para personas de 18 años o más.';
 
   @override
   String get legalAcknowledgement => 'Aceptación legal';
 
   @override
   String get legalReviewIntro =>
-      'Revisa los Términos de uso y el Aviso de privacidad de la beta cerrada de PadelX.';
+      'Revisa los Términos de uso, el Aviso de privacidad y las Normas de la comunidad de la beta cerrada de PadelX.';
 
   @override
   String get legalLoadFailed => 'No se pudo consultar el estado de aceptación.';
@@ -2755,6 +2765,14 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
 
   @override
   String get supportSafety => 'Soporte y seguridad';
+
+  @override
+  String get attendanceReliabilityConcerns =>
+      'Inquietud de Asistencia o Confiabilidad';
+
+  @override
+  String get attendanceReliabilitySupport =>
+      'Contacta a soporte por un error demostrable o abuso establecido. No se garantizan la revisión, la corrección ni los plazos de respuesta.';
 
   @override
   String get communityGuidelines => 'Normas de la comunidad';
@@ -3400,7 +3418,7 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
 
   @override
   String get legalAgreement =>
-      'Acepto los Términos de uso y reconozco el Aviso de privacidad.';
+      'Acepto los Términos de uso, reconozco el Aviso de privacidad y acepto cumplir las Normas de la comunidad.';
 
   @override
   String get resetEmailHelp =>
@@ -3664,6 +3682,9 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
   String get legalAgreeMiddle => ' y reconozco el ';
 
   @override
+  String get legalAgreeCommunityMiddle => ', y acepto cumplir las ';
+
+  @override
   String get period => '.';
 
   @override
@@ -3780,7 +3801,7 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
 
   @override
   String get legalAgreeContinue =>
-      'Acepta los Términos de uso y reconoce el Aviso de privacidad para continuar.';
+      'Acepta los Términos de uso, reconoce el Aviso de privacidad y acepta cumplir las Normas de la comunidad para continuar.';
 
   @override
   String get enterEmailPeriod => 'Ingresa tu correo.';
@@ -4183,8 +4204,7 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
   String get guidelineAdultsTitle => 'Solo personas adultas';
 
   @override
-  String get guidelineAdultsBody =>
-      'PadelX es para personas mayores de 18 años.';
+  String get guidelineAdultsBody => 'PadelX es para personas de 18 años o más.';
 
   @override
   String get guidelineRespectTitle => 'Respeta a otros jugadores';
@@ -4265,14 +4285,14 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
 
   @override
   String get guidelineRealWorldBody =>
-      'Usa un criterio razonable al conocer personas en la vida real. Trata con cuidado las ubicaciones privadas y residenciales.';
+      'Usa un criterio razonable al conocer personas en la vida real. Comparte una sede privada solo con autorización y no uses indebidamente ni redistribuyas sin necesidad su ubicación exacta.';
 
   @override
-  String get guidelineReliabilityTitle => 'Confiabilidad futura';
+  String get guidelineReliabilityTitle => 'Confiabilidad y asistencia';
 
   @override
   String get guidelineReliabilityBody =>
-      'PadelX podría usar más adelante conductas objetivas de participación, como cancelaciones y ausencias, para mejorar el emparejamiento.';
+      'La Confiabilidad es distinta del nivel y de las calificaciones subjetivas. Envía información de asistencia de forma honesta. Se prohíben las confirmaciones deliberadamente falsas o coordinadas para manipular la Confiabilidad de otra persona; un desacuerdo de buena fe no constituye automáticamente una infracción.';
 
   @override
   String get guidelineEnforcementTitle => 'Medidas';

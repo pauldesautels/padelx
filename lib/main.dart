@@ -1364,6 +1364,21 @@ class _AuthScreenState extends State<AuthScreen> {
                                         ),
                                       ),
                                     ),
+                                    Text(
+                                      context.l10n.legalAgreeCommunityMiddle,
+                                    ),
+                                    InkWell(
+                                      onTap: () => openLegalLink(
+                                        context,
+                                        '/community-guidelines',
+                                      ),
+                                      child: Text(
+                                        context.l10n.communityGuidelines,
+                                        style: TextStyle(
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ),
                                     Text(context.l10n.period),
                                   ],
                                 ),

@@ -218,6 +218,28 @@ void main() {
     expect(launched, Uri.parse('mailto:support.padelx@gmail.com'));
   });
 
+  testWidgets('Help & Safety explains Attendance and Reliability support limits', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HelpSafetyScreen(
+          friendsRepository: _SettingsFriends(),
+          supportLauncher: (_) async => true,
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.text('Attendance or Reliability concern'),
+      300,
+    );
+    expect(find.text('Attendance or Reliability concern'), findsOneWidget);
+    expect(
+      find.textContaining('Review, correction, and response times are not guaranteed'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('invalid support configuration fails closed', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -314,7 +336,7 @@ void main() {
       'Matches',
       'Blocking and reporting',
       'Real-world safety',
-      'Future reliability',
+      'Reliability and attendance',
       'Enforcement',
     ]);
     final policyText = communityGuidelineSections
@@ -335,7 +357,10 @@ void main() {
       'retaliate',
       'malicious or fabricated reports',
       'meeting people in person',
-      'may later use objective participation behavior',
+      'Only share a private venue when authorized',
+      'Reliability is separate from skill and subjective ratings',
+      'Knowingly false or coordinated submissions',
+      'good-faith disagreement',
       'may review reported conduct',
     ]) {
       expect(policyText, contains(expected));

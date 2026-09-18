@@ -234,6 +234,12 @@ class HelpSafetyScreen extends StatelessWidget {
         const SizedBox(height: 10),
         Text(context.l10n.needHelp),
         const SizedBox(height: 8),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.fact_check_outlined),
+          title: Text(context.l10n.attendanceReliabilityConcerns),
+          subtitle: Text(context.l10n.attendanceReliabilitySupport),
+        ),
         if (supportConfiguration.mailtoUri != null)
           ListTile(
             key: const Key('contact-padelx-support'),

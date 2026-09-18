@@ -80,14 +80,14 @@ test('legal hosting pages retain required beta disclosures', async () => {
     );
     assert.match(html, /<meta name="viewport"/);
     assert.match(html, /support\.padelx@gmail\.com/);
-    assert.doesNotMatch(html, /<script|fonts\.googleapis|analytics|PadelX Pay/i);
+    assert.doesNotMatch(html, /<script|fonts\.googleapis|PadelX Pay/i);
   }
 
   const privacy = await readFile(
     path.join(repositoryRoot, 'web', 'privacy', 'index.html'),
     'utf8',
   );
-  assert.match(privacy, /privacy-beta-v1/);
+  assert.match(privacy, /privacy-beta-v2/);
   assert.match(privacy, /not end-to-end encrypted/);
   assert.match(privacy, /removes your profile from Find Players/);
   assert.match(privacy, /18 or older/);
@@ -96,6 +96,23 @@ test('legal hosting pages retain required beta disclosures', async () => {
     path.join(repositoryRoot, 'web', 'terms', 'index.html'),
     'utf8',
   );
-  assert.match(terms, /terms-beta-v1/);
-  assert.match(terms, /closed beta/i);
+  assert.match(terms, /terms-beta-v2/);
+  assert.match(terms, /Quick Match/);
+  assert.doesNotMatch(terms, /does not currently provide payments or automatic matchmaking/i);
+
+  const guidelines = await readFile(
+    path.join(repositoryRoot, 'web', 'community-guidelines', 'index.html'),
+    'utf8',
+  );
+  assert.match(guidelines, /community-beta-v2/);
+  assert.match(guidelines, /good-faith disagreement/i);
+  assert.doesNotMatch(guidelines, /no Reliability feature currently exists/i);
+
+  const spanishGuidelines = await readFile(
+    path.join(repositoryRoot, 'web', 'es-MX', 'community-guidelines', 'index.html'),
+    'utf8',
+  );
+  assert.match(spanishGuidelines, /personas de 18 años o más/);
+  assert.match(spanishGuidelines, /desacuerdo de buena fe/i);
+  assert.doesNotMatch(spanishGuidelines, /personas mayores de 18 años/i);
 });

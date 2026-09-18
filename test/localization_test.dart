@@ -386,9 +386,9 @@ void main() {
     expect(ReportReason.harassmentBullying.value, 'harassment_bullying');
     expect(PreferredSide.left.value, 'left');
     expect(matchLevelStorageValue('3.5'), 'Level 3.5');
-    expect(PadelXLegalConfiguration.beta.termsVersion, 'terms-beta-v1');
-    expect(PadelXLegalConfiguration.beta.privacyVersion, 'privacy-beta-v1');
-    expect(PadelXLegalConfiguration.beta.communityVersion, 'community-beta-v1');
+    expect(PadelXLegalConfiguration.beta.termsVersion, 'terms-beta-v2');
+    expect(PadelXLegalConfiguration.beta.privacyVersion, 'privacy-beta-v2');
+    expect(PadelXLegalConfiguration.beta.communityVersion, 'community-beta-v2');
     expect(firebaseAuthLanguageCode(const Locale('es', 'MX')), 'es');
     expect(firebaseAuthLanguageCode(const Locale('en')), 'en');
     expect(
@@ -486,29 +486,38 @@ void main() {
       systemLocales: const [Locale('en')],
     );
     await controller.load();
-    Uri? opened;
+    final opened = <Uri>[];
     await tester.pumpWidget(
       _localizedApp(
         controller,
         Builder(
           builder: (context) => TextButton(
-            onPressed: () => openLegalLink(
-              context,
-              '/privacy',
-              configuration: const PadelXLegalConfiguration(
-                productName: 'PadelX',
-                operatorName: 'Paul Desautels',
-                contactEmail: 'support.padelx@gmail.com',
-                termsVersion: 'terms-beta-v1',
-                privacyVersion: 'privacy-beta-v1',
-                communityVersion: 'community-beta-v1',
-                baseUrl: 'https://example.test',
-              ),
-              launcher: (uri) async {
-                opened = uri;
-                return true;
-              },
-            ),
+            onPressed: () async {
+              for (final path in [
+                '/terms',
+                '/privacy',
+                '/community-guidelines',
+                '/account-deletion',
+              ]) {
+                await openLegalLink(
+                  context,
+                  path,
+                  configuration: const PadelXLegalConfiguration(
+                    productName: 'PadelX',
+                    operatorName: 'Paul Desautels',
+                    contactEmail: 'support.padelx@gmail.com',
+                    termsVersion: 'terms-beta-v2',
+                    privacyVersion: 'privacy-beta-v2',
+                    communityVersion: 'community-beta-v2',
+                    baseUrl: 'https://example.test',
+                  ),
+                  launcher: (uri) async {
+                    opened.add(uri);
+                    return true;
+                  },
+                );
+              }
+            },
             child: const Text('open'),
           ),
         ),
@@ -516,7 +525,12 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await tester.pump();
-    expect(opened?.path, '/es-MX/privacy');
+    expect(opened.map((uri) => uri.path), [
+      '/es-MX/terms',
+      '/es-MX/privacy',
+      '/es-MX/community-guidelines',
+      '/es-MX/account-deletion',
+    ]);
   });
 
   test(

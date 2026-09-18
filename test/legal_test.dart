@@ -26,9 +26,9 @@ void main() {
         productName: 'PadelX',
         operatorName: 'Paul Desautels',
         contactEmail: 'support.padelx@gmail.com',
-        termsVersion: 'terms-beta-v1',
-        privacyVersion: 'privacy-beta-v1',
-        communityVersion: 'community-beta-v1',
+        termsVersion: 'terms-beta-v2',
+        privacyVersion: 'privacy-beta-v2',
+        communityVersion: 'community-beta-v2',
         baseUrl: 'https://example.test/base/',
       );
       expect(value.uri('/privacy').toString(), 'https://example.test/privacy');
@@ -36,6 +36,141 @@ void main() {
         PadelXLegalConfiguration.beta.contactEmail,
         'support.padelx@gmail.com',
       );
+      expect(PadelXLegalConfiguration.beta.termsVersion, 'terms-beta-v2');
+      expect(PadelXLegalConfiguration.beta.privacyVersion, 'privacy-beta-v2');
+      expect(
+        PadelXLegalConfiguration.beta.communityVersion,
+        'community-beta-v2',
+      );
+      expect(
+        const PadelXLegalConfiguration(
+          productName: 'PadelX',
+          operatorName: 'Paul Desautels',
+          contactEmail: 'support.padelx@gmail.com',
+          termsVersion: 'terms-beta-v2',
+          privacyVersion: 'privacy-beta-v2',
+          communityVersion: 'community-beta-v2',
+          baseUrl: '',
+        ).uri('/terms'),
+        isNull,
+      );
+    },
+  );
+
+  test('legal base URL is environment-bound and fails closed', () {
+    expect(
+      legalBaseUrlForEnvironment(
+        configuredBaseUrl: '',
+        firebaseEnvironment: 'staging',
+        firebaseProjectId: 'padelx-staging',
+      ),
+      stagingLegalBaseUrl,
+    );
+    expect(
+      legalBaseUrlForEnvironment(
+        configuredBaseUrl: 'https://padelx-staging.web.app',
+        firebaseEnvironment: 'staging',
+        firebaseProjectId: 'padelx-staging',
+      ),
+      stagingLegalBaseUrl,
+    );
+    for (final unsafe in [
+      ('', 'production', 'padelx-f168f'),
+      ('https://padelx-staging.web.app', 'production', 'padelx-f168f'),
+      ('https://example.test', 'staging', 'padelx-staging'),
+      ('', 'staging', 'padelx-f168f'),
+    ]) {
+      expect(
+        legalBaseUrlForEnvironment(
+          configuredBaseUrl: unsafe.$1,
+          firebaseEnvironment: unsafe.$2,
+          firebaseProjectId: unsafe.$3,
+        ),
+        isEmpty,
+      );
+    }
+    expect(
+      legalBaseUrlForEnvironment(
+        configuredBaseUrl: 'https://legal.padelx.example',
+        firebaseEnvironment: 'production',
+        firebaseProjectId: 'padelx-f168f',
+      ),
+      'https://legal.padelx.example',
+    );
+  });
+
+  test('all English policy URIs resolve from one configured origin', () {
+    const configuration = PadelXLegalConfiguration(
+      productName: 'PadelX',
+      operatorName: 'Paul Desautels',
+      contactEmail: 'support.padelx@gmail.com',
+      termsVersion: 'terms-beta-v2',
+      privacyVersion: 'privacy-beta-v2',
+      communityVersion: 'community-beta-v2',
+      baseUrl: 'https://example.test',
+    );
+    for (final path in [
+      '/terms',
+      '/privacy',
+      '/community-guidelines',
+      '/account-deletion',
+    ]) {
+      expect(configuration.uri(path), Uri.parse('https://example.test$path'));
+    }
+  });
+
+  testWidgets(
+    'acceptance gate exposes every policy represented by the receipt',
+    (tester) async {
+      final opened = <String>[];
+      const configuration = PadelXLegalConfiguration(
+        productName: 'PadelX',
+        operatorName: 'Paul Desautels',
+        contactEmail: 'support.padelx@gmail.com',
+        termsVersion: 'terms-beta-v2',
+        privacyVersion: 'privacy-beta-v2',
+        communityVersion: 'community-beta-v2',
+        baseUrl: 'https://example.test',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LegalAcceptanceScreen(
+            repository: FakeLegalRepository(),
+            onAccepted: () async {},
+            legalConfiguration: configuration,
+            legalLauncher: (uri) async {
+              opened.add(uri.path);
+              return true;
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('Terms of Use'), findsOneWidget);
+      expect(find.text('Privacy Policy'), findsOneWidget);
+      expect(find.text('Community Guidelines'), findsOneWidget);
+      expect(
+        find.textContaining('agree to follow the Community Guidelines'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const Key('legal-acceptance-continue')),
+            )
+            .onPressed,
+        isNull,
+      );
+
+      for (final label in [
+        'Terms of Use',
+        'Privacy Policy',
+        'Community Guidelines',
+      ]) {
+        await tester.tap(find.widgetWithText(TextButton, label));
+        await tester.pump();
+      }
+      expect(opened, ['/terms', '/privacy', '/community-guidelines']);
     },
   );
 

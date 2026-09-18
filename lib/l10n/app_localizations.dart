@@ -372,7 +372,7 @@ abstract class AppLocalizations {
   /// No description provided for @legalReviewIntro.
   ///
   /// In en, this message translates to:
-  /// **'Review the Terms of Use and Privacy Policy for the PadelX closed beta.'**
+  /// **'Review the Terms of Use, Privacy Policy, and Community Guidelines for the PadelX closed beta.'**
   String get legalReviewIntro;
 
   /// No description provided for @legalLoadFailed.
@@ -806,6 +806,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Support & Safety'**
   String get supportSafety;
+
+  /// No description provided for @attendanceReliabilityConcerns.
+  ///
+  /// In en, this message translates to:
+  /// **'Attendance or Reliability concern'**
+  String get attendanceReliabilityConcerns;
+
+  /// No description provided for @attendanceReliabilitySupport.
+  ///
+  /// In en, this message translates to:
+  /// **'Contact support about a demonstrable error or established abuse. Review, correction, and response times are not guaranteed.'**
+  String get attendanceReliabilitySupport;
 
   /// No description provided for @communityGuidelines.
   ///
@@ -1974,7 +1986,7 @@ abstract class AppLocalizations {
   /// No description provided for @legalAgreement.
   ///
   /// In en, this message translates to:
-  /// **'I agree to the Terms of Use and acknowledge the Privacy Policy.'**
+  /// **'I agree to the Terms of Use, acknowledge the Privacy Policy, and agree to follow the Community Guidelines.'**
   String get legalAgreement;
 
   /// No description provided for @resetEmailHelp.
@@ -2337,6 +2349,12 @@ abstract class AppLocalizations {
   /// **' and acknowledge the '**
   String get legalAgreeMiddle;
 
+  /// No description provided for @legalAgreeCommunityMiddle.
+  ///
+  /// In en, this message translates to:
+  /// **', and agree to follow the '**
+  String get legalAgreeCommunityMiddle;
+
   /// No description provided for @period.
   ///
   /// In en, this message translates to:
@@ -2526,7 +2544,7 @@ abstract class AppLocalizations {
   /// No description provided for @legalAgreeContinue.
   ///
   /// In en, this message translates to:
-  /// **'Agree to the Terms of Use and acknowledge the Privacy Policy to continue.'**
+  /// **'Agree to the Terms of Use, acknowledge the Privacy Policy, and agree to follow the Community Guidelines to continue.'**
   String get legalAgreeContinue;
 
   /// No description provided for @enterEmailPeriod.
@@ -3396,19 +3414,19 @@ abstract class AppLocalizations {
   /// No description provided for @guidelineRealWorldBody.
   ///
   /// In en, this message translates to:
-  /// **'Exercise reasonable judgment when meeting people in person. Treat private and residential locations carefully.'**
+  /// **'Exercise reasonable judgment when meeting people in person. Only share a private venue when authorized, and do not misuse or unnecessarily redistribute its exact location.'**
   String get guidelineRealWorldBody;
 
   /// No description provided for @guidelineReliabilityTitle.
   ///
   /// In en, this message translates to:
-  /// **'Future reliability'**
+  /// **'Reliability and attendance'**
   String get guidelineReliabilityTitle;
 
   /// No description provided for @guidelineReliabilityBody.
   ///
   /// In en, this message translates to:
-  /// **'PadelX may later use objective participation behavior, such as cancellations and no-shows, to help improve matchmaking.'**
+  /// **'Reliability is separate from skill and subjective ratings. Submit attendance information honestly. Knowingly false or coordinated submissions intended to manipulate another player’s Reliability are prohibited; good-faith disagreement is not automatically misconduct.'**
   String get guidelineReliabilityBody;
 
   /// No description provided for @guidelineEnforcementTitle.

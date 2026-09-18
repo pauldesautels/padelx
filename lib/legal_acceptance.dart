@@ -123,12 +123,16 @@ class LegalAcceptanceScreen extends StatefulWidget {
   final Future<void> Function() onAccepted;
   final Future<void> Function()? onSignOut;
   final bool loadFailed;
+  final PadelXLegalConfiguration? legalConfiguration;
+  final LegalUriLauncher legalLauncher;
   const LegalAcceptanceScreen({
     super.key,
     required this.repository,
     required this.onAccepted,
     this.onSignOut,
     this.loadFailed = false,
+    this.legalConfiguration,
+    this.legalLauncher = launchLegalUri,
   });
   @override
   State<LegalAcceptanceScreen> createState() => _LegalAcceptanceScreenState();
@@ -190,12 +194,31 @@ class _LegalAcceptanceScreenState extends State<LegalAcceptanceScreen> {
           style: TextStyle(color: Colors.white70),
         ),
         TextButton(
-          onPressed: () => openLegalLink(context, '/terms'),
+          onPressed: () => openLegalLink(
+            context,
+            '/terms',
+            configuration: widget.legalConfiguration,
+            launcher: widget.legalLauncher,
+          ),
           child: Text(context.l10n.termsOfUse),
         ),
         TextButton(
-          onPressed: () => openLegalLink(context, '/privacy'),
+          onPressed: () => openLegalLink(
+            context,
+            '/privacy',
+            configuration: widget.legalConfiguration,
+            launcher: widget.legalLauncher,
+          ),
           child: Text(context.l10n.privacyPolicy),
+        ),
+        TextButton(
+          onPressed: () => openLegalLink(
+            context,
+            '/community-guidelines',
+            configuration: widget.legalConfiguration,
+            launcher: widget.legalLauncher,
+          ),
+          child: Text(context.l10n.communityGuidelines),
         ),
         CheckboxListTile(
           key: const Key('legal-acceptance-checkbox'),

@@ -15,6 +15,11 @@ Copy `config/device-test.ios.example.json` to
 `config/device-test.ios.local.json` and fill it only with values shown for that
 new staging Apple app. Do not use values from `padelx-f168f`.
 
+`LEGAL_BASE_URL` should remain `https://padelx-staging.web.app`. The client also
+derives that URL only when both the selected environment and project are the
+allowlisted staging values. Production has no implicit legal-site fallback and
+must be configured explicitly.
+
 `GOOGLE_PLACES_API_KEY` must be a dedicated staging-native iOS key, not the
 web-staging key. In Google Cloud, restrict it to **iOS apps**, allow only bundle
 ID `com.padelx.app.devicetest`, and restrict its API access to **Places API

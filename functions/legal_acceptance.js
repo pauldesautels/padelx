@@ -4,9 +4,9 @@ import { validRequestId } from './messaging_policy.js';
 
 export const LEGAL_ACCEPTANCE = 'accountLegalAcceptance';
 export const LEGAL_SCHEMA_VERSION = 1;
-export const TERMS_VERSION = 'terms-beta-v1';
-export const PRIVACY_VERSION = 'privacy-beta-v1';
-export const COMMUNITY_VERSION = 'community-beta-v1';
+export const TERMS_VERSION = 'terms-beta-v2';
+export const PRIVACY_VERSION = 'privacy-beta-v2';
+export const COMMUNITY_VERSION = 'community-beta-v2';
 
 const accepted = (data, uid) => data?.uid === uid
   && data.schemaVersion === LEGAL_SCHEMA_VERSION

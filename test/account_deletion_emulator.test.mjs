@@ -37,9 +37,9 @@ test('concurrent admission atomically removes profiles and preserves one cutoff 
   await db.doc(`accountEligibility/${uid}`).set({ uid, age18Confirmed: true });
   await db.doc(`accountLegalAcceptance/${uid}`).set({
     uid,
-    termsVersion: 'terms-beta-v1',
-    privacyVersion: 'privacy-beta-v1',
-    communityVersion: 'community-beta-v1',
+    termsVersion: 'terms-beta-v2',
+    privacyVersion: 'privacy-beta-v2',
+    communityVersion: 'community-beta-v2',
   });
   await db.doc(`accountEnforcement/${uid}`).set({
     schemaVersion: 1, uid, status: 'banned', reasonCode: 'other_policy_violation',
