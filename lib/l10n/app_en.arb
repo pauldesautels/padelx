@@ -918,4 +918,12 @@
   ,"@playersConfirmedCount": {"placeholders": {"confirmed": {"type": "String"}}}
   ,"versus": "VS"
   ,"quickMatchPushWarning": "Turn on notifications so you do not miss time-sensitive match offers. You can still use Quick Match."
+  ,"confirmAttendance": "Confirm attendance"
+  ,"didMatchHappen": "Did this match happen?"
+  ,"yesMatchHappened": "Yes"
+  ,"matchDidNotHappen": "No, the match did not happen"
+  ,"whoPlayed": "Who played?"
+  ,"attendanceSubmissionFinal": "Your attendance confirmation is final and kept private."
+  ,"attendanceSubmitted": "Attendance submitted"
+  ,"attendanceSubmitFailed": "Attendance could not be submitted. Try again."
 }

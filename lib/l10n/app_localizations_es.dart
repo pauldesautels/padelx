@@ -2351,6 +2351,32 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get quickMatchPushWarning =>
       'Activa las notificaciones para no perder ofertas de partido con tiempo limitado. Puedes seguir usando Quick Match.';
+
+  @override
+  String get confirmAttendance => 'Confirmar asistencia';
+
+  @override
+  String get didMatchHappen => '¿Se jugó este partido?';
+
+  @override
+  String get yesMatchHappened => 'Sí';
+
+  @override
+  String get matchDidNotHappen => 'No, el partido no se jugó';
+
+  @override
+  String get whoPlayed => '¿Quién jugó?';
+
+  @override
+  String get attendanceSubmissionFinal =>
+      'Tu confirmación de asistencia es definitiva y se mantiene privada.';
+
+  @override
+  String get attendanceSubmitted => 'Asistencia enviada';
+
+  @override
+  String get attendanceSubmitFailed =>
+      'No se pudo enviar la asistencia. Inténtalo de nuevo.';
 }
 
 /// The translations for Spanish Castilian, as used in Mexico (`es_MX`).
@@ -4700,4 +4726,30 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
   @override
   String get quickMatchPushWarning =>
       'Activa las notificaciones para no perder ofertas de partido con tiempo limitado. Puedes seguir usando Quick Match.';
+
+  @override
+  String get confirmAttendance => 'Confirmar asistencia';
+
+  @override
+  String get didMatchHappen => '¿Se jugó este partido?';
+
+  @override
+  String get yesMatchHappened => 'Sí';
+
+  @override
+  String get matchDidNotHappen => 'No, el partido no se jugó';
+
+  @override
+  String get whoPlayed => '¿Quién jugó?';
+
+  @override
+  String get attendanceSubmissionFinal =>
+      'Tu confirmación de asistencia es definitiva y se mantiene privada.';
+
+  @override
+  String get attendanceSubmitted => 'Asistencia enviada';
+
+  @override
+  String get attendanceSubmitFailed =>
+      'No se pudo enviar la asistencia. Inténtalo de nuevo.';
 }

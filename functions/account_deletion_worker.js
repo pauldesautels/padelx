@@ -525,6 +525,10 @@ export async function runSocialDeletionPhase(db, uid, lease, { pageSize = 50 } =
     ['matchProposals', () => db.collection('matchProposals').where('memberUids', 'array-contains', uid)],
     ['reliabilityEvents', () => db.collection('reliabilityEvents').where('uid', '==', uid)],
     ['reliabilityProfile', () => db.collection('reliabilityProfiles').where('uid', '==', uid)],
+    ['attendanceObserved', () => db.collection('attendanceSubmissions').where('observerUid', '==', uid)],
+    ['attendanceEvidenceObserved', () => db.collection('attendanceEvidence').where('observerUid', '==', uid)],
+    ['attendanceEvidenceSubject', () => db.collection('attendanceEvidence').where('subjectUid', '==', uid)],
+    ['attendanceResolutions', () => db.collection('attendanceResolutions').where('expectedRoster', 'array-contains', uid)],
   ];
   const state = job.socialCheckpoint ?? Object.fromEntries(streams.map(([name]) => [name, false]));
   const current = streams.find(([name]) => state[name] !== true);
@@ -1034,6 +1038,10 @@ export async function runVerifyDeletionPhase(db, uid, lease) {
         db.collection('matchProposals').where('memberUids', 'array-contains', uid),
         db.collection('reliabilityEvents').where('uid', '==', uid),
         db.collection('reliabilityProfiles').where('uid', '==', uid),
+        db.collection('attendanceSubmissions').where('observerUid', '==', uid),
+        db.collection('attendanceEvidence').where('observerUid', '==', uid),
+        db.collection('attendanceEvidence').where('subjectUid', '==', uid),
+        db.collection('attendanceResolutions').where('expectedRoster', 'array-contains', uid),
       ];
       for (const query of probes) await absent(tx, query, 'verify-social-reference-remains');
       for (const path of [`users/${uid}/conversationViews`, `users/${uid}/friendViews`, `users/${uid}/playedWith`,

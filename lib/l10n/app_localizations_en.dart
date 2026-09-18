@@ -2322,4 +2322,30 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get quickMatchPushWarning =>
       'Turn on notifications so you do not miss time-sensitive match offers. You can still use Quick Match.';
+
+  @override
+  String get confirmAttendance => 'Confirm attendance';
+
+  @override
+  String get didMatchHappen => 'Did this match happen?';
+
+  @override
+  String get yesMatchHappened => 'Yes';
+
+  @override
+  String get matchDidNotHappen => 'No, the match did not happen';
+
+  @override
+  String get whoPlayed => 'Who played?';
+
+  @override
+  String get attendanceSubmissionFinal =>
+      'Your attendance confirmation is final and kept private.';
+
+  @override
+  String get attendanceSubmitted => 'Attendance submitted';
+
+  @override
+  String get attendanceSubmitFailed =>
+      'Attendance could not be submitted. Try again.';
 }

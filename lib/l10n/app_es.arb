@@ -918,4 +918,12 @@
   ,"@playersConfirmedCount": {"placeholders": {"confirmed": {"type": "String"}}}
   ,"versus": "VS"
   ,"quickMatchPushWarning": "Activa las notificaciones para no perder ofertas de partido con tiempo limitado. Puedes seguir usando Quick Match."
+  ,"confirmAttendance": "Confirmar asistencia"
+  ,"didMatchHappen": "¿Se jugó este partido?"
+  ,"yesMatchHappened": "Sí"
+  ,"matchDidNotHappen": "No, el partido no se jugó"
+  ,"whoPlayed": "¿Quién jugó?"
+  ,"attendanceSubmissionFinal": "Tu confirmación de asistencia es definitiva y se mantiene privada."
+  ,"attendanceSubmitted": "Asistencia enviada"
+  ,"attendanceSubmitFailed": "No se pudo enviar la asistencia. Inténtalo de nuevo."
 }

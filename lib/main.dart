@@ -57,6 +57,8 @@ import 'reporting.dart';
 import 'account_access.dart';
 import 'matchmaking_repository.dart';
 import 'matchmaking_screen.dart';
+import 'attendance_repository.dart';
+import 'attendance.dart';
 import 'auth_language.dart';
 import 'l10n/app_localizations.dart';
 import 'locale_controller.dart';
@@ -8705,6 +8707,7 @@ class MatchDetailsScreen extends StatefulWidget {
   final Future<String?> Function(String matchId)? privateVenueLoader;
   final MatchmakingRepository? matchmakingRepository;
   final MatchActionsRepository? matchActionsRepository;
+  final AttendanceRepository? attendanceRepository;
 
   const MatchDetailsScreen({
     super.key,
@@ -8715,6 +8718,7 @@ class MatchDetailsScreen extends StatefulWidget {
     this.privateVenueLoader,
     this.matchmakingRepository,
     this.matchActionsRepository,
+    this.attendanceRepository,
   });
 
   @override
@@ -8790,11 +8794,59 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
   bool _isAutoFillBusy = false;
   final Set<String> _processingRequestIds = {};
   String? _privateVenueAddress;
+  AttendanceState? _attendanceState;
+  bool _attendanceBusy = false;
 
   @override
   void initState() {
     super.initState();
     _loadPrivateVenue();
+    _loadAttendance();
+  }
+
+  Future<void> _loadAttendance() async {
+    final scheduled = widget.match.scheduledAt;
+    if (scheduled == null || scheduled.isAfter(DateTime.now())) return;
+    try {
+      final state = await (widget.attendanceRepository ?? FirebaseAttendanceRepository())
+          .state(widget.match.id);
+      if (mounted) setState(() => _attendanceState = state);
+    } catch (_) {
+      // Attendance is supplementary; historical match details remain usable.
+    }
+  }
+
+  Future<void> _confirmAttendance(Match match) async {
+    final roster = <String, String>{
+      if (match.creatorUid.isNotEmpty) match.creatorUid:
+          (match.creatorDisplayName.isEmpty ? context.l10n.organizer : match.creatorDisplayName),
+      for (final player in match.players)
+        if (player.uid.isNotEmpty) player.uid:
+            (player.displayName.isEmpty ? context.l10n.player : player.displayName),
+    };
+    final selection = await showDialog<AttendanceSelection>(context: context,
+      builder: (_) => AttendanceConfirmationDialog(participants: roster.entries
+        .map((entry) => AttendanceParticipant(entry.key, entry.value)).toList()));
+    if (selection == null || _attendanceBusy) {
+      return;
+    }
+    setState(() => _attendanceBusy = true);
+    try {
+      await (widget.attendanceRepository ?? FirebaseAttendanceRepository()).submit(
+        matchId: match.id, matchHappened: selection.matchHappened,
+        attendedUids: selection.attendedUids,
+        requestId: 'attendance_${DateTime.now().microsecondsSinceEpoch}');
+      if (mounted) {
+        setState(() => _attendanceState = const AttendanceState(
+          eligible: true, submitted: true, resolved: false));
+      }
+    } catch (_) {
+      if (mounted) {
+        _showMessage(context.l10n.attendanceSubmitFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _attendanceBusy = false);
+    }
   }
 
   Future<void> _loadPrivateVenue() async {
@@ -9452,6 +9504,11 @@ class _MatchDetailsScreenState extends State<MatchDetailsScreen> {
                       icon: const Icon(Icons.forum_outlined),
                       label: Text(context.l10n.matchChat),
                     ),
+                  ],
+                  if (completed && _attendanceState?.eligible == true) ...[
+                    const SizedBox(height: 16),
+                    AttendanceAction(submitted: _attendanceState!.submitted,
+                      busy: _attendanceBusy, onPressed: () => _confirmAttendance(match)),
                   ],
                   const SizedBox(height: 28),
                   Text(

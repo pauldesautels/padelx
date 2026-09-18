@@ -878,6 +878,7 @@ export async function respondMatchProposalOperation(firestore, request) {
           scheduledAt: matchData.scheduledAt,
           occurredAt: now,
           source: 'matchmaking',
+          policyVersion: 'objective-reliability-v2-attendance',
         });
       }
     }
@@ -1056,6 +1057,7 @@ export async function resolveMatchmakingVenueOperation(firestore, request, resol
       transaction.create(firestore.doc(`${RELIABILITY_EVENTS}/${eventId}`), {
         schemaVersion: 1, eventId, uid: memberUid, type: 'confirmed_match_committed',
         matchId, scheduledAt: current.scheduledAt, occurredAt: now, source: 'matchmaking',
+        policyVersion: 'objective-reliability-v2-attendance',
       });
     }
     return matchId;

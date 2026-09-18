@@ -33,6 +33,8 @@ import { cancelMatchmakingRequestOperation, createMatchmakingRequestOperation,
   recoverExpiredMatchmaking, leaveMatchOperation } from './matchmaking.js';
 import { resolveMatchmakingVenueOperation } from './matchmaking.js';
 import { handleReliabilityEventWritten } from './reliability.js';
+import { getAttendanceStateOperation, submitAttendanceEvidenceOperation,
+  recoverAttendanceResolutions } from './attendance.js';
 import { resolveTrustedPlace } from './places_verification.js';
 import { deliverNotificationPushOperation } from './push_delivery.js';
 
@@ -152,6 +154,8 @@ export const resolveMatchmakingVenue = onCall({
     (placeId) => resolveTrustedPlace(placeId, googlePlacesServerApiKey.value()));
 });
 export const leaveMatch = socialCallable(leaveMatchOperation);
+export const getAttendanceState = socialCallable(getAttendanceStateOperation);
+export const submitAttendanceEvidence = socialCallable(submitAttendanceEvidenceOperation);
 
 export const recordMatchCommitmentEvents = onDocumentWritten({
   document: 'matches/{matchId}', retry: true, maxInstances: 4,
@@ -188,6 +192,13 @@ export const recoverMatchmaking = onSchedule({
 }, async () => {
   const { firestore } = backendFirestore();
   await recoverExpiredMatchmaking(firestore);
+});
+
+export const recoverAttendance = onSchedule({
+  schedule: 'every 30 minutes', timeoutSeconds: 120, maxInstances: 1,
+}, async () => {
+  const { firestore } = backendFirestore();
+  await recoverAttendanceResolutions(firestore);
 });
 
 export const reconcilePlayAgainInvitations = onDocumentWritten({

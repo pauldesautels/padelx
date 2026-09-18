@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "attendanceResolutionJobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "closesAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "reliabilityEvents",
       "queryScope": "COLLECTION",
       "fields": [

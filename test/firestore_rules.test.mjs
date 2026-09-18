@@ -1073,6 +1073,13 @@ describe('matchmaking privacy boundary', () => {
     await assertFails(getDoc(doc(auth('alice'), 'attendanceEvidence/evidence-one')));
     await assertFails(setDoc(doc(auth('alice'), 'attendanceEvidence/evidence-one'),
       { attended: false }));
+    for (const path of ['attendanceSubmissions/submission-one',
+      'attendanceResolutions/match-one', 'attendanceResolutionJobs/match-one']) {
+      await seed(path, { matchId: 'match-one', observerUid: 'alice' });
+      await assertFails(getDoc(doc(auth('alice'), path)));
+      await assertFails(getDoc(doc(auth('bob'), path)));
+      await assertFails(setDoc(doc(auth('alice'), path), { unsafe: true }));
+    }
   });
 
   test('verified users can read only their own server-authored projections', async () => {

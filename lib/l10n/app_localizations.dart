@@ -4148,6 +4148,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Turn on notifications so you do not miss time-sensitive match offers. You can still use Quick Match.'**
   String get quickMatchPushWarning;
+
+  /// No description provided for @confirmAttendance.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm attendance'**
+  String get confirmAttendance;
+
+  /// No description provided for @didMatchHappen.
+  ///
+  /// In en, this message translates to:
+  /// **'Did this match happen?'**
+  String get didMatchHappen;
+
+  /// No description provided for @yesMatchHappened.
+  ///
+  /// In en, this message translates to:
+  /// **'Yes'**
+  String get yesMatchHappened;
+
+  /// No description provided for @matchDidNotHappen.
+  ///
+  /// In en, this message translates to:
+  /// **'No, the match did not happen'**
+  String get matchDidNotHappen;
+
+  /// No description provided for @whoPlayed.
+  ///
+  /// In en, this message translates to:
+  /// **'Who played?'**
+  String get whoPlayed;
+
+  /// No description provided for @attendanceSubmissionFinal.
+  ///
+  /// In en, this message translates to:
+  /// **'Your attendance confirmation is final and kept private.'**
+  String get attendanceSubmissionFinal;
+
+  /// No description provided for @attendanceSubmitted.
+  ///
+  /// In en, this message translates to:
+  /// **'Attendance submitted'**
+  String get attendanceSubmitted;
+
+  /// No description provided for @attendanceSubmitFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Attendance could not be submitted. Try again.'**
+  String get attendanceSubmitFailed;
 }
 
 class _AppLocalizationsDelegate

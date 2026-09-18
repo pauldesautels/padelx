@@ -911,6 +911,15 @@ service cloud.firestore {
     match /attendanceEvidence/{evidenceId} {
       allow read, write: if false;
     }
+    match /attendanceSubmissions/{submissionId} {
+      allow read, write: if false;
+    }
+    match /attendanceResolutions/{matchId} {
+      allow read, write: if false;
+    }
+    match /attendanceResolutionJobs/{matchId} {
+      allow read, write: if false;
+    }
     match /matchPrivateVenues/{matchId} {
       allow read: if verifiedUser()
         && request.auth.uid in get(/databases/$(database)/documents/matches/$(matchId)).data.participantUids;

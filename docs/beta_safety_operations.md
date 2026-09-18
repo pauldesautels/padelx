@@ -118,3 +118,6 @@ Reports continue to survive account deletion under the existing behavior.
 TTL cleanup. Runtime checks remain authoritative. Do not enable TTL until the
 permanent duplicate protection for message reports is represented outside the
 expiring rate-limit record.
+# Attendance disputes
+
+Attendance evidence is private reputation data, separate from safety reports. Beta operators may inspect a disputed resolution only through privileged server access and must not disclose observer identities or raw claims to participants. Record the operational reason and authoritative time for any future correction; never silently rewrite evidence. A correction must rebuild the affected Reliability projection deterministically. There is intentionally no public or generic correction endpoint yet. Retention duration and appeal procedure require legal/operations approval; Firestore TTL remains disabled.

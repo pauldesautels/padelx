@@ -6,6 +6,7 @@ import {
   calculateReliability,
   rankByReliability,
   reliabilityPriority,
+  RELIABILITY_NO_SHOW_PENALTY,
 } from '../functions/reliability.js';
 
 const committed = (matchId) => ({
@@ -80,4 +81,43 @@ test('soft ranking orders compatible candidates without excluding new players', 
     { id: 'higher', status: 'established', percent: 95 },
   ]);
   assert.deepEqual(ranked.map((candidate) => candidate.id), ['higher', 'lower', 'new']);
+});
+
+test('V2 attendance resolves sample and no-show exceeds very-late cancellation', () => {
+  const now = new Date('2030-01-01T00:00:00Z');
+  const commitments = Array.from({ length: 5 }, (_, index) => ({
+    ...committed(`v2-${index}`), policyVersion: RELIABILITY_POLICY_VERSION,
+  }));
+  const attended = commitments.map((event) => ({ type: 'attendance_confirmed', matchId: event.matchId }));
+  const good = calculateReliability([...commitments, ...attended], now);
+  const noShow = calculateReliability([...commitments, ...attended.filter((_, index) => index > 0),
+    { type: 'no_show_confirmed', matchId: 'v2-0' }], now);
+  const late = calculateReliability([...commitments, ...attended,
+    cancelled('v2-0', 'under_2_hours')], now);
+  assert.equal(good.percent, 100);
+  assert.ok(RELIABILITY_NO_SHOW_PENALTY > 35);
+  assert.ok(noShow.percent < late.percent);
+});
+
+test('disputed evidence does not resolve or penalize a V2 commitment', () => {
+  const now = new Date('2030-01-01T00:00:00Z');
+  const commitments = Array.from({ length: 5 }, (_, index) => ({
+    ...committed(`v2-${index}`), policyVersion: RELIABILITY_POLICY_VERSION,
+  }));
+  const events = commitments.slice(1).map((event) => ({ type: 'attendance_confirmed', matchId: event.matchId }));
+  const result = calculateReliability([...commitments, ...events,
+    { type: 'attendance_disputed', matchId: 'v2-0' }], now);
+  assert.equal(result.status, 'new_player');
+  assert.equal(result.sampleSize, 4);
+});
+
+test('cancellation takes precedence and cannot double-penalize with no-show', () => {
+  const now = new Date('2030-01-01T00:00:00Z');
+  const commitments = Array.from({ length: 5 }, (_, index) => committed(`match-${index}`));
+  const cancellationOnly = calculateReliability([...commitments,
+    cancelled('match-0', 'under_2_hours')], now);
+  const duplicateOutcome = calculateReliability([...commitments,
+    cancelled('match-0', 'under_2_hours'), { type: 'no_show_confirmed', matchId: 'match-0' }], now);
+  assert.equal(duplicateOutcome.percent, cancellationOnly.percent);
+  assert.equal(duplicateOutcome.sampleSize, cancellationOnly.sampleSize);
 });

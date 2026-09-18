@@ -60,6 +60,13 @@ test('schema-v2 social, messaging, storage, and verification remove identity', a
   await db.doc('pushDevices/device-survivor').set({ uid: other, token: 'token-c' });
   await db.doc('pushDeliveryReceipts/receipt-v2').set({ recipientUid: uid, status: 'complete' });
   await db.doc(`users/${uid}/settings/notifications`).set({ pushEnabled: true });
+  await db.doc('attendanceSubmissions/submission-v2').set({ matchId: 'attendance-v2', observerUid: uid });
+  await db.doc('attendanceEvidence/evidence-observed-v2').set({ matchId: 'attendance-v2',
+    observerUid: uid, subjectUid: other });
+  await db.doc('attendanceEvidence/evidence-subject-v2').set({ matchId: 'attendance-v2',
+    observerUid: other, subjectUid: uid });
+  await db.doc('attendanceResolutions/attendance-v2').set({ matchId: 'attendance-v2',
+    expectedRoster: [uid, other], subjectStates: { [uid]: 'attended', [other]: 'attended' } });
   assert.equal(await acquireDeletionLease(db, uid, lease), true);
   for (let i = 0; i < 20; i++) { const result = await runSocialDeletionPhase(db, uid, lease); if (result.complete) break; }
   assert.equal((await db.doc(`accountDeletionJobs/${uid}`).get()).data().phase, 'messaging');
@@ -67,6 +74,10 @@ test('schema-v2 social, messaging, storage, and verification remove identity', a
   assert.equal((await db.doc('pushDevices/device-survivor').get()).exists, true);
   assert.equal((await db.doc('pushDeliveryReceipts/receipt-v2').get()).exists, false);
   assert.equal((await db.doc(`users/${uid}/settings/notifications`).get()).exists, false);
+  assert.equal((await db.doc('attendanceSubmissions/submission-v2').get()).exists, false);
+  assert.equal((await db.doc('attendanceEvidence/evidence-observed-v2').get()).exists, false);
+  assert.equal((await db.doc('attendanceEvidence/evidence-subject-v2').get()).exists, false);
+  assert.equal((await db.doc('attendanceResolutions/attendance-v2').get()).exists, false);
 
   await db.doc('conversations/direct_v2').set({ type: 'direct', memberUids: [uid, other],
     lastSenderUid: uid, lastMessagePreview: 'private text' });
