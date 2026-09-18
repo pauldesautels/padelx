@@ -256,6 +256,210 @@ TTL remains disabled. Do not enable it until permanent message-report
 deduplication is separated from cleanup-oriented rate-limit state and legal/
 operations approve each collection’s policy.
 
+## Operational readiness matrix
+
+| Capability | State | Operator path |
+| --- | --- | --- |
+| Functions and scheduler logs | READY | Firebase Functions logs, grouped by Function, safe error category, build, and environment. |
+| Crash reporting | PARTIAL | Repository integration is ready; release enablement, symbols, and Console triage wait for final store configuration. |
+| Matchmaking recovery | READY | `recoverMatchmaking` is scheduled and bounded; use the read-only health summary before relying on its idempotent recovery path. |
+| Attendance recovery | READY | `recoverAttendance` checks at most 25 due jobs per run; completed jobs leave the pending query. |
+| Account-deletion recovery | READY | `recoverAccountDeletionJobs`, durable checkpoints, barriers, and `inspect_account_deletion.mjs` support bounded diagnosis and retry. |
+| Reliability projection | READY | Deterministic 200-event rebuild trigger, policy-versioned and deletion-aware. No client rebuild endpoint exists. |
+| Push delivery | PARTIAL | Receipts, invalid-token cleanup, suppression, and aggregate counts exist; APNs/Android external configuration and alerts remain final-launch work. |
+| Report review and enforcement | READY | The safety-admin CLI provides explicit roles, redaction by default, audited review, and separately justified enforcement. |
+| Support and incident procedures | READY | This runbook and `beta_safety_operations.md` define daily ownership and escalation. |
+| Managed backup/PITR and alert policies | EXTERNAL/MANUAL | Human approval, billing review, least-privilege setup, and an isolated restore drill are required before launch. |
+| Large admin dashboard or arbitrary repair CLI | NOT REQUIRED | Prefer bounded inspection and existing idempotent recovery; canonical-document editing is exceptional. |
+
+## Read-only operational health command
+
+The repository provides one aggregate-only staging command. It uses Application
+Default Credentials, requires the project twice, rejects the production project,
+limits every query to 100 documents, and prints no document IDs, UIDs, emails,
+tokens, locations, messages, report evidence, attendance claims, or Reliability
+events.
+
+```sh
+node tool/operations/index.mjs summary \
+  --project=padelx-staging \
+  --confirm-project=padelx-staging
+```
+
+Replace `summary` with `matchmaking`, `attendance`, `reliability`, `deletion`,
+`push`, or `reports` to narrow the check. `truncated: true` means the bounded
+window reached 100; investigate through a narrower privileged query rather than
+removing the limit. `status: unavailable` reports only a sanitized category and
+requires checking credentials, indexes, provider health, and Functions logs.
+The command has no mutation mode.
+
+## Daily closed-beta operations
+
+The **Primary beta operator** reviews the support inbox, report queue, aggregate
+health summary, failed Functions, and enabled release crash reporting each beta
+day. The **Backup beta operator** must have tested access and takes over during
+absence. Handoff records only aggregate state, sanitized incident references,
+actions, owner, and next check time—never personal evidence.
+
+Routine recovery is always: detect, inspect sanitized authoritative state, use
+the existing idempotent product or recovery path, verify, then escalate. Never
+repair canonical Firestore documents manually during routine incidents. Direct
+repair is a last resort requiring explicit engineering authorization, a written
+impact assessment, a backup/restore plan, and a post-action audit.
+
+## Core health and recovery procedures
+
+### Quick Match and AutoFill
+
+Flag active requests past `expiresAt`, confirming proposals past their deadline,
+long-lived `venue_needed` proposals, promoted proposals without a canonical
+match, owner locks inconsistent with their request, and active AutoFill without
+progress. Start with the bounded health command and scheduler logs. Refresh the
+client projection, retry the original idempotent callable when appropriate, or
+allow `recoverMatchmaking` to expire/release state. Never create proposals,
+memberships, locks, or matches manually. A canonical mismatch, stranded lock
+that recovery cannot release, or repeated scheduler failure is SEV-2; destructive
+or cross-user corruption is SEV-1.
+
+### Attendance and Reliability
+
+Flag pending attendance jobs whose `closesAt` has passed, a final resolution
+without the expected deterministic outcomes, malformed summarized Reliability,
+or a projection on a deleted account. `recoverAttendance` is bounded,
+retry-safe, and idempotent and logs no evidence. Reliability rebuild reads the
+most recent 200 events, is deterministic, policy-versioned, and deletion-aware.
+Do not disclose raw claims/history or expose a client rebuild endpoint. Missing
+outcomes after retry or a policy-version mismatch requires engineering review.
+
+Attendance disputes are reputation questions, not safety reports. Inspect raw
+evidence only when necessary with privileged access; do not disclose observers
+or forward accusations. Preserve evidence and an audit trail. There is no
+generic correction endpoint: justified corrections require engineering
+escalation to the future narrow, privileged correction seam.
+
+### Account deletion
+
+The aggregate command identifies pending, retrying, and blocked jobs. For a
+specific support case, use the existing staging inspection tool and review the
+barrier, phase, checkpoint, lease, safe error code, Auth state, storage,
+matchmaking, attendance, push, and verification progress. The scheduler resumes
+idempotent phases. Never remove a barrier or recreate deleted profile data. Tell
+the user deletion is processing while a retryable job advances; escalate a
+blocked/ambiguous job or repeated unchanged retry. Terminal completion requires
+the completed job/receipt and deleted barrier state.
+
+### Push delivery
+
+Compare the notification record with its receipt. A completed receipt with zero
+sends can truthfully mean opt-out, no enabled device, deleted/enforced account,
+or suppression; do not infer which reason publicly. Invalid provider tokens are
+deleted automatically. Transient provider exceptions remove the processing
+claim so the event trigger can retry; deterministic receipts and provider
+collapse IDs bound duplicates. A processing receipt older than 15 minutes or
+repeated provider failures requires logs/provider-status review. Never print a
+token or add arbitrary-send tooling.
+
+## Critical Function classification
+
+- **P0 alert:** widespread canonical promotion corruption; unauthorized private
+  venue exposure; account deletion destroying unrelated data; Reliability or
+  attendance writes crossing users; repeated destructive invariant failure.
+- **P1 alert:** repeated failures of `recoverMatchmaking`, `recoverAttendance`,
+  `recoverAccountDeletionJobs`, push delivery, Reliability projection,
+  canonical promotion, `leaveMatch`, or attendance submission; stuck bounded
+  queues; elevated provider failures.
+- **Diagnostic only:** expected authentication/App Check denial, invalid input,
+  legitimate idempotent duplicate, opt-out/no-device suppression, or isolated
+  user-correctable precondition.
+
+Logs must distinguish denial/validation, provider/transient, retryable internal,
+and invariant failures using Function name and sanitized code. Never log request
+payloads containing tokens, email, private locations, coordinates, messages,
+report evidence, attendance claims, or raw Reliability history.
+
+## Support intake routing
+
+- Cannot sign in or verification email: confirm provider status and use existing
+  verification/reset flows; never request a password.
+- Quick Match stuck: record time/build/environment, run aggregate health, and
+  inspect scheduler logs without editing state.
+- Match/cancellation or Reliability question: explain objective policy and
+  escalate disputed canonical facts; do not promise score edits.
+- Attendance dispute: follow the privileged procedure above.
+- Report/block concern: use the safety review workflow; blocks and reports remain
+  distinct and report volume is not proof.
+- Private-location concern: treat as a privacy incident using the procedure below.
+- Account deletion: inspect durable progress and communicate processing status.
+- Privacy/data request: route through `support.padelx@gmail.com` for human review.
+- Crash/technical issue: collect build, environment, steps, and sanitized timing;
+  do not request screenshots containing private content unnecessarily.
+
+## Private-location incident procedure
+
+Treat an exposed private address, unauthorized participant access, discovery
+appearance, or log/notification disclosure as SEV-1. Contain the affected
+surface without copying the address; verify membership and rules authorization;
+check push/log/public projections; preserve sanitized evidence; communicate via
+support; remediate and regression-test in staging; document the cause and
+follow-up. Account restriction is not an automatic privacy remedy and must use
+the existing justified enforcement service when appropriate.
+
+## Operational metrics and privacy
+
+Existing timestamped canonical records can produce bounded aggregate counts and
+durations for requests, offers, lobby completion, canonical matches, time to
+offer/4-of-4, cancellations by timing, AutoFill activation/success/replacement
+time, attendance eligibility/submission/resolution categories, established
+no-show count, Reliability status/distribution, deletion job states, and push
+receipt success/failure. Use reviewed bounded time windows and aggregate output.
+Do not create player-level monitoring, export raw histories, or add an analytics
+SDK for the closed beta. Some funnel impressions and abandoned forms remain
+unmeasurable without future consent/disclosure-reviewed instrumentation.
+
+## Incident severity and response
+
+- **SEV-1:** privacy/security exposure, destructive corruption, or widespread
+  inability to use the core product.
+- **SEV-2:** a major feature fails for a meaningful subset, or matchmaking,
+  deletion, or recovery is stuck.
+- **SEV-3:** isolated, recoverable UI, notification, or support issue.
+
+For every incident: detect → classify → contain → diagnose → recover through an
+idempotent path → verify → communicate → record follow-up. Assign one owner and
+next check time. Never paste sensitive evidence into the incident record.
+
+During Auth, Firestore, Functions, or FCM outages, check official provider
+status and communicate the affected capability. Auth outages block session
+establishment; Firestore/Functions outages make canonical reads/mutations
+unavailable; FCM outages leave in-app state authoritative but delay pushes.
+Avoid unsafe offline canonical writes and manual repair. Validate recovery in
+staging before resuming time-sensitive beta flows.
+
+## Backup, recovery, and release
+
+Before public launch, decide whether to enable managed Firestore backup/PITR,
+approve cost/retention/access, and perform a restore drill into an isolated
+project. Backup protects against some accidental deletion/corruption but does
+not replace Auth recovery, external provider state, legal deletion obligations,
+secret management, or application-level invariants.
+
+Canonical/important data: Auth identity, profiles, matches/membership, messages,
+social graph, safety reports/evidence, moderation/enforcement, legal acceptance,
+Reliability events, retained attendance evidence/resolutions, and deletion jobs.
+Reconstructable data: Reliability/public views and other documented projections,
+aggregates, indexes, and some notifications. Ephemeral data: push tokens,
+provider delivery state, and recoverable leases/locks.
+
+Release staging first, validate, then deploy production intentionally. Record
+the previous known-good commit and deploy client/backend independently where
+possible. Current changes remain additive/backward-compatible, so minimum-version
+and maintenance mode remain P1. They become P0 before any incompatible backend,
+rules, or schema release; do not depend on store adoption speed for safety.
+
+Human decisions still required: Attendance retention, Reliability correction
+and appeal, final legal/privacy wording, backup/PITR, support staffing, external
+alerts, and final privacy disclosures. No engineering assumption closes them.
+
 ## Firebase Auth final-launch checklist
 
 1. Review enabled providers and authorized domains in the selected project.

@@ -121,3 +121,13 @@ expiring rate-limit record.
 # Attendance disputes
 
 Attendance evidence is private reputation data, separate from safety reports. Beta operators may inspect a disputed resolution only through privileged server access and must not disclose observer identities or raw claims to participants. Record the operational reason and authoritative time for any future correction; never silently rewrite evidence. A correction must rebuild the affected Reliability projection deterministically. There is intentionally no public or generic correction endpoint yet. Retention duration and appeal procedure require legal/operations approval; Firestore TTL remains disabled.
+
+## Daily ownership and handoff
+
+The Primary beta operator reviews the report queue, support inbox, and urgent
+operational failures daily. The Backup beta operator must have tested access and
+takes over when the primary is unavailable. Handoffs contain only sanitized
+incident references, status, action taken, owner, and next review time. Report
+counts and reasons never establish guilt; enforcement remains a separate,
+explicit, justified, audited decision. See `closed_beta_readiness.md` for the
+complete operational health and incident runbook.
