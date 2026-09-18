@@ -1029,6 +1029,18 @@ describe('notification preferences and push devices', () => {
       await assertFails(deleteDoc(doc(db, 'pushDevices/hash')));
     }
   });
+
+  test('push delivery receipts are server-only', async () => {
+    await seed('pushDeliveryReceipts/notice', {
+      recipientUid: 'alice', notificationType: 'matchmaking_match_found', status: 'complete',
+    });
+    for (const db of [auth('alice'), auth('bob'), environment.unauthenticatedContext().firestore()]) {
+      await assertFails(getDoc(doc(db, 'pushDeliveryReceipts/notice')));
+      await assertFails(getDocs(collection(db, 'pushDeliveryReceipts')));
+      await assertFails(setDoc(doc(db, 'pushDeliveryReceipts/new'), { recipientUid: 'alice' }));
+      await assertFails(deleteDoc(doc(db, 'pushDeliveryReceipts/notice')));
+    }
+  });
 });
 
 describe('matchmaking privacy boundary', () => {

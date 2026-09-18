@@ -917,4 +917,5 @@
   ,"playersConfirmedCount": "{confirmed} de 4 confirmados"
   ,"@playersConfirmedCount": {"placeholders": {"confirmed": {"type": "String"}}}
   ,"versus": "VS"
+  ,"quickMatchPushWarning": "Activa las notificaciones para no perder ofertas de partido con tiempo limitado. Puedes seguir usando Quick Match."
 }

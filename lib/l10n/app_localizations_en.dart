@@ -2318,4 +2318,8 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get versus => 'VS';
+
+  @override
+  String get quickMatchPushWarning =>
+      'Turn on notifications so you do not miss time-sensitive match offers. You can still use Quick Match.';
 }

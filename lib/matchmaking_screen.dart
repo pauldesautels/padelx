@@ -14,6 +14,7 @@ import 'places_autocomplete.dart';
 import 'profile_avatar.dart';
 import 'l10n/l10n.dart';
 import 'design_system.dart';
+import 'push_notifications.dart';
 
 class MatchmakingScreen extends StatefulWidget {
   final String currentUid;
@@ -26,6 +27,7 @@ class MatchmakingScreen extends StatefulWidget {
   final ValueChanged<String> onOpenMatch;
   final DateTime Function() now;
   final String timezone;
+  final PushSettingsService? pushSettingsService;
 
   const MatchmakingScreen({
     super.key,
@@ -39,6 +41,7 @@ class MatchmakingScreen extends StatefulWidget {
     required this.onOpenMatch,
     this.now = DateTime.now,
     this.timezone = 'America/Mexico_City',
+    this.pushSettingsService,
   });
 
   @override
@@ -56,6 +59,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen>
   bool _queuedRefresh = false;
   Object? _error;
   bool _initialSignal = true;
+  bool? _pushDeliveryEnabled;
 
   @override
   void initState() {
@@ -82,7 +86,19 @@ class _MatchmakingScreenState extends State<MatchmakingScreen>
         setState(() {});
       }
     });
+    unawaited(_loadPushState());
     _refresh();
+  }
+
+  Future<void> _loadPushState() async {
+    final service = widget.pushSettingsService;
+    if (service == null) return;
+    try {
+      final enabled = await service.isDeliveryEnabled(widget.currentUid);
+      if (mounted) setState(() => _pushDeliveryEnabled = enabled);
+    } catch (_) {
+      if (mounted) setState(() => _pushDeliveryEnabled = false);
+    }
   }
 
   @override
@@ -207,6 +223,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen>
             ? _RequestView(
                 request: request,
                 busy: _mutating,
+                showPushWarning: _pushDeliveryEnabled == false,
                 onPartnerResponse:
                     request['role'] == 'partner' &&
                         request['status'] == 'awaiting_partner'
@@ -225,6 +242,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen>
             : _CreateRequestView(
                 widget: widget,
                 busy: _mutating,
+                showPushWarning: _pushDeliveryEnabled == false,
                 onCreate: (input) => _mutation(() async {
                   await widget.repository.create(input);
                 }),
@@ -278,10 +296,12 @@ class _CreateRequestView extends StatefulWidget {
   final MatchmakingScreen widget;
   final bool busy;
   final ValueChanged<MatchmakingRequestInput> onCreate;
+  final bool showPushWarning;
   const _CreateRequestView({
     required this.widget,
     required this.busy,
     required this.onCreate,
+    required this.showPushWarning,
   });
   @override
   State<_CreateRequestView> createState() => _CreateRequestViewState();
@@ -367,6 +387,10 @@ class _CreateRequestViewState extends State<_CreateRequestView> {
     key: const Key('matchmaking-create'),
     padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
     children: [
+      if (widget.showPushWarning) ...[
+        const _PushWarning(),
+        const SizedBox(height: PadelXSpace.md),
+      ],
       PadelXSurface(
         strong: true,
         accent: PadelXColors.accent,
@@ -520,11 +544,13 @@ class _RequestView extends StatelessWidget {
   final bool busy;
   final VoidCallback onCancel;
   final ValueChanged<bool>? onPartnerResponse;
+  final bool showPushWarning;
   const _RequestView({
     required this.request,
     required this.busy,
     required this.onCancel,
     this.onPartnerResponse,
+    required this.showPushWarning,
   });
   @override
   Widget build(BuildContext context) {
@@ -534,6 +560,10 @@ class _RequestView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
+        if (showPushWarning) ...[
+          const _PushWarning(),
+          const SizedBox(height: PadelXSpace.md),
+        ],
         Icon(
           request['status'] == 'awaiting_partner'
               ? Icons.mark_email_unread_outlined
@@ -600,6 +630,29 @@ class _RequestView extends StatelessWidget {
       ],
     );
   }
+}
+
+class _PushWarning extends StatelessWidget {
+  const _PushWarning();
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    child: PadelXSurface(
+      accent: PadelXColors.warning,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.notifications_off_outlined,
+            color: PadelXColors.warning,
+          ),
+          const SizedBox(width: PadelXSpace.md),
+          Expanded(child: Text(context.l10n.quickMatchPushWarning)),
+        ],
+      ),
+    ),
+  );
 }
 
 class _ProposalView extends StatelessWidget {

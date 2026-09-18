@@ -42,6 +42,10 @@ class _Messaging implements PushMessagingGateway {
   int requests = 0;
   int tokenReads = 0;
   final StreamController<String> refresh = StreamController<String>.broadcast();
+  final StreamController<Map<String, dynamic>> opened =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Map<String, dynamic>? initial;
+  int foregroundConfigurations = 0;
   _Messaging({this.permission = PushPermissionState.notDetermined});
   @override
   Future<PushPermissionState> permissionState() async => permission;
@@ -59,14 +63,28 @@ class _Messaging implements PushMessagingGateway {
 
   @override
   Stream<String> get tokenRefreshes => refresh.stream;
+  @override
+  Future<void> configureForegroundPresentation() async {
+    foregroundConfigurations++;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> initialMessageData() async => initial;
+  @override
+  Stream<Map<String, dynamic>> get openedMessageData => opened.stream;
 }
 
 class _Devices implements PushDeviceRepository {
   final List<String> registered = [];
   final List<String> unregistered = [];
   bool failUnregister = false;
+  final List<String> locales = [];
   @override
-  Future<void> register(String token) async => registered.add(token);
+  Future<void> register(String token, {required String locale}) async {
+    registered.add(token);
+    locales.add(locale);
+  }
+
   @override
   Future<void> unregister(String token) async {
     unregistered.add(token);
@@ -95,6 +113,12 @@ class _UnsupportedMessaging implements PushMessagingGateway {
 
   @override
   Stream<String> get tokenRefreshes => const Stream.empty();
+  @override
+  Future<void> configureForegroundPresentation() async {}
+  @override
+  Future<Map<String, dynamic>?> initialMessageData() async => null;
+  @override
+  Stream<Map<String, dynamic>> get openedMessageData => const Stream.empty();
 }
 
 PushNotificationService _service(
@@ -201,7 +225,52 @@ void main() {
     final preferences = _Preferences();
     await _service(messaging, devices, preferences).enable('alice');
     expect(devices.registered, [messaging.currentToken]);
+    expect(devices.locales, ['en']);
     expect(preferences.value.pushEnabled, true);
+  });
+
+  test(
+    'registration stores current locale and refreshes it without permission prompt',
+    () async {
+      var locale = 'es-MX';
+      final messaging = _Messaging(permission: PushPermissionState.allowed);
+      final devices = _Devices();
+      final preferences = _Preferences(
+        const NotificationPreferences(pushEnabled: true),
+      );
+      final service = PushNotificationService(
+        messaging: messaging,
+        devices: devices,
+        preferences: preferences,
+        localeTag: () => locale,
+      );
+      await service.startForUser('alice');
+      locale = 'en';
+      await service.refreshRegistrationLocale();
+      expect(devices.locales, ['es-MX', 'en']);
+      expect(messaging.requests, 0);
+    },
+  );
+
+  test('notification opens emit only allowlisted navigation intents', () async {
+    final messaging = _Messaging(permission: PushPermissionState.allowed)
+      ..initial = {'route': 'quick_match', 'type': 'matchmaking_match_found'};
+    final service = _service(
+      messaging,
+      _Devices(),
+      _Preferences(const NotificationPreferences(pushEnabled: true)),
+    );
+    final intents = <PushNavigationIntent>[];
+    final subscription = service.navigationIntents.listen(intents.add);
+    await service.startForUser('alice');
+    messaging.opened.add({'route': 'match', 'matchId': 'match-one'});
+    messaging.opened.add({'route': 'external', 'url': 'https://example.com'});
+    await Future<void>.delayed(Duration.zero);
+    expect(messaging.foregroundConfigurations, 1);
+    expect(intents.map((item) => item.route), ['quick_match', 'match']);
+    expect(intents.last.matchId, 'match-one');
+    await subscription.cancel();
+    await service.dispose();
   });
 
   test('disable persists opt-out and tolerates unregister failure', () async {

@@ -4142,6 +4142,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'VS'**
   String get versus;
+
+  /// No description provided for @quickMatchPushWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on notifications so you do not miss time-sensitive match offers. You can still use Quick Match.'**
+  String get quickMatchPushWarning;
 }
 
 class _AppLocalizationsDelegate

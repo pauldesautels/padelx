@@ -1,6 +1,7 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
+import { getMessaging } from 'firebase-admin/messaging';
 import { onCall } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { admitAccountDeletion, lockDeletionAuth } from './account_deletion.js';
@@ -33,6 +34,7 @@ import { cancelMatchmakingRequestOperation, createMatchmakingRequestOperation,
 import { resolveMatchmakingVenueOperation } from './matchmaking.js';
 import { handleReliabilityEventWritten } from './reliability.js';
 import { resolveTrustedPlace } from './places_verification.js';
+import { deliverNotificationPushOperation } from './push_delivery.js';
 
 const googlePlacesServerApiKey = defineSecret('GOOGLE_PLACES_SERVER_API_KEY');
 
@@ -163,6 +165,22 @@ export const projectPlayerReliability = onDocumentWritten({
 }, async (event) => {
   const { firestore } = backendFirestore();
   await handleReliabilityEventWritten(firestore, event);
+});
+
+export const deliverNotificationPush = onDocumentCreated({
+  document: 'notifications/{notificationId}', retry: true, maxInstances: 8,
+}, async (event) => {
+  // Firebase has no Messaging emulator. Operation-level tests inject a fake;
+  // the Functions emulator must never fall through to a real FCM endpoint.
+  if (process.env.FUNCTIONS_EMULATOR === 'true') return;
+  const { firestore } = backendFirestore();
+  const app = getApps().find((candidate) => candidate.name === 'padelx-trusted');
+  await deliverNotificationPushOperation(
+    firestore,
+    getMessaging(app),
+    event.params.notificationId,
+    event.data?.data(),
+  );
 });
 
 export const recoverMatchmaking = onSchedule({

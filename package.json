@@ -23,6 +23,7 @@
     "test:hosting": "node --test test/legal_hosting.test.mjs",
     "test:hosting:emulator": "firebase emulators:exec --project demo-padelx-hosting --only hosting \"node --test test/legal_hosting_emulator.test.mjs\"",
     "test:matchmaking": "firebase emulators:exec --project demo-padelx-matchmaking --only auth,firestore \"node --test --test-concurrency=1 test/matchmaking_policy.test.mjs test/matchmaking.test.mjs\"",
+    "test:push-delivery": "firebase emulators:exec --project demo-padelx-push-delivery --only auth,firestore \"node --test --test-concurrency=1 test/push_devices.test.mjs test/push_delivery.test.mjs\"",
     "prepare:deletion": "node tool/prepare_account_deletion.mjs"
   },
   "devDependencies": {

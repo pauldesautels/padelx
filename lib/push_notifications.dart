@@ -9,6 +9,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import 'firebase_diagnostics.dart';
 import 'account_access.dart';
+import 'crash_reporting.dart';
 
 enum PushPermissionState { notDetermined, allowed, denied, unsupported }
 
@@ -126,6 +127,9 @@ abstract class PushMessagingGateway {
   Future<PushPermissionState> requestPermission();
   Future<String?> token();
   Stream<String> get tokenRefreshes;
+  Future<void> configureForegroundPresentation();
+  Future<Map<String, dynamic>?> initialMessageData();
+  Stream<Map<String, dynamic>> get openedMessageData;
 }
 
 class FirebasePushMessagingGateway implements PushMessagingGateway {
@@ -182,10 +186,31 @@ class FirebasePushMessagingGateway implements PushMessagingGateway {
   @override
   Stream<String> get tokenRefreshes =>
       _isSupported ? messaging.onTokenRefresh : const Stream.empty();
+
+  @override
+  Future<void> configureForegroundPresentation() async {
+    if (!_isSupported) return;
+    await messaging.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+  }
+
+  @override
+  Future<Map<String, dynamic>?> initialMessageData() async {
+    if (!_isSupported) return null;
+    return (await messaging.getInitialMessage())?.data;
+  }
+
+  @override
+  Stream<Map<String, dynamic>> get openedMessageData => _isSupported
+      ? FirebaseMessaging.onMessageOpenedApp.map((message) => message.data)
+      : const Stream.empty();
 }
 
 abstract class PushDeviceRepository {
-  Future<void> register(String token);
+  Future<void> register(String token, {required String locale});
   Future<void> unregister(String token);
 }
 
@@ -206,7 +231,7 @@ class FirebasePushDeviceRepository implements PushDeviceRepository {
            loadAndroidPackageName ??
            (() async => (await PackageInfo.fromPlatform()).packageName);
 
-  Future<Map<String, Object>> _payload(String token) async {
+  Future<Map<String, Object>> _payload(String token, {String? locale}) async {
     final identity = switch (platform) {
       TargetPlatform.iOS => <String, Object>{
         'platform': 'ios',
@@ -218,20 +243,22 @@ class FirebasePushDeviceRepository implements PushDeviceRepository {
       },
       _ => throw UnsupportedError('Push registration is unavailable.'),
     };
-    return {
+    final payload = <String, Object>{
       'token': token,
       'firebaseProjectId': app.options.projectId,
       'firebaseAppId': app.options.appId,
       ...identity,
     };
+    if (locale != null) payload['locale'] = locale;
+    return payload;
   }
 
   @override
-  Future<void> register(String token) async {
+  Future<void> register(String token, {required String locale}) async {
     try {
       await functions
           .httpsCallable('registerPushDevice')
-          .call(await _payload(token));
+          .call(await _payload(token, locale: locale));
     } catch (error) {
       signalAccountAccessRestriction(error);
       rethrow;
@@ -250,6 +277,26 @@ abstract class PushSettingsService {
   Future<PushPermissionState> permissionState();
   Future<PushPermissionState> enable(String uid);
   Future<void> disable(String uid);
+  Future<bool> isDeliveryEnabled(String uid);
+}
+
+class PushNavigationIntent {
+  const PushNavigationIntent._(this.route, {this.matchId});
+
+  final String route;
+  final String? matchId;
+
+  static PushNavigationIntent? fromData(Map<String, dynamic>? data) {
+    final route = data?['route'];
+    if (route == 'quick_match') {
+      return const PushNavigationIntent._('quick_match');
+    }
+    final matchId = data?['matchId'];
+    if (route == 'match' && matchId is String && matchId.isNotEmpty) {
+      return PushNavigationIntent._('match', matchId: matchId);
+    }
+    return null;
+  }
 }
 
 Future<void> signOutWithPushCleanup({
@@ -264,7 +311,13 @@ class PushNotificationService implements PushSettingsService {
   final PushMessagingGateway messaging;
   final PushDeviceRepository devices;
   final NotificationPreferencesRepository preferences;
+  final String Function() localeTag;
   StreamSubscription<String>? _tokenSubscription;
+  StreamSubscription<Map<String, dynamic>>? _openedMessageSubscription;
+  final StreamController<PushNavigationIntent> _navigationController =
+      StreamController<PushNavigationIntent>.broadcast();
+  PushNavigationIntent? _pendingNavigationIntent;
+  bool _initialMessageRead = false;
   String? _activeUid;
   String? _currentToken;
   int _sessionGeneration = 0;
@@ -273,13 +326,35 @@ class PushNotificationService implements PushSettingsService {
     required this.messaging,
     required this.devices,
     required this.preferences,
+    this.localeTag = _defaultLocale,
   });
 
-  static PushNotificationService firebase() => PushNotificationService(
-    messaging: FirebasePushMessagingGateway(),
-    devices: FirebasePushDeviceRepository(),
-    preferences: FirebaseNotificationPreferencesRepository(),
-  );
+  static String _defaultLocale() => 'en';
+
+  static PushNotificationService firebase({String Function()? localeTag}) =>
+      PushNotificationService(
+        messaging: FirebasePushMessagingGateway(),
+        devices: FirebasePushDeviceRepository(),
+        preferences: FirebaseNotificationPreferencesRepository(),
+        localeTag: localeTag ?? _defaultLocale,
+      );
+
+  Stream<PushNavigationIntent> get navigationIntents =>
+      _navigationController.stream;
+
+  PushNavigationIntent? takePendingNavigationIntent() {
+    final value = _pendingNavigationIntent;
+    _pendingNavigationIntent = null;
+    return value;
+  }
+
+  void _handleOpenedMessage(Map<String, dynamic> data) {
+    if (_activeUid == null) return;
+    final intent = PushNavigationIntent.fromData(data);
+    if (intent == null) return;
+    _pendingNavigationIntent = intent;
+    _navigationController.add(intent);
+  }
 
   Future<void> startForUser(String? uid) async {
     final generation = ++_sessionGeneration;
@@ -298,11 +373,18 @@ class PushNotificationService implements PushSettingsService {
         }
         _currentToken = token;
         if (stored.pushEnabled && permission == PushPermissionState.allowed) {
-          await devices.register(token);
+          await devices.register(token, locale: localeTag());
         } else {
           await devices.unregister(token);
         }
       } catch (error) {
+        unawaited(
+          crashReporter.recordNonFatal(
+            StateError('push-token-sync ${safeFirebaseFailure(error)}'),
+            StackTrace.current,
+            'push_token_sync',
+          ),
+        );
         debugPrint(
           'Push token refresh synchronization failed '
           '${safeFirebaseFailure(error)}.',
@@ -311,6 +393,22 @@ class PushNotificationService implements PushSettingsService {
     });
     if (uid == null) return;
     try {
+      await messaging.configureForegroundPresentation();
+      _openedMessageSubscription ??= messaging.openedMessageData.listen(
+        _handleOpenedMessage,
+        onError: (Object error) => debugPrint(
+          'Push open handling failed ${safeFirebaseFailure(error)}.',
+        ),
+      );
+      if (!_initialMessageRead) {
+        _initialMessageRead = true;
+        final initial = await messaging.initialMessageData();
+        if (generation == _sessionGeneration &&
+            _activeUid == uid &&
+            initial != null) {
+          _handleOpenedMessage(initial);
+        }
+      }
       final stored = await preferences.load(uid);
       final permission = await messaging.permissionState();
       final token = permission == PushPermissionState.allowed
@@ -323,11 +421,18 @@ class PushNotificationService implements PushSettingsService {
         return;
       }
       if (stored.pushEnabled) {
-        await devices.register(token);
+        await devices.register(token, locale: localeTag());
       } else {
         await devices.unregister(token);
       }
     } catch (error) {
+      unawaited(
+        crashReporter.recordNonFatal(
+          StateError('push-registration-sync ${safeFirebaseFailure(error)}'),
+          StackTrace.current,
+          'push_registration_sync',
+        ),
+      );
       debugPrint(
         'Push registration synchronization failed '
         '${safeFirebaseFailure(error)}.',
@@ -346,7 +451,7 @@ class PushNotificationService implements PushSettingsService {
     if (token == null || token.isEmpty) {
       throw StateError('Push token is unavailable.');
     }
-    await devices.register(token);
+    await devices.register(token, locale: localeTag());
     _activeUid = uid;
     _currentToken = token;
     final stored = await preferences.load(uid);
@@ -376,6 +481,28 @@ class PushNotificationService implements PushSettingsService {
     }
   }
 
+  @override
+  Future<bool> isDeliveryEnabled(String uid) async {
+    final permission = await messaging.permissionState();
+    if (permission != PushPermissionState.allowed) return false;
+    return (await preferences.load(uid)).pushEnabled;
+  }
+
+  Future<void> refreshRegistrationLocale() async {
+    final uid = _activeUid;
+    if (uid == null) return;
+    final stored = await preferences.load(uid);
+    if (!stored.pushEnabled ||
+        await messaging.permissionState() != PushPermissionState.allowed) {
+      return;
+    }
+    final token = _currentToken ?? await messaging.token();
+    if (token != null && token.isNotEmpty) {
+      _currentToken = token;
+      await devices.register(token, locale: localeTag());
+    }
+  }
+
   Future<void> unregisterBeforeSignOut() async {
     try {
       final token = _currentToken ?? await messaging.token();
@@ -388,5 +515,7 @@ class PushNotificationService implements PushSettingsService {
 
   Future<void> dispose() async {
     await _tokenSubscription?.cancel();
+    await _openedMessageSubscription?.cancel();
+    await _navigationController.close();
   }
 }

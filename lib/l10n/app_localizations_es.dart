@@ -2347,6 +2347,10 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get versus => 'VS';
+
+  @override
+  String get quickMatchPushWarning =>
+      'Activa las notificaciones para no perder ofertas de partido con tiempo limitado. Puedes seguir usando Quick Match.';
 }
 
 /// The translations for Spanish Castilian, as used in Mexico (`es_MX`).
@@ -4692,4 +4696,8 @@ class AppLocalizationsEsMx extends AppLocalizationsEs {
 
   @override
   String get versus => 'VS';
+
+  @override
+  String get quickMatchPushWarning =>
+      'Activa las notificaciones para no perder ofertas de partido con tiempo limitado. Puedes seguir usando Quick Match.';
 }

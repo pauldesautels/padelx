@@ -44,6 +44,8 @@ import 'match_date_time_picker.dart';
 import 'match_actions_repository.dart';
 import 'settings_screen.dart';
 import 'push_notifications.dart';
+import 'firebase_diagnostics.dart';
+import 'crash_reporting.dart';
 import 'auth_landing.dart';
 import 'branding.dart';
 import 'design_system.dart';
@@ -62,6 +64,7 @@ import 'l10n/l10n.dart';
 
 PushNotificationService? _pushNotificationService;
 StreamSubscription<User?>? _pushAuthSubscription;
+PadelXLocaleController? _localeController;
 final Stopwatch _startupClock = Stopwatch();
 
 String _localizedPreferredSide(BuildContext context, PreferredSide side) =>
@@ -105,6 +108,7 @@ Future<void> main() async {
     systemLocales: WidgetsBinding.instance.platformDispatcher.locales,
   );
   await localeController.load();
+  _localeController = localeController;
   WidgetsBinding.instance.addPostFrameCallback((_) {
     _logStartupTiming('first Flutter frame');
   });
@@ -121,11 +125,21 @@ Future<void> initializePadelX(ValueChanged<double> reportProgress) async {
     );
   }
   _logStartupTiming('Firebase initialized');
+  try {
+    crashReporter = FirebaseCrashReporter();
+    await crashReporter.initialize();
+  } catch (error) {
+    crashReporter = const NoopCrashReporter();
+    debugPrint('Crash reporting unavailable: ${error.runtimeType}.');
+  }
   reportProgress(0.5);
   await activateAppCheckForCurrentEnvironment();
   _logStartupTiming('App Check activation completed');
   reportProgress(0.7);
-  _pushNotificationService ??= PushNotificationService.firebase();
+  _pushNotificationService ??= PushNotificationService.firebase(
+    localeTag: () =>
+        _localeController?.locale.languageCode == 'es' ? 'es-MX' : 'en',
+  );
   _pushAuthSubscription ??= FirebaseAuth.instance.authStateChanges().listen(
     (user) => unawaited(_pushNotificationService!.startForUser(user?.uid)),
   );
@@ -155,6 +169,11 @@ class _PadelXAppState extends State<PadelXApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.localeController.addListener(_syncPushLocale);
+  }
+
+  void _syncPushLocale() {
+    unawaited(_pushNotificationService?.refreshRegistrationLocale());
   }
 
   @override
@@ -165,6 +184,7 @@ class _PadelXAppState extends State<PadelXApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.localeController.removeListener(_syncPushLocale);
     super.dispose();
   }
 
@@ -3334,6 +3354,7 @@ class _HomeScreenState extends State<HomeScreen> {
   MatchLocation? _discoveryOverride;
   double _discoveryRadiusKm = 25;
   int _discoveryPerCellLimit = discoveryInitialCellLimit;
+  StreamSubscription<PushNavigationIntent>? _pushNavigationSubscription;
 
   PlayedWithRepository get _playedWithRepository =>
       widget.playedWithRepository ??
@@ -3351,7 +3372,47 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _pushNavigationSubscription = _pushNotificationService?.navigationIntents
+        .listen(_handlePushNavigation);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pending = _pushNotificationService?.takePendingNavigationIntent();
+      if (pending != null) _handlePushNavigation(pending);
+    });
     unawaited(_restartDiscovery());
+  }
+
+  void _handlePushNavigation(PushNavigationIntent intent) {
+    if (!mounted) return;
+    _pushNotificationService?.takePendingNavigationIntent();
+    if (intent.route == 'quick_match') {
+      _openMatchmaking();
+      return;
+    }
+    final matchId = intent.matchId;
+    if (intent.route == 'match' && matchId != null) {
+      unawaited(_openPushMatch(matchId));
+    }
+  }
+
+  Future<void> _openPushMatch(String matchId) async {
+    try {
+      final document = await FirebaseFirestore.instance
+          .collection('matches')
+          .doc(matchId)
+          .get();
+      if (!mounted || !document.exists) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MatchDetailsScreen(
+            match: Match.fromDocument(document),
+            onMatchUpdated: _waitForIndexAndRefresh,
+            onMatchDeleted: _handleMatchDeleted,
+          ),
+        ),
+      );
+    } catch (error) {
+      debugPrint('Push destination unavailable ${safeFirebaseFailure(error)}.');
+    }
   }
 
   @override
@@ -3369,6 +3430,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _discoveryGeneration++;
     unawaited(_discoverySubscription?.cancel());
+    unawaited(_pushNavigationSubscription?.cancel());
     super.dispose();
   }
 
@@ -3395,6 +3457,7 @@ class _HomeScreenState extends State<HomeScreen> {
           preferredSide: profile.socialProfile.preferredSide.value,
           repository: _matchmakingRepository,
           friendsRepository: _friendsRepository,
+          pushSettingsService: _pushNotificationService,
           onOpenMatch: (matchId) async {
             final document = await FirebaseFirestore.instance
                 .collection('matches')

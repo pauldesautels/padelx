@@ -11,6 +11,22 @@ import 'package:padelx/main.dart' show MatchAutoFillCard;
 import 'package:padelx/matchmaking_repository.dart';
 import 'package:padelx/matchmaking_screen.dart';
 import 'package:padelx/places.dart';
+import 'package:padelx/push_notifications.dart';
+
+class _PushSettings implements PushSettingsService {
+  _PushSettings(this.enabled);
+  final bool enabled;
+  @override
+  Future<void> disable(String uid) async {}
+  @override
+  Future<PushPermissionState> enable(String uid) async =>
+      PushPermissionState.allowed;
+  @override
+  Future<bool> isDeliveryEnabled(String uid) async => enabled;
+  @override
+  Future<PushPermissionState> permissionState() async =>
+      enabled ? PushPermissionState.allowed : PushPermissionState.denied;
+}
 
 class _MatchmakingRepository implements MatchmakingRepository {
   MatchmakingState current;
@@ -144,6 +160,7 @@ Widget _app(
   _MatchmakingRepository repository, {
   Locale locale = const Locale('en'),
   GooglePlacesClient? placesClient,
+  PushSettingsService? pushSettingsService,
 }) => MaterialApp(
   locale: locale,
   localizationsDelegates: const [
@@ -157,6 +174,7 @@ Widget _app(
     currentUid: 'viewer',
     repository: repository,
     placesClient: placesClient,
+    pushSettingsService: pushSettingsService,
     friendsRepository: _FriendsRepository(),
     level: '3.5',
     preferredSide: 'left',
@@ -175,6 +193,28 @@ Widget _app(
 );
 
 void main() {
+  testWidgets('Quick Match warns without push but remains available', (
+    tester,
+  ) async {
+    final repository = _MatchmakingRepository(
+      const MatchmakingState(requests: [], proposals: []),
+    );
+    await tester.pumpWidget(
+      _app(
+        repository,
+        locale: const Locale('es', 'MX'),
+        pushSettingsService: _PushSettings(false),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Activa las notificaciones'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('start-matchmaking')),
+      300,
+    );
+    expect(find.byKey(const Key('start-matchmaking')), findsOneWidget);
+  });
+
   testWidgets(
     'empty authoritative state shows localized Solo and Partner request UI',
     (tester) async {

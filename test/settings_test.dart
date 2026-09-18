@@ -29,6 +29,8 @@ class _SettingsPush implements PushSettingsService {
   @override
   Future<PushPermissionState> permissionState() async =>
       PushPermissionState.notDetermined;
+  @override
+  Future<bool> isDeliveryEnabled(String uid) async => false;
 }
 
 class _SettingsFriends implements FriendsRepository {

@@ -59,7 +59,19 @@ test('valid registration is idempotent and never trusts a supplied UID', async (
   assert.equal(snapshot.data().uid, 'alice');
   assert.equal(snapshot.data().token, value);
   assert.equal(snapshot.data().platform, 'ios');
+  assert.equal(snapshot.data().locale, 'en');
   assert.equal((await db.collection('pushDevices').get()).size, 1);
+});
+
+test('registration stores only a supported delivery locale', async () => {
+  const spanish = token('spanish');
+  await registerPushDeviceOperation(db, request('alice', spanish, { locale: 'es-MX' }));
+  assert.equal((await db.doc(`pushDevices/${pushTokenHash(spanish)}`).get()).data().locale,
+    'es-MX');
+  const fallback = token('fallback');
+  await registerPushDeviceOperation(db, request('alice', fallback, { locale: 'fr' }));
+  assert.equal((await db.doc(`pushDevices/${pushTokenHash(fallback)}`).get()).data().locale,
+    'en');
 });
 
 test('multiple tokens register independently and the same token transfers accounts', async () => {

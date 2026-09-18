@@ -12,6 +12,7 @@ export const STAGING_ANDROID_PACKAGES = Object.freeze(['com.example.padelx']);
 const STAGING_SENDER_ID = '708585002488';
 const MIN_TOKEN_LENGTH = 20;
 const MAX_TOKEN_LENGTH = 4096;
+const SUPPORTED_LOCALES = Object.freeze(['en', 'es-MX']);
 
 function requiredString(value, name, { min = 1, max = 512 } = {}) {
   if (typeof value !== 'string' || value.length < min || value.length > max
@@ -41,6 +42,7 @@ export function validatePushDeviceIdentity(request, environment = backendEnviron
   const applicationIdentity = data.platform === 'ios'
     ? { bundleId: requiredString(data.bundleId, 'bundle identifier', { max: 255 }) }
     : { packageName: requiredString(data.packageName, 'package name', { max: 255 }) };
+  const locale = SUPPORTED_LOCALES.includes(data.locale) ? data.locale : 'en';
   if (projectId !== environment.projectId) {
     throw new HttpsError('failed-precondition', 'Push environment mismatch.');
   }
@@ -69,7 +71,8 @@ export function validatePushDeviceIdentity(request, environment = backendEnviron
   } else {
     throw new HttpsError('failed-precondition', 'Push registration is unavailable.');
   }
-  return { token, platform: data.platform, projectId, firebaseAppId, ...applicationIdentity };
+  return { token, platform: data.platform, projectId, firebaseAppId, locale,
+    ...applicationIdentity };
 }
 
 export async function registerPushDeviceOperation(firestore, request) {
@@ -85,6 +88,7 @@ export async function registerPushDeviceOperation(firestore, request) {
       platform: identity.platform,
       firebaseProjectId: identity.projectId,
       firebaseAppId: identity.firebaseAppId,
+      locale: identity.locale,
       ...(identity.platform === 'ios'
         ? { bundleId: identity.bundleId }
         : { packageName: identity.packageName }),

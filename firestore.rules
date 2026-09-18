@@ -788,6 +788,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /pushDeliveryReceipts/{notificationId} {
+      allow read, write: if false;
+    }
+
     match /conversations/{conversationId} {
       allow read, write: if false;
       match /messages/{messageId} {
