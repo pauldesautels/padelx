@@ -76,3 +76,11 @@ test('health exposes bounded recovery indicators without document identity', asy
   assert.equal(result.push.completedWithFailures.count, 1);
   assert.equal(result.push.completedWithoutSend.count, 1);
 });
+
+test('blocked deletion jobs require operational attention', async () => {
+  const db = { collection: (name) => new FakeQuery(name === 'accountDeletionJobs'
+    ? [{ status: 'blocked' }] : []) };
+  const result = await collectOperationalHealth(db, new Date('2030-01-01T00:00:00Z'));
+  assert.equal(result.deletion.status, 'attention');
+  assert.equal(result.deletion.blockedJobs.count, 1);
+});

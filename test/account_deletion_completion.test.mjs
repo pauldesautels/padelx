@@ -17,10 +17,11 @@ import { directConversationId, matchConversationId } from '../functions/messagin
 import { playAgainNotificationId } from '../functions/play_again.js';
 const projectId = 'demo-padelx-phase8';
 process.env.GCLOUD_PROJECT = projectId; process.env.GOOGLE_CLOUD_PROJECT = projectId;
-process.env.FIREBASE_CONFIG = JSON.stringify({ projectId });
-const app = initializeApp({ projectId }, 'completion');
+const storageBucket = `${projectId}.firebasestorage.app`;
+process.env.FIREBASE_CONFIG = JSON.stringify({ projectId, storageBucket });
+const app = initializeApp({ projectId, storageBucket }, 'completion');
 const db = getFirestore(app), auth = getAuth(app);
-const bucket = getStorage(app).bucket(`${projectId}.appspot.com`);
+const bucket = getStorage(app).bucket();
 after(() => deleteApp(app));
 const ref = uid => db.doc(`accountDeletionJobs/${uid}`);
 const request = uid => ({ auth: { uid, token: { auth_time: Math.floor(Date.now()/1000) } }, data: {} });
@@ -48,6 +49,49 @@ test('unverified incomplete user, lost response, duplicate dispatch, Auth finali
   assert.equal((await ref(uid).get()).data().status, 'completed');
   await acceptDeletedAuthUser(db, uid); // Auth event after normal finalization.
   assert.ok((await ref(uid).get()).data().deletionRequestedAt.isEqual(cutoff));
+});
+
+test('storage phase uses the configured modern bucket and rejects a mismatched injected bucket', async () => {
+  assert.equal(bucket.name, storageBucket);
+  assert.notEqual(bucket.name, `${projectId}.appspot.com`);
+  const uid = 'configured-storage-bucket';
+  await auth.createUser({ uid });
+  await admitAccountDeletion(db, auth, request(uid));
+  const wrongBucket = getStorage(app).bucket(`${projectId}.appspot.com`);
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await dispatchAccountDeletion(db, auth, wrongBucket, uid);
+    if ((await ref(uid).get()).data().status === 'retry_wait') break;
+  }
+  const failed = (await ref(uid).get()).data();
+  assert.equal(failed.phase, 'storage');
+  assert.equal(failed.status, 'retry_wait');
+  assert.equal(failed.lastFailureCategory, 'storage-configuration-invalid');
+  assert.ok(await auth.getUser(uid));
+  await ref(uid).update({ nextAttemptAt: new Date(0) });
+  await db.doc(`accountDeletionOutbox/${uid}`).update({ nextAttemptAt: new Date(0) });
+  await finish(uid);
+  await assert.rejects(auth.getUser(uid), { code: 'auth/user-not-found' });
+});
+
+test('missing authoritative bucket fails closed before Auth deletion', async () => {
+  const uid = 'missing-storage-bucket';
+  await auth.createUser({ uid });
+  await admitAccountDeletion(db, auth, request(uid));
+  const configured = process.env.FIREBASE_CONFIG;
+  process.env.FIREBASE_CONFIG = JSON.stringify({ projectId });
+  try {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await dispatchAccountDeletion(db, auth, null, uid);
+      if ((await ref(uid).get()).data().status === 'retry_wait') break;
+    }
+  } finally {
+    process.env.FIREBASE_CONFIG = configured;
+  }
+  const failed = (await ref(uid).get()).data();
+  assert.equal(failed.phase, 'storage');
+  assert.equal(failed.status, 'retry_wait');
+  assert.equal(failed.lastFailureCategory, 'storage-bucket-unavailable');
+  assert.ok(await auth.getUser(uid));
 });
 test('direct Auth fallback uses pipeline and absent Auth is successful', async () => {
   const uid = 'external-delete'; await acceptDeletedAuthUser(db, uid); await finish(uid);

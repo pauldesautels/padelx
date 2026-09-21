@@ -21,13 +21,46 @@ export function validateBackendEnvironment({ projectId, firestoreHost, authHost 
 }
 
 export function backendEnvironment(env = process.env) {
-  const config = env.FIREBASE_CONFIG ? JSON.parse(env.FIREBASE_CONFIG) : {};
+  const config = firebaseRuntimeConfig(env);
   const ids = [env.GCLOUD_PROJECT, env.GOOGLE_CLOUD_PROJECT, config.projectId].filter(Boolean);
   if (new Set(ids).size !== 1) throw new Error('Missing or conflicting backend project configuration.');
   return validateBackendEnvironment({
     projectId: ids[0], firestoreHost: env.FIRESTORE_EMULATOR_HOST,
     authHost: env.FIREBASE_AUTH_EMULATOR_HOST,
   });
+}
+
+export function firebaseRuntimeConfig(env = process.env) {
+  const config = env.FIREBASE_CONFIG ? JSON.parse(env.FIREBASE_CONFIG) : {};
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error('Invalid Firebase runtime configuration.');
+  }
+  return config;
+}
+
+export function authoritativeStorageBucket(environment, env = process.env) {
+  const config = firebaseRuntimeConfig(env);
+  if (config.projectId !== environment.projectId) {
+    throw Object.assign(new Error('Storage configuration project mismatch.'), {
+      code: 'storage-configuration-invalid',
+    });
+  }
+  const bucket = config.storageBucket;
+  if (typeof bucket !== 'string' || bucket.length < 3 || bucket.length > 222
+      || bucket !== bucket.trim() || bucket.includes('/') || bucket.includes('://')
+      || !/^[a-z0-9][a-z0-9._-]*[a-z0-9]$/i.test(bucket)) {
+    throw Object.assign(new Error('Authoritative Storage bucket is unavailable.'), {
+      code: 'storage-bucket-unavailable',
+    });
+  }
+  const firebaseSuffix = ['.firebasestorage.app', '.appspot.com']
+    .find((suffix) => bucket.endsWith(suffix));
+  if (firebaseSuffix && bucket.slice(0, -firebaseSuffix.length) !== environment.projectId) {
+    throw Object.assign(new Error('Storage configuration project mismatch.'), {
+      code: 'storage-configuration-invalid',
+    });
+  }
+  return bucket;
 }
 
 export function assertContributionAccountingReady(environment, env = process.env) {

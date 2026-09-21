@@ -12,7 +12,11 @@ async function inspect(query, predicate) {
 }
 
 async function section(name, operation) {
-  try { return [name, { status: 'ok', ...(await operation()) }]; }
+  try {
+    const result = await operation();
+    const status = name === 'deletion' && result.blockedJobs.count > 0 ? 'attention' : 'ok';
+    return [name, { status, ...result }];
+  }
   catch (error) { return [name, safeFailure(error)]; }
 }
 

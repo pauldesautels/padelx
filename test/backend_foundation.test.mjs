@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateBackendEnvironment, backendEnvironment, assertContributionAccountingReady,
-  assertPlayedWithProjectionReady } from '../functions/backend_environment.js';
+  assertPlayedWithProjectionReady, authoritativeStorageBucket } from '../functions/backend_environment.js';
 import { deletionStateFor, requireRecentAuthentication, requireSignedIn } from '../functions/account_state.js';
 import { ratingIdentity, ratingAggregateAfterDelta } from '../functions/rating_contributions.js';
 
@@ -23,6 +23,27 @@ test('backend project selection fails closed before accessing services', () => {
   assert.doesNotThrow(() => assertPlayedWithProjectionReady(staging, {
     PADELX_PLAYED_WITH_PROJECTION_ENABLED: 'true',
   }));
+});
+
+test('Storage bucket comes only from matching authoritative Firebase configuration', () => {
+  const staging = validateBackendEnvironment({ projectId: 'padelx-staging' });
+  assert.equal(authoritativeStorageBucket(staging, {
+    FIREBASE_CONFIG: JSON.stringify({ projectId: 'padelx-staging',
+      storageBucket: 'padelx-staging.firebasestorage.app' }),
+  }), 'padelx-staging.firebasestorage.app');
+  assert.equal(authoritativeStorageBucket(staging, {
+    FIREBASE_CONFIG: JSON.stringify({ projectId: 'padelx-staging',
+      storageBucket: 'padelx-staging-assets.example-bucket' }),
+  }), 'padelx-staging-assets.example-bucket');
+  for (const config of [
+    { projectId: 'padelx-staging' },
+    { projectId: 'padelx-staging', storageBucket: '' },
+    { projectId: 'padelx-staging', storageBucket: 'https://example.invalid/bucket' },
+    { projectId: 'another-project', storageBucket: 'padelx-staging.firebasestorage.app' },
+    { projectId: 'padelx-staging', storageBucket: 'padelx-f168f.firebasestorage.app' },
+  ]) assert.throws(() => authoritativeStorageBucket(staging, {
+    FIREBASE_CONFIG: JSON.stringify(config),
+  }), /Storage/);
 });
 
 test('recent auth uses only signed auth_time and authenticated UID', () => {

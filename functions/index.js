@@ -8,7 +8,8 @@ import { admitAccountDeletion, lockDeletionAuth } from './account_deletion.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { encodeGeohash } from './aggregate_helpers.js';
-import { backendEnvironment, assertContributionAccountingReady, assertPhase9Enabled } from './backend_environment.js';
+import { authoritativeStorageBucket, backendEnvironment, firebaseRuntimeConfig,
+  assertContributionAccountingReady, assertPhase9Enabled } from './backend_environment.js';
 import { reconcileRating } from './rating_contributions.js';
 import { reconcilePlayedWithMatch, recoverPlayedWithMatches } from './played_with_projection.js';
 import { requestFriendOperation, respondToFriendRequestOperation,
@@ -40,13 +41,19 @@ import { deliverNotificationPushOperation } from './push_delivery.js';
 
 const googlePlacesServerApiKey = defineSecret('GOOGLE_PLACES_SERVER_API_KEY');
 
-function backendFirestore() {
+function backendFirestore({ requireStorage = false } = {}) {
   const environment = backendEnvironment();
+  const configuredBucket = firebaseRuntimeConfig().storageBucket;
+  const storageBucket = (configuredBucket || requireStorage)
+    ? authoritativeStorageBucket(environment) : null;
   const app = getApps().find((candidate) => candidate.name === 'padelx-trusted')
     ?? initializeApp({ projectId: environment.projectId,
-      storageBucket: `${environment.projectId}.appspot.com` }, 'padelx-trusted');
-  if (app.options.projectId !== environment.projectId) throw new Error('Backend project mismatch.');
-  return { firestore: getFirestore(app), auth: getAuth(app), bucket: getStorage(app).bucket(), environment };
+      ...(storageBucket ? { storageBucket } : {}) }, 'padelx-trusted');
+  if (app.options.projectId !== environment.projectId
+      || (app.options.storageBucket && storageBucket
+        && app.options.storageBucket !== storageBucket)) throw new Error('Backend project mismatch.');
+  return { firestore: getFirestore(app), auth: getAuth(app),
+    bucket: storageBucket ? getStorage(app).bucket(storageBucket) : null, environment };
 }
 
 export async function handleMatchLocationWritten(event) {
@@ -231,7 +238,7 @@ export const recoverPlayedWithProjection = onSchedule({
 export const recoverAccountDeletionJobs = onSchedule({
   schedule: 'every 1 minutes', timeoutSeconds: 120, maxInstances: 1,
 }, async () => {
-  const { firestore, auth, bucket } = backendFirestore();
+  const { firestore, auth, bucket } = backendFirestore({ requireStorage: true });
   await recoverAccountDeletions(firestore, auth, bucket);
 });
 export const cleanupDeletedAuthUser = deletedAuthFallback(backendFirestore);

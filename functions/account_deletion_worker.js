@@ -89,6 +89,7 @@ const SAFE_WORKER_ERROR_CATEGORIES = new Set([
   'missing-index', 'failed-precondition', 'permission-denied',
   'resource-exhausted', 'aborted', 'internal', 'unavailable',
   'deadline-exceeded', 'invalid-worker-state', 'worker-work-failed',
+  'storage-bucket-unavailable', 'storage-configuration-invalid',
 ]);
 
 export function sanitizedWorkerErrorCategory(error) {
@@ -97,6 +98,7 @@ export function sanitizedWorkerErrorCategory(error) {
     : error?.code;
   if ((code === 9 || code === 'failed-precondition')
       && typeof error?.message === 'string' && /index/i.test(error.message)) return 'missing-index';
+  if (code === 'storage-bucket-unavailable' || code === 'storage-configuration-invalid') return code;
   return new Map([
     [9, 'failed-precondition'], ['failed-precondition', 'failed-precondition'],
     [7, 'permission-denied'], ['permission-denied', 'permission-denied'],

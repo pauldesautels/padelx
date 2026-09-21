@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { assertSafeFirestore } from './backend_environment.js';
+import { assertSafeFirestore, authoritativeStorageBucket } from './backend_environment.js';
 import { DELETION_OUTBOX, lockDeletionAuth, acceptAccountDeletion } from './account_deletion.js';
 import * as worker from './account_deletion_worker.js';
 import { getStorage } from 'firebase-admin/storage';
@@ -63,7 +63,14 @@ export async function dispatchAccountDeletion(db, auth, bucket, uid) {
       if (!handler) throw new Error('Invalid deletion phase.');
       if (['accepted', 'deleteAuth'].includes(job.phase)) await handler(db, auth, uid, lease);
       else if (job.phase === 'storage') {
-        const storageBucket = bucket ?? getStorage(db.app).bucket(`${db.projectId}.appspot.com`);
+        const environment = assertSafeFirestore(db);
+        const configuredName = authoritativeStorageBucket(environment);
+        const storageBucket = bucket ?? getStorage(db.app).bucket(configuredName);
+        if (storageBucket.name !== configuredName) {
+          throw Object.assign(new Error('Storage bucket does not match trusted runtime configuration.'), {
+            code: 'storage-configuration-invalid',
+          });
+        }
         await handler(db, storageBucket, uid, lease);
       }
       else await handler(db, uid, lease);
