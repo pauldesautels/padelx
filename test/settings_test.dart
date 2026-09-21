@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:padelx/friends.dart';
 import 'package:padelx/friends_repository.dart';
@@ -8,6 +9,7 @@ import 'package:padelx/settings_screen.dart';
 import 'package:padelx/social_profile.dart';
 import 'package:padelx/push_notifications.dart';
 import 'package:padelx/safety_policy.dart';
+import 'package:padelx/l10n/app_localizations.dart';
 
 class _SettingsPreferences implements NotificationPreferencesRepository {
   @override
@@ -66,6 +68,29 @@ class _SettingsFriends implements FriendsRepository {
   Stream<void> watchFriendViews(String viewerUid) => const Stream.empty();
 }
 
+class _SignOutHarness extends StatefulWidget {
+  const _SignOutHarness();
+
+  @override
+  State<_SignOutHarness> createState() => _SignOutHarnessState();
+}
+
+class _SignOutHarnessState extends State<_SignOutHarness> {
+  var signedOut = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (signedOut) {
+      return const Scaffold(body: Center(child: Text('Signed-out auth state')));
+    }
+    return SettingsScreen(
+      friendsRepository: _SettingsFriends(),
+      onSignOut: () async => setState(() => signedOut = true),
+      onDeleteAccount: () {},
+    );
+  }
+}
+
 void main() {
   testWidgets('Profile exposes Settings without a Delete Account action', (
     tester,
@@ -99,21 +124,109 @@ void main() {
     expect(opened, true);
   });
 
-  testWidgets('Settings navigates to Account and Delete Account callback', (
+  testWidgets('Home header does not expose Sign Out', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(home: HomeScreen(discoveryLoader: () async => const [])),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.logout), findsNothing);
+    expect(find.byKey(const Key('account-sign-out')), findsNothing);
+  });
+
+  testWidgets(
+    'Settings Account exposes distinct Sign Out before Delete Account',
+    (tester) async {
+      var signedOut = false;
+      var deleted = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettingsScreen(
+            friendsRepository: _SettingsFriends(),
+            onSignOut: () async => signedOut = true,
+            onDeleteAccount: () => deleted = true,
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('settings-account')));
+      await tester.pumpAndSettle();
+      expect(find.text('Account'), findsWidgets);
+      expect(find.byKey(const Key('account-sign-out')), findsOneWidget);
+      expect(find.byKey(const Key('account-delete-account')), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byKey(const Key('account-sign-out'))).dy,
+        lessThan(
+          tester.getTopLeft(find.byKey(const Key('account-delete-account'))).dy,
+        ),
+      );
+      await tester.tap(find.byKey(const Key('account-sign-out')));
+      await tester.pumpAndSettle();
+      expect(signedOut, true);
+      expect(deleted, false);
+    },
+  );
+
+  testWidgets('Account Sign Out returns the nested route to signed-out state', (
     tester,
   ) async {
+    await tester.pumpWidget(const MaterialApp(home: _SignOutHarness()));
+    await tester.tap(find.byKey(const Key('settings-account')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('account-sign-out')));
+    await tester.pumpAndSettle();
+    expect(find.text('Signed-out auth state'), findsOneWidget);
+    expect(find.byKey(const Key('account-delete-account')), findsNothing);
+  });
+
+  testWidgets('Account actions fit at 320pt and 1.6x text in es-MX', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('es', 'MX'),
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(1.6)),
+          child: child!,
+        ),
+        home: SettingsScreen(
+          friendsRepository: _SettingsFriends(),
+          onSignOut: () async {},
+          onDeleteAccount: () {},
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('settings-account')));
+    await tester.pumpAndSettle();
+    expect(find.text('Cerrar sesión'), findsOneWidget);
+    expect(find.text('Eliminar cuenta'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Delete Account remains separate from Sign Out', (tester) async {
     var deleted = false;
     await tester.pumpWidget(
       MaterialApp(
         home: SettingsScreen(
           friendsRepository: _SettingsFriends(),
+          onSignOut: () async {},
           onDeleteAccount: () => deleted = true,
         ),
       ),
     );
     await tester.tap(find.byKey(const Key('settings-account')));
     await tester.pumpAndSettle();
-    expect(find.text('Account'), findsWidgets);
     await tester.tap(find.byKey(const Key('account-delete-account')));
     expect(deleted, true);
   });
@@ -128,6 +241,7 @@ void main() {
         navigatorKey: navigatorKey,
         home: SettingsScreen(
           friendsRepository: _SettingsFriends(),
+          onSignOut: () async {},
           onDeleteAccount: () {
             navigatorKey.currentState!.push(
               MaterialPageRoute(
@@ -159,6 +273,7 @@ void main() {
       MaterialApp(
         home: SettingsScreen(
           friendsRepository: _SettingsFriends(),
+          onSignOut: () async {},
           onDeleteAccount: () {},
         ),
       ),
@@ -176,6 +291,7 @@ void main() {
       MaterialApp(
         home: SettingsScreen(
           friendsRepository: _SettingsFriends(),
+          onSignOut: () async {},
           onDeleteAccount: () {},
         ),
       ),
@@ -381,6 +497,7 @@ void main() {
       MaterialApp(
         home: SettingsScreen(
           friendsRepository: _SettingsFriends(),
+          onSignOut: () async {},
           onDeleteAccount: () {},
           currentUid: 'viewer',
           notificationPreferencesRepository: _SettingsPreferences(),

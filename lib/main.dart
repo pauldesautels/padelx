@@ -3590,6 +3590,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
           friendsRepository: _friendsRepository,
+          onSignOut: _signOutWithPushCleanup,
           onDeleteAccount: onDeleteAccount,
           currentUid: FirebaseAuth.instance.currentUser?.uid ?? '',
           notificationPreferencesRepository:

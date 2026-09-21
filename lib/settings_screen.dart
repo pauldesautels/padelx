@@ -12,6 +12,7 @@ import 'l10n/l10n.dart';
 class SettingsScreen extends StatelessWidget {
   final FriendsRepository friendsRepository;
   final VoidCallback onDeleteAccount;
+  final Future<void> Function() onSignOut;
   final String currentUid;
   final NotificationPreferencesRepository? notificationPreferencesRepository;
   final PushSettingsService? pushSettingsService;
@@ -20,6 +21,7 @@ class SettingsScreen extends StatelessWidget {
     super.key,
     required this.friendsRepository,
     required this.onDeleteAccount,
+    required this.onSignOut,
     this.currentUid = '',
     this.notificationPreferencesRepository,
     this.pushSettingsService,
@@ -49,8 +51,10 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) =>
-                    AccountSettingsScreen(onDeleteAccount: onDeleteAccount),
+                builder: (_) => AccountSettingsScreen(
+                  onSignOut: onSignOut,
+                  onDeleteAccount: onDeleteAccount,
+                ),
               ),
             ),
           ),
@@ -586,9 +590,14 @@ class _NotificationSettingsScreenState
 }
 
 class AccountSettingsScreen extends StatelessWidget {
+  final Future<void> Function() onSignOut;
   final VoidCallback onDeleteAccount;
 
-  const AccountSettingsScreen({super.key, required this.onDeleteAccount});
+  const AccountSettingsScreen({
+    super.key,
+    required this.onSignOut,
+    required this.onDeleteAccount,
+  });
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -596,6 +605,17 @@ class AccountSettingsScreen extends StatelessWidget {
     body: ListView(
       children: [
         _SettingsHeader(context.l10n.accountManagement),
+        ListTile(
+          key: const Key('account-sign-out'),
+          leading: const Icon(Icons.logout),
+          title: Text(context.l10n.signOut),
+          onTap: () async {
+            await onSignOut();
+            if (context.mounted) {
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            }
+          },
+        ),
         ListTile(
           key: const Key('account-delete-account'),
           leading: Icon(
