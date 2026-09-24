@@ -210,6 +210,52 @@ void main() {
       );
     });
 
+    test('native production requires the permanent application identities', () {
+      final ios = firebaseOptionsForEnvironment(
+        environment: 'production',
+        projectId: productionFirebaseProjectId,
+        apiKey: _apiKey,
+        appId: '1:425226080221:ios:production-app',
+        messagingSenderId: productionMessagingSenderId,
+        iosBundleId: productionIosBundleId,
+        targetPlatform: TargetPlatform.iOS,
+      );
+      expect(ios.iosBundleId, productionIosBundleId);
+      expect(
+        () => firebaseOptionsForEnvironment(
+          environment: 'production',
+          projectId: productionFirebaseProjectId,
+          apiKey: _apiKey,
+          appId: '1:425226080221:ios:production-app',
+          messagingSenderId: productionMessagingSenderId,
+          iosBundleId: deviceTestIosBundleId,
+          targetPlatform: TargetPlatform.iOS,
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      final android = firebaseOptionsForEnvironment(
+        environment: 'production',
+        projectId: productionFirebaseProjectId,
+        apiKey: _apiKey,
+        appId: '1:425226080221:android:production-app',
+        messagingSenderId: productionMessagingSenderId,
+        targetPlatform: TargetPlatform.android,
+      );
+      expect(android.projectId, productionFirebaseProjectId);
+      expect(
+        () => firebaseOptionsForEnvironment(
+          environment: 'production',
+          projectId: productionFirebaseProjectId,
+          apiKey: _apiKey,
+          appId: '1:708585002488:android:staging-app',
+          messagingSenderId: stagingMessagingSenderId,
+          targetPlatform: TargetPlatform.android,
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
     test('example placeholders are rejected without exposing values', () {
       expect(
         () => firebaseOptionsForEnvironment(

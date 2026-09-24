@@ -10,6 +10,9 @@ export const STAGING_IOS_BUNDLES = Object.freeze([
 ]);
 export const STAGING_ANDROID_PACKAGES = Object.freeze(['com.example.padelx']);
 const STAGING_SENDER_ID = '708585002488';
+export const PRODUCTION_IOS_BUNDLES = Object.freeze(['com.padelx.app']);
+export const PRODUCTION_ANDROID_PACKAGES = Object.freeze(['com.padelx.app']);
+const PRODUCTION_SENDER_ID = '425226080221';
 const MIN_TOKEN_LENGTH = 20;
 const MAX_TOKEN_LENGTH = 4096;
 const SUPPORTED_LOCALES = Object.freeze(['en', 'es-MX']);
@@ -66,6 +69,18 @@ export function validatePushDeviceIdentity(request, environment = backendEnviron
       throw new HttpsError('failed-precondition', 'Push app identity mismatch.');
     }
     if (request?.app?.appId && request.app.appId !== firebaseAppId) {
+      throw new HttpsError('failed-precondition', 'Push attestation identity mismatch.');
+    }
+  } else if (environment.mode === 'production') {
+    const validApp = data.platform === 'ios'
+      ? PRODUCTION_IOS_BUNDLES.includes(applicationIdentity.bundleId)
+        && firebaseAppId.startsWith(`1:${PRODUCTION_SENDER_ID}:ios:`)
+      : PRODUCTION_ANDROID_PACKAGES.includes(applicationIdentity.packageName)
+        && firebaseAppId.startsWith(`1:${PRODUCTION_SENDER_ID}:android:`);
+    if (!validApp) {
+      throw new HttpsError('failed-precondition', 'Push app identity mismatch.');
+    }
+    if (request?.app?.appId !== firebaseAppId) {
       throw new HttpsError('failed-precondition', 'Push attestation identity mismatch.');
     }
   } else {

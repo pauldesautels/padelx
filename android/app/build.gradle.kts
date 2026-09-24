@@ -41,7 +41,7 @@ android {
         }
         create("production") {
             dimension = "environment"
-            applicationId = "com.example.padelx"
+            applicationId = "com.padelx.app"
         }
     }
 

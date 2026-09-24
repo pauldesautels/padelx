@@ -3,6 +3,9 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kDebugMode, kIsWeb;
 
 const productionFirebaseProjectId = 'padelx-f168f';
+const productionIosBundleId = 'com.padelx.app';
+const productionAndroidPackageName = 'com.padelx.app';
+const productionMessagingSenderId = '425226080221';
 const stagingFirebaseProjectId = 'padelx-staging';
 const stagingIosBundleId = 'com.padelx.app.staging';
 const deviceTestIosBundleId = 'com.padelx.app.devicetest';
@@ -105,6 +108,26 @@ FirebaseOptions firebaseOptionsForEnvironment({
 
   final isIos = !isWeb && targetPlatform == TargetPlatform.iOS;
   final isAndroid = !isWeb && targetPlatform == TargetPlatform.android;
+  if (selectedEnvironment == 'production' && (isIos || isAndroid)) {
+    final selectedAppId = requiredValues['FIREBASE_APP_ID']!;
+    final selectedSenderId = requiredValues['FIREBASE_MESSAGING_SENDER_ID']!;
+    final platformName = isIos ? 'ios' : 'android';
+    if (!selectedAppId.startsWith(
+          '1:$productionMessagingSenderId:$platformName:',
+        ) ||
+        selectedSenderId != productionMessagingSenderId) {
+      throw StateError(
+        'Production requires a native Firebase $platformName app owned by '
+        'the production project.',
+      );
+    }
+    if (isIos && iosBundleId.trim() != productionIosBundleId) {
+      throw StateError(
+        'iOS production requires '
+        'FIREBASE_IOS_BUNDLE_ID=$productionIosBundleId.',
+      );
+    }
+  }
   if (selectedEnvironment == 'staging' && isIos) {
     final selectedAppId = requiredValues['FIREBASE_APP_ID']!;
     final selectedBundleId = iosBundleId.trim();

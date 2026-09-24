@@ -30,3 +30,14 @@ test('iOS source config enables remote notifications and UIScene registration', 
   assert.match(delegate, /import firebase_messaging/);
   assert.match(delegate, /FLTFirebaseMessagingPlugin\.configureNotificationCenterDelegate\(\)/);
 });
+
+test('iOS production and non-production bundle identities remain isolated', async () => {
+  const project = await read('ios/Runner.xcodeproj/project.pbxproj');
+  const copyScript = await read('ios/scripts/copy_firebase_config.sh');
+  assert.match(project, /PRODUCT_BUNDLE_IDENTIFIER = com\.padelx\.app;/);
+  assert.match(project, /PRODUCT_BUNDLE_IDENTIFIER = com\.padelx\.app\.staging;/);
+  assert.match(project, /PRODUCT_BUNDLE_IDENTIFIER = com\.padelx\.app\.devicetest;/);
+  assert.doesNotMatch(project, /PRODUCT_BUNDLE_IDENTIFIER = com\.example\.padelx;/);
+  assert.match(copyScript, /expected_project="padelx-f168f"/);
+  assert.match(copyScript, /expected_bundle="com\.padelx\.app"/);
+});

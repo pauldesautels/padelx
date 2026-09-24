@@ -13,8 +13,11 @@ test('Android declares notification permission without custom messaging services
 test('Android push registration uses the repository application identity', async () => {
   const gradle = await read('android/app/build.gradle.kts');
   const server = await read('functions/push_devices.js');
-  assert.match(gradle, /applicationId = "com\.example\.padelx"/);
+  assert.match(gradle, /create\("staging"\)[\s\S]*?applicationId = "com\.example\.padelx"/);
+  assert.match(gradle, /create\("production"\)[\s\S]*?applicationId = "com\.padelx\.app"/);
+  assert.match(gradle, /namespace = "com\.example\.padelx"/);
   assert.match(server, /STAGING_ANDROID_PACKAGES = Object\.freeze\(\['com\.example\.padelx'\]\)/);
+  assert.match(server, /PRODUCTION_ANDROID_PACKAGES = Object\.freeze\(\['com\.padelx\.app'\]\)/);
   assert.match(gradle, /create\("staging"\)/);
   assert.match(gradle, /create\("production"\)/);
   assert.match(gradle, /processStaging/);

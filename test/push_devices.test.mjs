@@ -137,6 +137,32 @@ test('authentication, verification, and deletion barrier are enforced', async ()
   await assert.rejects(registerPushDeviceOperation(db, request('alice', value)));
 });
 
+test('production push identity accepts only permanent production applications', () => {
+  const productionEnvironment = { projectId: 'padelx-f168f', mode: 'production' };
+  const ios = request('alice', token('production-ios'), {
+    firebaseProjectId: 'padelx-f168f',
+    firebaseAppId: '1:425226080221:ios:production-app',
+    bundleId: 'com.padelx.app',
+  });
+  ios.app.appId = ios.data.firebaseAppId;
+  assert.equal(validatePushDeviceIdentity(ios, productionEnvironment).bundleId,
+    'com.padelx.app');
+
+  const android = androidRequest('alice', token('production-android'), {
+    firebaseProjectId: 'padelx-f168f',
+    firebaseAppId: '1:425226080221:android:production-app',
+    packageName: 'com.padelx.app',
+  });
+  android.app.appId = android.data.firebaseAppId;
+  assert.equal(validatePushDeviceIdentity(android, productionEnvironment).packageName,
+    'com.padelx.app');
+
+  ios.data.bundleId = 'com.padelx.app.devicetest';
+  assert.throws(() => validatePushDeviceIdentity(ios, productionEnvironment));
+  android.data.packageName = 'com.example.padelx';
+  assert.throws(() => validatePushDeviceIdentity(android, productionEnvironment));
+});
+
 test('callable exports retain the shared App Check protected wrapper', async () => {
   const source = await import('node:fs/promises').then(({ readFile }) =>
     readFile(new URL('../functions/index.js', import.meta.url), 'utf8'));
