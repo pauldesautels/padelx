@@ -151,15 +151,17 @@ test('production push identity accepts only permanent production applications', 
   const android = androidRequest('alice', token('production-android'), {
     firebaseProjectId: 'padelx-f168f',
     firebaseAppId: '1:425226080221:android:production-app',
-    packageName: 'com.padelx.app',
+    packageName: 'com.pabloware.padelx',
   });
   android.app.appId = android.data.firebaseAppId;
   assert.equal(validatePushDeviceIdentity(android, productionEnvironment).packageName,
-    'com.padelx.app');
+    'com.pabloware.padelx');
 
   ios.data.bundleId = 'com.padelx.app.devicetest';
   assert.throws(() => validatePushDeviceIdentity(ios, productionEnvironment));
   android.data.packageName = 'com.example.padelx';
+  assert.throws(() => validatePushDeviceIdentity(android, productionEnvironment));
+  android.data.packageName = 'com.padelx.app';
   assert.throws(() => validatePushDeviceIdentity(android, productionEnvironment));
 });
 

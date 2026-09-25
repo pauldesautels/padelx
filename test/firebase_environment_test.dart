@@ -211,6 +211,10 @@ void main() {
     });
 
     test('native production requires the permanent application identities', () {
+      expect(productionIosBundleId, 'com.padelx.app');
+      expect(productionAndroidPackageName, 'com.pabloware.padelx');
+      expect(productionAndroidPackageName, isNot(productionIosBundleId));
+
       final ios = firebaseOptionsForEnvironment(
         environment: 'production',
         projectId: productionFirebaseProjectId,

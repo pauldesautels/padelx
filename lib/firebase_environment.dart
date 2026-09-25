@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart'
 
 const productionFirebaseProjectId = 'padelx-f168f';
 const productionIosBundleId = 'com.padelx.app';
-const productionAndroidPackageName = 'com.padelx.app';
+const productionAndroidPackageName = 'com.pabloware.padelx';
 const productionMessagingSenderId = '425226080221';
 const stagingFirebaseProjectId = 'padelx-staging';
 const stagingIosBundleId = 'com.padelx.app.staging';

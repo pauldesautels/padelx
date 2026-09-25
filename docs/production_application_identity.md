@@ -1,8 +1,14 @@
 # Production application identity
 
-PadelX reserves `com.padelx.app` as the permanent production identity for
-both the Apple App Store bundle ID and the Google Play application ID. The
-visible application name remains **PadelX**.
+PadelX uses separate permanent production identities by platform:
+
+- Android production: `com.pabloware.padelx`
+- iOS production: `com.padelx.app`
+
+Google Play reported `com.padelx.app` unavailable. Before Play app creation,
+`com.pabloware.padelx` was explicitly checked and reported available, so it is
+the permanent Android production identity. The visible application name
+remains **PadelX**.
 
 Native store identities are effectively permanent once an application is
 distributed. Changing either identifier later would create a different app
@@ -21,17 +27,19 @@ the production Play application ID.
 
 ## Fail-closed configuration boundary
 
-Provider-generated production files must be replaced only after native apps
-with `com.padelx.app` have been registered in the production Firebase project.
-Until then, production builds are expected to reject the existing mismatched
-Firebase configuration. Never substitute staging configuration to make a
-production build pass.
+The production Firebase project retains historical Android registrations for
+`com.example.padelx` and `com.padelx.app`; they must not be deleted as part of
+this migration. The checked-in provider configuration does not yet contain an
+Android client for `com.pabloware.padelx`, so production Android builds must
+fail closed until that new app is registered and a fresh provider-generated
+configuration is reviewed. Never manually edit provider configuration or
+substitute staging configuration to make a production build pass.
 
 The later external setup order is:
 
-1. Register the production Android Firebase app for `com.padelx.app`, then
-   obtain its `google-services.json`.
-2. Create the Google Play application for the same permanent application ID;
+1. Register the production Android Firebase app for `com.pabloware.padelx`,
+   then obtain its provider-generated `google-services.json`.
+2. Create the Google Play application for the same Android application ID;
    configure release signing and Play Integrity in separately reviewed steps.
 3. After Apple Developer membership is active, register the explicit App ID
    `com.padelx.app`.

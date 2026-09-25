@@ -41,7 +41,7 @@ android {
         }
         create("production") {
             dimension = "environment"
-            applicationId = "com.padelx.app"
+            applicationId = "com.pabloware.padelx"
         }
     }
 
