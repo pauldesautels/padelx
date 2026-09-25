@@ -1,21 +1,28 @@
 export const STAGING_PROJECT = 'padelx-staging';
 export const PRODUCTION_PROJECT = 'padelx-f168f';
 
-// No project selection is accepted from callable payloads. Production is
-// recognized, but deliberately not enabled by this development slice.
-export function validateBackendEnvironment({ projectId, firestoreHost, authHost }) {
-  if (projectId === PRODUCTION_PROJECT) throw new Error('Production backend access is disabled in this slice.');
+// No project selection is accepted from callable payloads. Remote environments
+// are accepted only from exact runtime identity plus an explicit declaration.
+export function validateBackendEnvironment({
+  projectId, firestoreHost, authHost, declaredEnvironment,
+}) {
   if (typeof projectId !== 'string') throw new Error('Explicit backend project is required.');
   const localHost = (value) => typeof value === 'string'
     && /^(127\.0\.0\.1|localhost|\[::1\]):[0-9]{1,5}$/.test(value);
   if (projectId.startsWith('demo-')) {
+    if (declaredEnvironment) throw new Error('Emulator backend cannot declare a remote environment.');
     if (!localHost(firestoreHost) || !localHost(authHost)) {
       throw new Error('Demo backend requires local Firestore and Auth emulators.');
     }
     return { projectId, mode: 'emulator' };
   }
-  if (projectId === STAGING_PROJECT && !firestoreHost && !authHost) {
+  if (firestoreHost || authHost) throw new Error('Remote backend cannot use emulator hosts.');
+  if (projectId === STAGING_PROJECT
+      && (!declaredEnvironment || declaredEnvironment === 'staging')) {
     return { projectId, mode: 'staging' };
+  }
+  if (projectId === PRODUCTION_PROJECT && declaredEnvironment === 'production') {
+    return { projectId, mode: 'production' };
   }
   throw new Error('Unknown or mixed backend environment.');
 }
@@ -27,6 +34,7 @@ export function backendEnvironment(env = process.env) {
   return validateBackendEnvironment({
     projectId: ids[0], firestoreHost: env.FIRESTORE_EMULATOR_HOST,
     authHost: env.FIREBASE_AUTH_EMULATOR_HOST,
+    declaredEnvironment: env.PADELX_BACKEND_ENVIRONMENT,
   });
 }
 

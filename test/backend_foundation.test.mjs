@@ -10,13 +10,34 @@ test('backend project selection fails closed before accessing services', () => {
   assert.equal(validateBackendEnvironment(demo).mode, 'emulator');
   const staging = validateBackendEnvironment({ projectId: 'padelx-staging' });
   assert.equal(staging.mode, 'staging');
-  for (const input of [{ projectId: 'padelx-f168f' }, { ...demo, projectId: 'padelx-f168f' },
+  assert.equal(validateBackendEnvironment({
+    projectId: 'padelx-staging', declaredEnvironment: 'staging',
+  }).mode, 'staging');
+  const production = validateBackendEnvironment({
+    projectId: 'padelx-f168f', declaredEnvironment: 'production',
+  });
+  assert.deepEqual(production, { projectId: 'padelx-f168f', mode: 'production' });
+  for (const input of [{ projectId: 'padelx-f168f' },
+    { projectId: 'padelx-f168f', declaredEnvironment: 'staging' },
+    { projectId: 'padelx-staging', declaredEnvironment: 'production' },
+    { ...demo, projectId: 'padelx-f168f', declaredEnvironment: 'production' },
+    { ...demo, declaredEnvironment: 'production' },
     { projectId: 'unknown' }, {}, { projectId: demo.projectId },
     { ...demo, authHost: 'remote.example:9099' }, { ...demo, projectId: 'padelx-staging' }]) {
     assert.throws(() => validateBackendEnvironment(input));
   }
   assert.throws(() => backendEnvironment({ GCLOUD_PROJECT: 'padelx-staging', GOOGLE_CLOUD_PROJECT: 'padelx-f168f' }));
   assert.throws(() => backendEnvironment({ FIREBASE_CONFIG: '{bad' }));
+  assert.deepEqual(backendEnvironment({
+    GCLOUD_PROJECT: 'padelx-f168f', GOOGLE_CLOUD_PROJECT: 'padelx-f168f',
+    PADELX_BACKEND_ENVIRONMENT: 'production',
+    FIREBASE_CONFIG: JSON.stringify({ projectId: 'padelx-f168f' }),
+  }), production);
+  assert.deepEqual(backendEnvironment({
+    GCLOUD_PROJECT: 'padelx-f168f', GOOGLE_CLOUD_PROJECT: 'padelx-f168f',
+    PADELX_BACKEND_ENVIRONMENT: 'production', CLIENT_SUPPLIED_PROJECT: 'padelx-staging',
+    FIREBASE_CONFIG: JSON.stringify({ projectId: 'padelx-f168f' }),
+  }), production, 'untrusted client-like environment fields cannot substitute runtime identity');
   assert.throws(() => assertContributionAccountingReady(staging, {}));
   assert.doesNotThrow(() => assertContributionAccountingReady(staging, { PADELX_RATING_CONTRIBUTIONS_READY: 'true' }));
   assert.throws(() => assertPlayedWithProjectionReady(staging, {}));
@@ -42,6 +63,20 @@ test('Storage bucket comes only from matching authoritative Firebase configurati
     { projectId: 'another-project', storageBucket: 'padelx-staging.firebasestorage.app' },
     { projectId: 'padelx-staging', storageBucket: 'padelx-f168f.firebasestorage.app' },
   ]) assert.throws(() => authoritativeStorageBucket(staging, {
+    FIREBASE_CONFIG: JSON.stringify(config),
+  }), /Storage/);
+
+  const production = validateBackendEnvironment({
+    projectId: 'padelx-f168f', declaredEnvironment: 'production',
+  });
+  assert.equal(authoritativeStorageBucket(production, {
+    FIREBASE_CONFIG: JSON.stringify({ projectId: 'padelx-f168f',
+      storageBucket: 'padelx-f168f.firebasestorage.app' }),
+  }), 'padelx-f168f.firebasestorage.app');
+  for (const config of [
+    { projectId: 'padelx-staging', storageBucket: 'padelx-f168f.firebasestorage.app' },
+    { projectId: 'padelx-f168f', storageBucket: 'padelx-staging.firebasestorage.app' },
+  ]) assert.throws(() => authoritativeStorageBucket(production, {
     FIREBASE_CONFIG: JSON.stringify(config),
   }), /Storage/);
 });
