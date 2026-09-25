@@ -87,6 +87,43 @@ void main() {
       );
     });
 
+    test('production Android release selects Play Integrity', () {
+      final configuration = _configuration(
+        environment: 'production',
+        projectId: 'padelx-f168f',
+        isWeb: false,
+        isAndroid: true,
+        isReleaseBuild: true,
+        mode: '',
+      );
+      expect(configuration!.platform, AppCheckPlatform.android);
+      expect(configuration.mode, AppCheckMode.attested);
+    });
+
+    test('production native non-release and explicit modes fail closed', () {
+      expect(
+        () => _configuration(
+          environment: 'production',
+          projectId: 'padelx-f168f',
+          isWeb: false,
+          isAndroid: true,
+          mode: '',
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        () => _configuration(
+          environment: 'production',
+          projectId: 'padelx-f168f',
+          isWeb: false,
+          isAndroid: true,
+          isReleaseBuild: true,
+          mode: 'attested',
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
     test('development without an App Check mode keeps existing behavior', () {
       expect(
         _configuration(

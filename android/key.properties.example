@@ -1,0 +1,6 @@
+# Copy to android/key.properties, which is ignored by Git.
+# Keep the keystore itself outside this repository.
+storeFile=/absolute/path/outside/repository/padelx-upload.jks
+storePassword=
+keyAlias=padelx-upload
+keyPassword=

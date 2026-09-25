@@ -72,6 +72,23 @@ StagingAppCheckConfiguration? stagingAppCheckConfiguration({
     );
   }
 
+  if (selectedEnvironment == 'production' && (isIos || isAndroid)) {
+    if (!isReleaseBuild) {
+      throw StateError(
+        'Production native App Check requires a release build.',
+      );
+    }
+    if (selectedModeName.isNotEmpty) {
+      throw StateError(
+        'Production native App Check provider selection is automatic.',
+      );
+    }
+    return StagingAppCheckConfiguration(
+      mode: AppCheckMode.attested,
+      platform: isIos ? AppCheckPlatform.ios : AppCheckPlatform.android,
+    );
+  }
+
   if (selectedEnvironment != 'staging') {
     if (selectedModeName.isNotEmpty) {
       throw StateError(
