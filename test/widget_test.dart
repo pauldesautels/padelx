@@ -2101,17 +2101,17 @@ void main() {
 
   test('legacy createdBy fields resolve to the organizer identity', () {
     final data = {
-      'createdBy': 'rwW6TOBywxYII1Zeee7Bc1cTzzC3',
-      'createdByEmail': 'pauldesautels@hotmail.com',
+      'createdBy': 'legacy-organizer-uid',
+      'createdByEmail': 'organizer@example.com',
     };
 
-    expect(matchCreatorUid(data), 'rwW6TOBywxYII1Zeee7Bc1cTzzC3');
-    expect(matchCreatorEmail(data), 'pauldesautels@hotmail.com');
+    expect(matchCreatorUid(data), 'legacy-organizer-uid');
+    expect(matchCreatorEmail(data), 'organizer@example.com');
     expect(
       isOrganizerIdentity(
         data,
-        'rwW6TOBywxYII1Zeee7Bc1cTzzC3',
-        'pauldesautels@hotmail.com',
+        'legacy-organizer-uid',
+        'organizer@example.com',
       ),
       isTrue,
     );

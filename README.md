@@ -2,6 +2,21 @@
 
 A Flutter application for PadelX.
 
+## Source availability and license
+
+This repository may be publicly visible so that the PadelX project and source
+code can be reviewed. PadelX is a proprietary project published under the
+Pabloware developer brand. No open-source or other general-purpose license is
+granted by the publication of this repository. A final copyright-owner notice
+will be added only after the applicable ownership wording is verified.
+
+Unless you have separate written permission from the applicable rights holder,
+you may not copy, modify, distribute, sublicense, sell, commercialize, or create
+derivative works from the PadelX source code. Third-party dependencies and
+assets remain subject to their own licenses and terms.
+
+See [SECURITY.md](SECURITY.md) for private vulnerability reporting.
+
 ## Firebase environment safety
 
 PadelX has no implicit Firebase environment. Every run and build must explicitly

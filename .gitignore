@@ -32,11 +32,29 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
-/node_modules/
+**/node_modules/
 
 # Local Firebase Functions environment values. Keep only the safe template.
 /functions/.env*
+
+# Credentials and private signing material. Provider-generated public client
+# configuration is tracked only at its intentional platform-specific paths.
+.env
+.env.*
+!.env.example
 !/functions/.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.mobileprovision
+*.keystore
+*.jks
+**/key.properties
+**/*service-account*.json
+**/*service_account*.json
+**/credentials.json
+**/secrets.json
 
 # Local Flutter compile-time configuration (contains developer secrets)
 /config/*.local.json

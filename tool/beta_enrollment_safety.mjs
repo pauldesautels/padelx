@@ -14,6 +14,9 @@ export function validateEnrollmentTarget(projectId, expectedProjectId) {
   if (projectId !== expectedProjectId) {
     throw new Error('Project confirmation does not match the target project.');
   }
+  if (projectId === productionProjectId) {
+    throw new Error('Production backend access is disabled for beta enrollment.');
+  }
   validateBackendEnvironment({ projectId,
     firestoreHost: process.env.FIRESTORE_EMULATOR_HOST,
     authHost: process.env.FIREBASE_AUTH_EMULATOR_HOST,
